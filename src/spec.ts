@@ -1,0 +1,419 @@
+/**
+ * ============================================================================
+ *  AUDI 5000 S WAGON  ·  C3 / Type 44  ·  MASTER SPECIFICATION
+ * ============================================================================
+ *
+ *  SINGLE SOURCE OF TRUTH. Every module imports from here. Never hard-code a
+ *  dimension, a colour or a ratio anywhere else in the codebase.
+ *
+ *  Units: metres, kilograms, radians, seconds — unless a field name says
+ *  otherwise (`*Mm`, `*Deg`, `*Rpm`, `*Kw`).
+ *
+ *  Coordinate frame (right-handed, matches Three.js):
+ *      +X = vehicle RIGHT (passenger side in a LHD car)
+ *      +Y = UP
+ *      +Z = vehicle FORWARD (towards the nose)
+ *  Origin sits on the ground plane, on the centreline, at the front-axle
+ *  centre. So the rear axle is at z = -WHEELBASE.
+ *
+ *  Reference photograph: a period snapshot of the actual car this model
+ *  reproduces — Philadelphia, Benjamin Franklin Parkway, golden hour.
+ *  Paint and plate below were sampled from that photograph directly
+ *  (see docs/REFERENCE-PHOTO.md for the colour-science derivation).
+ * ============================================================================
+ */
+
+// ---------------------------------------------------------------------------
+// 1. BODY / PACKAGE DIMENSIONS
+// ---------------------------------------------------------------------------
+
+export const BODY = {
+  /** Overall length, bumper to bumper (Avant/wagon). */
+  length: 4.793,
+  /** Overall width, excluding mirrors. */
+  width: 1.814,
+  /** Width across the mirrors, both extended. */
+  widthOverMirrors: 2.01,
+  /** Roof height at the highest point of the roof skin, unladen. */
+  height: 1.43,
+  /** Top of the roof rails. */
+  heightOverRails: 1.474,
+
+  wheelbase: 2.687,
+  trackFront: 1.512,
+  trackRear: 1.502,
+
+  /** Nose ahead of the front axle. */
+  overhangFront: 0.9,
+  /** Tail behind the rear axle. */
+  overhangRear: 1.206,
+
+  groundClearance: 0.14,
+
+  /** Kerb weight, 2.3 5-cyl automatic Avant. */
+  massKerb: 1320,
+  /** Static front axle weight fraction — nose-heavy longitudinal inline-5. */
+  weightDistFront: 0.61,
+
+  /** The C3's headline figure. Class-leading in 1983. */
+  dragCoefficient: 0.3,
+  /** Frontal area, m². */
+  frontalArea: 2.05,
+
+  /** Beltline height above ground — top of the door skin / base of the DLO. */
+  beltlineHeight: 0.985,
+  /** Rocker (sill) underside height. */
+  rockerHeight: 0.235,
+  /** Body sides are not slab-sided: half-width at the beltline vs at the sill. */
+  tumblehomeTop: 0.855,
+  tumblehomeSill: 0.79,
+} as const;
+
+// ---------------------------------------------------------------------------
+// 2. WHEELS & TYRES
+// ---------------------------------------------------------------------------
+
+export const WHEEL = {
+  /** Rim diameter in inches — period-correct 5000 S alloy. */
+  rimDiameterIn: 15,
+  rimWidthIn: 6,
+  /** Tyre section width (mm) / aspect (%) / rim (in) → 195/60 R15. */
+  tyreSectionMm: 195,
+  tyreAspect: 60,
+
+  /** Derived at module load — see `tyreRadius()` below. */
+  get radius(): number {
+    return (this.rimDiameterIn * 0.0254) / 2 + (this.tyreSectionMm / 1000) * (this.tyreAspect / 100);
+  },
+  get width(): number {
+    return this.tyreSectionMm / 1000;
+  },
+  /** Unsprung mass per corner: wheel + tyre + hub + brake. */
+  massUnsprung: 38,
+
+  /** Static camber, degrees. Negative = top leans in. */
+  camberFrontDeg: -0.5,
+  camberRearDeg: -1.2,
+  /** Static toe per wheel, degrees. Positive = toe-in. */
+  toeFrontDeg: 0.08,
+  toeRearDeg: 0.15,
+} as const;
+
+// ---------------------------------------------------------------------------
+// 3. SUSPENSION
+// ---------------------------------------------------------------------------
+
+export const SUSPENSION = {
+  front: {
+    /** MacPherson strut. */
+    type: 'macpherson' as const,
+    /** Spring rate at the wheel, N/m. */
+    springRate: 26_500,
+    /** Damping, N·s/m — bump is softer than rebound, as on a real damper. */
+    damperBump: 2_100,
+    damperRebound: 3_400,
+    /** Total suspension travel. */
+    travelUp: 0.09,
+    travelDown: 0.08,
+    /** Anti-roll bar rate, N·m/rad. */
+    arbRate: 14_000,
+    /** Suspension geometry that the raycast model needs. */
+    antiDive: 0.25,
+    rollCentreHeight: 0.05,
+  },
+  rear: {
+    /** Torsion-beam / trailing arm on FWD, independent on quattro. */
+    type: 'trailing-beam' as const,
+    springRate: 23_000,
+    damperBump: 1_800,
+    damperRebound: 2_900,
+    travelUp: 0.095,
+    travelDown: 0.085,
+    arbRate: 9_000,
+    antiSquat: 0.15,
+    rollCentreHeight: 0.11,
+  },
+  /** Ride height measured at the wheel centre, unladen. */
+  rideHeightFront: 0.335,
+  rideHeightRear: 0.342,
+} as const;
+
+// ---------------------------------------------------------------------------
+// 4. POWERTRAIN — the iconic longitudinal inline-5
+// ---------------------------------------------------------------------------
+
+export const ENGINE = {
+  name: 'NF 2.3 litre SOHC inline-5',
+  cylinders: 5,
+  displacementL: 2.309,
+  /** Firing order — the source of the 5-cylinder's offbeat warble. */
+  firingOrder: [1, 2, 4, 5, 3],
+  /** 720° / 5 = 144° between firings. Half-order content is what you hear. */
+  firingIntervalDeg: 144,
+
+  idleRpm: 820,
+  redlineRpm: 6_300,
+  limiterRpm: 6_500,
+
+  peakPowerKw: 97,
+  peakPowerRpm: 5_500,
+  peakTorqueNm: 184,
+  peakTorqueRpm: 4_000,
+
+  /**
+   * Normalised torque curve — [rpm, fraction of peak torque].
+   * Gentle, flat, mid-range-rich: very much a 1980s Bosch KE-Jetronic 5-pot.
+   */
+  torqueCurve: [
+    [800, 0.52],
+    [1200, 0.68],
+    [1600, 0.78],
+    [2000, 0.85],
+    [2500, 0.91],
+    [3000, 0.95],
+    [3500, 0.985],
+    [4000, 1.0],
+    [4500, 0.985],
+    [5000, 0.95],
+    [5500, 0.89],
+    [6000, 0.79],
+    [6300, 0.7],
+    [6500, 0.42],
+  ] as ReadonlyArray<readonly [number, number]>,
+
+  /** Rotational inertia of the crank + flywheel, kg·m². */
+  inertia: 0.24,
+  /** Engine braking coefficient, N·m per rad/s. */
+  frictionCoeff: 0.032,
+  frictionConstant: 14,
+} as const;
+
+export const TRANSMISSION = {
+  type: 'manual-5' as const,
+  /** 1st … 5th. */
+  gearRatios: [3.6, 2.125, 1.36, 0.967, 0.744],
+  reverseRatio: 3.5,
+  finalDrive: 3.889,
+  /** Overall driveline efficiency. */
+  efficiency: 0.9,
+  /** Clutch torque capacity, N·m. */
+  clutchTorqueCapacity: 320,
+  shiftTimeUp: 0.42,
+  shiftTimeDown: 0.35,
+  /** FWD on the 5000 S; the quattro was a separate model. */
+  driveType: 'fwd' as const,
+  /** If driveType were 'awd', fraction of torque to the front axle. */
+  torqueSplitFront: 0.5,
+} as const;
+
+export const STEERING = {
+  /** Rack and pinion, engine-speed-sensitive power assist. */
+  maxSteerAngleDeg: 36,
+  turnsLockToLock: 3.3,
+  turningCircle: 11.1,
+  /** Caster, gives self-centring. */
+  casterDeg: 2.0,
+  /** Ackermann fraction: 1 = perfect Ackermann. */
+  ackermann: 0.82,
+} as const;
+
+export const BRAKES = {
+  /** Vented discs front, solid rear. */
+  discDiameterFront: 0.276,
+  discDiameterRear: 0.245,
+  /** Max brake torque per axle, N·m. */
+  maxTorqueFront: 2_400,
+  maxTorqueRear: 1_150,
+  /** Front bias. */
+  bias: 0.66,
+  handbrakeTorque: 1_600,
+} as const;
+
+export const TYRE_MODEL = {
+  /** Pacejka-style magic-formula coefficients, longitudinal. */
+  longitudinal: { B: 11.0, C: 1.62, D: 1.05, E: 0.95 },
+  /** Lateral — a period 195/60 with modest grip. */
+  lateral: { B: 9.2, C: 1.4, D: 0.98, E: 0.97 },
+  /** Load sensitivity: grip falls off as vertical load rises. */
+  loadSensitivity: 0.00008,
+  rollingResistance: 0.014,
+  /** Relaxation length — tyre force lags slip, m. */
+  relaxationLength: 0.42,
+} as const;
+
+// ---------------------------------------------------------------------------
+// 5. PAINT & COLOUR
+// ---------------------------------------------------------------------------
+//
+// Derived from the reference photograph by white-balancing against the
+// licence plate (a known neutral) and then sampling the vertical front-fender
+// faces, which reflect the surroundings rather than mirroring the sky.
+//
+//   plate as photographed  → rgb(249, 233, 220)   (warm 1980s film cast)
+//   white-balance gains    → (0.948, 1.013, 1.073)
+//   fender, balanced       → #90919a … #92939b   (saturation 0.096 — near-neutral)
+//   hood, balanced         → #7690ad             (saturation 0.31 — that is SKY,
+//                                                 mirrored in a horizontal panel,
+//                                                 not the paint)
+//
+// Conclusion: a mid-dark neutral graphite metallic with a faint cool
+// undertone. Audi called this family Graphit/Titan Grau Metallic.
+// ---------------------------------------------------------------------------
+
+export const PAINT = {
+  name: 'Graphite Metallic',
+  code: 'LY7L',
+  /** Base coat, sRGB hex. The flake and clearcoat lift this considerably. */
+  baseColor: 0x6b6f76,
+  /** Metallic flake tint — slightly brighter and cooler than the base. */
+  flakeColor: 0xaeb4bd,
+  /** Flake density (per m²-ish) and size, consumed by the paint shader. */
+  flakeDensity: 640.0,
+  flakeSize: 0.55,
+  /** How strongly flakes brighten at grazing angles. */
+  flakeIntensity: 0.34,
+
+  metalness: 0.86,
+  roughness: 0.29,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.035,
+  /** Clearcoat IOR — modern automotive 2K clear. */
+  clearcoatIor: 1.48,
+
+  /** Faint orange-peel in the clearcoat. Real paint is never perfectly flat. */
+  orangePeelScale: 220.0,
+  orangePeelStrength: 0.012,
+} as const;
+
+export const TRIM_COLORS = {
+  /** Bumpers, lower cladding, mirror shells — textured grey-black plastic. */
+  bumperPlastic: 0x2b2d31,
+  /** Window surrounds, B-pillar, wiper arms — satin black. */
+  blackTrim: 0x17181a,
+  /** Grille slats. */
+  grille: 0x1b1d21,
+  /** Brightwork: the rings, the window reveal. */
+  chrome: 0xd8dade,
+  /** Roof rails on the Avant — anodised dark. */
+  roofRail: 0x33363a,
+  /** Tyre sidewall. */
+  rubber: 0x141416,
+  /** Glass tint. */
+  glassTint: 0x1b2026,
+  /** Interior: period Audi grey-anthracite. */
+  interiorPlastic: 0x33353a,
+  interiorFabric: 0x4a4d54,
+  carpet: 0x2d3034,
+} as const;
+
+// ---------------------------------------------------------------------------
+// 6. LICENCE PLATE — reproduced from the photograph
+// ---------------------------------------------------------------------------
+//
+// White plate, dark-navy characters, thin inset border, four corner bolt
+// holes, and a small keystone separating the groups — a Pennsylvania issue
+// of the period, photographed in Philadelphia.
+// ---------------------------------------------------------------------------
+
+export const PLATE = {
+  text: 'A2M 909',
+  left: 'A2M',
+  right: '909',
+  /** Pennsylvania uses a keystone as the group separator. */
+  separator: 'keystone' as const,
+  state: 'PENNSYLVANIA',
+  /** US standard plate, metres. */
+  widthM: 0.305,
+  heightM: 0.152,
+  cornerRadius: 0.012,
+  /** Plate face and characters, as they read after white balance. */
+  faceColor: 0xf2f0ea,
+  textColor: 0x1d2a4a,
+  borderColor: 0x1d2a4a,
+  boltHoleColor: 0x3a3226,
+} as const;
+
+// ---------------------------------------------------------------------------
+// 7. LIGHTING SIGNATURE
+// ---------------------------------------------------------------------------
+
+export const LIGHTS = {
+  headlampColor: 0xfff2d0,
+  /** 1980s sealed-beam halogen: warm, and not very bright by modern standards. */
+  headlampIntensityLow: 42,
+  headlampIntensityHigh: 90,
+  headlampTempK: 3200,
+  indicatorColor: 0xff8a12,
+  indicatorHz: 1.5,
+  tailColor: 0xcc1417,
+  brakeColor: 0xff1a1a,
+  reverseColor: 0xf2f4ff,
+  fogColor: 0xffd9a0,
+  sidemarkerFrontColor: 0xff9a20,
+  sidemarkerRearColor: 0xd41a1a,
+} as const;
+
+// ---------------------------------------------------------------------------
+// 8. RENDER QUALITY TARGETS
+// ---------------------------------------------------------------------------
+
+export const QUALITY = {
+  /** Panel gap width — the C3 was tight for its era. */
+  panelGap: 0.004,
+  /** Radius on every body edge. Nothing in a real car is a sharp corner;
+   *  this single value does more for realism than any texture. */
+  edgeRadius: 0.006,
+  /** Subdivision level for body lofts. */
+  bodySegments: 96,
+  /** Shadow map resolution for the key light. */
+  shadowMapSize: 4096,
+  /** Env map cube resolution. */
+  envMapSize: 1024,
+  targetFps: 60,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Derived helpers
+// ---------------------------------------------------------------------------
+
+/** Rolling radius of the fitted tyre, metres. */
+export function tyreRadius(): number {
+  return (WHEEL.rimDiameterIn * 0.0254) / 2 + (WHEEL.tyreSectionMm / 1000) * (WHEEL.tyreAspect / 100);
+}
+
+/** Wheel-centre positions in the vehicle frame. Front axle is the origin. */
+export function wheelPositions(): { fl: [number, number, number]; fr: [number, number, number]; rl: [number, number, number]; rr: [number, number, number] } {
+  const r = tyreRadius();
+  const tf = BODY.trackFront / 2;
+  const tr = BODY.trackRear / 2;
+  return {
+    fl: [-tf, r, 0],
+    fr: [tf, r, 0],
+    rl: [-tr, r, -BODY.wheelbase],
+    rr: [tr, r, -BODY.wheelbase],
+  };
+}
+
+/** Longitudinal extents of the body in the vehicle frame. */
+export function bodyExtents(): { noseZ: number; tailZ: number } {
+  return { noseZ: BODY.overhangFront, tailZ: -(BODY.wheelbase + BODY.overhangRear) };
+}
+
+/** Interpolate the engine torque curve. Returns N·m. */
+export function engineTorque(rpm: number): number {
+  const c = ENGINE.torqueCurve;
+  if (rpm <= c[0][0]) return c[0][1] * ENGINE.peakTorqueNm;
+  const last = c[c.length - 1];
+  if (rpm >= last[0]) return last[1] * ENGINE.peakTorqueNm;
+  for (let i = 0; i < c.length - 1; i++) {
+    const [r0, t0] = c[i];
+    const [r1, t1] = c[i + 1];
+    if (rpm >= r0 && rpm <= r1) {
+      const k = (rpm - r0) / (r1 - r0);
+      // Smoothstep rather than linear — a torque curve has no kinks.
+      const s = k * k * (3 - 2 * k);
+      return (t0 + (t1 - t0) * s) * ENGINE.peakTorqueNm;
+    }
+  }
+  return 0;
+}

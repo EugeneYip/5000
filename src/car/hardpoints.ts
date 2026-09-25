@@ -1,0 +1,286 @@
+/**
+ * ============================================================================
+ *  HARDPOINTS — the package drawing.
+ * ============================================================================
+ *
+ *  Real car programmes fix the hardpoints before anyone models a surface, so
+ *  that the lamp team and the body team can work at the same time and the
+ *  parts still meet. Same idea here: this file is the interface between the
+ *  geometry work streams.
+ *
+ *  RULES
+ *    · These numbers are FIXED. If a value is wrong, change it here, once,
+ *      and tell the other streams — never work around it locally.
+ *    · Body surfaces must pass through / bound to these points.
+ *    · Trim, lamps, glass and interior must attach AT these points and must
+ *      not invent their own.
+ *
+ *  Frame: +X right, +Y up, +Z forward. Origin on the ground at the front axle.
+ *  All values metres. Symmetric parts give the RIGHT-hand (+X) value only;
+ *  mirror for the left.
+ *
+ *  Front-end proportions were derived from the reference photograph: the
+ *  grille-to-single-headlamp width ratio measures 1.41 : 1 there, which with a
+ *  1.70 m front-face width fixes the grille at ~0.70 m and each lamp at
+ *  ~0.50 m. See docs/REFERENCE-PHOTO.md.
+ * ============================================================================
+ */
+
+import { BODY, tyreRadius } from '@/spec';
+
+const R = tyreRadius();
+const NOSE = BODY.overhangFront;                       // +0.900
+const TAIL = -(BODY.wheelbase + BODY.overhangRear);    // −3.893
+const HW = BODY.width / 2;                             // 0.907
+
+export const HP = {
+  // -------------------------------------------------------------------------
+  // Global reference planes
+  // -------------------------------------------------------------------------
+  noseZ: NOSE,
+  tailZ: TAIL,
+  halfWidth: HW,
+  frontAxleZ: 0,
+  rearAxleZ: -BODY.wheelbase,
+  wheelRadius: R,
+
+  /** Cowl: base of the windscreen, where it meets the bonnet. */
+  cowlZ: -0.37,
+  cowlY: 1.045,
+  /** Windscreen header: top of the glass at the roof. */
+  headerZ: -1.28,
+  headerY: 1.398,
+  /** Roof skin runs flat-ish from header to the D-pillar break. */
+  roofRearZ: -3.12,
+  roofRearY: 1.412,
+  /** Beltline — top of the door skin, bottom of the side glass. */
+  beltY: 0.985,
+  /** Rocker underside. */
+  sillY: 0.235,
+
+  // -------------------------------------------------------------------------
+  // Front end
+  // -------------------------------------------------------------------------
+  front: {
+    /** Grille aperture. Spans ±grilleHalfW, so 0.700 m overall. */
+    grilleHalfW: 0.35,
+    grilleTopY: 0.845,
+    grilleBottomY: 0.688,
+    grilleZ: 0.862,
+    /** How far the slats sit behind the surrounding surface. */
+    grilleRecess: 0.035,
+    /** Number of horizontal slats in the aperture. */
+    grilleSlats: 6,
+
+    /** The four rings, centred in the grille. */
+    ringsCenter: [0, 0.7665, 0.872] as [number, number, number],
+    /** Outer diameter of one ring, and the centre-to-centre spacing. */
+    ringDiameter: 0.093,
+    ringSpacing: 0.0715,
+    ringTubeRadius: 0.0055,
+
+    /** Headlamp aperture, right-hand side. Inner edge meets the grille. */
+    lampInnerX: 0.35,
+    lampOuterX: 0.85,
+    lampTopY: 0.858,
+    lampBottomY: 0.695,
+    lampZ: 0.858,
+    /** The outboard portion of the lamp is the amber indicator. */
+    indicatorInnerX: 0.712,
+
+    /** Bumper: a deep, soft, body-coloured-grey moulding. */
+    bumperTopY: 0.648,
+    bumperBottomY: 0.402,
+    bumperZ: NOSE,
+    /** The rub strip inset into the bumper face. */
+    rubStripY: 0.523,
+    rubStripHeight: 0.046,
+    /** Amber marker at the bumper's outboard end. */
+    markerX: 0.822,
+    markerY: 0.512,
+
+    /** Lower valance and air dam below the bumper. */
+    valanceBottomY: 0.212,
+
+    /** Licence plate, centred, recessed into the bumper face. */
+    plateCenter: [0, 0.512, NOSE + 0.004] as [number, number, number],
+
+    /** Bonnet leading edge and its shutline to the front wings. */
+    hoodFrontZ: 0.782,
+    hoodFrontY: 0.878,
+    hoodRearZ: -0.355,
+    hoodRearY: 1.038,
+    hoodHalfW: 0.742,
+  },
+
+  // -------------------------------------------------------------------------
+  // Sides
+  // -------------------------------------------------------------------------
+  side: {
+    /** Wheel arch centres and radii. The arch is larger than the tyre. */
+    archFrontCenter: [HW - 0.02, R, 0] as [number, number, number],
+    archRearCenter: [HW - 0.02, R, -BODY.wheelbase] as [number, number, number],
+    archRadius: R + 0.082,
+    /** Arches are not circular — they flatten at the top. */
+    archFlatten: 0.88,
+
+    /** Door shutlines, measured at the beltline. */
+    doorFrontZ: -0.455,
+    doorMidZ: -1.585,
+    doorRearZ: -2.585,
+
+    /** Door handle: the C3's flush pull-up type. */
+    handleFrontCenter: [HW - 0.008, 0.905, -1.115] as [number, number, number],
+    handleRearCenter: [HW - 0.008, 0.905, -2.145] as [number, number, number],
+    handleSize: [0.118, 0.032, 0.026] as [number, number, number],
+
+    /** Mirror base on the front door's sail panel. */
+    mirrorBase: [HW - 0.012, 1.028, -0.552] as [number, number, number],
+    /** Mirror shell centre, relative to the base. */
+    mirrorOffset: [0.092, 0.012, 0.03] as [number, number, number],
+    mirrorSize: [0.058, 0.098, 0.168] as [number, number, number],
+
+    /** Side rubbing strip along the doors. */
+    rubStripY: 0.556,
+    rubStripHeight: 0.054,
+    rubStripFrontZ: 0.495,
+    rubStripRearZ: -3.495,
+
+    /** Fuel filler flap — left side on this car. */
+    fuelFlapCenter: [-HW + 0.004, 0.795, -2.885] as [number, number, number],
+    fuelFlapSize: [0.152, 0.152] as [number, number],
+
+    /** Side marker lamps. */
+    markerFront: [HW - 0.01, 0.712, 0.585] as [number, number, number],
+    markerRear: [HW - 0.01, 0.742, -3.565] as [number, number, number],
+  },
+
+  // -------------------------------------------------------------------------
+  // Greenhouse — the C3's flush glazing is its signature
+  // -------------------------------------------------------------------------
+  glass: {
+    /**
+     * Flush-mount offset: how far the glass outer face sits INSIDE the body
+     * surface. On a C3 this is almost nothing — that near-zero step is why the
+     * car achieved Cd 0.30 and it is the single most recognisable detail.
+     * A conventional 1980s car would be 0.012–0.018 here.
+     */
+    flushOffset: 0.002,
+    windscreenRakeDeg: 61.5,
+    windscreenThickness: 0.0058,
+    sideThickness: 0.0042,
+
+    /** Daylight-opening corners at the beltline, right-hand side. */
+    dloFrontZ: -0.415,
+    dloRearZ: -3.055,
+    dloBottomY: 0.998,
+
+    /** Quarter light in the front door, ahead of the mirror. */
+    quarterFrontZ: -0.445,
+    /** The wagon's long rear quarter glass behind the rear door. */
+    quarterRearFrontZ: -2.585,
+    quarterRearRearZ: -3.055,
+
+    /** Tailgate glass. */
+    tailgateGlassTopY: 1.372,
+    tailgateGlassBottomY: 0.962,
+    tailgateGlassZ: -3.822,
+    tailgateGlassHalfW: 0.712,
+  },
+
+  // -------------------------------------------------------------------------
+  // Rear — WAGON / AVANT
+  // -------------------------------------------------------------------------
+  rear: {
+    /** Tailgate shutline: it wraps up into the roof. */
+    tailgateHingeZ: -3.185,
+    tailgateHingeY: 1.408,
+    tailgateBottomY: 0.652,
+
+    /** Taillamp cluster, right-hand side. Tall on the Avant. */
+    lampInnerX: 0.238,
+    lampOuterX: 0.828,
+    lampTopY: 0.982,
+    lampBottomY: 0.688,
+    lampZ: -3.878,
+    /** Internal division: reverse | tail/brake | indicator | fog. */
+    lampSegments: 4,
+
+    bumperTopY: 0.636,
+    bumperBottomY: 0.392,
+    bumperZ: TAIL,
+    rubStripY: 0.516,
+
+    /** Plate recess, in the bumper below the tailgate. */
+    plateCenter: [0, 0.518, TAIL + 0.002] as [number, number, number],
+
+    /** Badges on the tailgate. */
+    badgeRingsCenter: [0, 0.855, -3.868] as [number, number, number],
+    badgeAudiCenter: [-0.452, 0.742, -3.872] as [number, number, number],
+    badgeModelCenter: [0.472, 0.742, -3.872] as [number, number, number],
+
+    /** Exhaust tip, left of centre. */
+    exhaustTip: [-0.412, 0.268, TAIL + 0.055] as [number, number, number],
+    exhaustDiameter: 0.052,
+
+    /** Rear wash/wipe on the tailgate. */
+    wiperPivot: [-0.315, 0.985, -3.832] as [number, number, number],
+    wiperLength: 0.375,
+  },
+
+  // -------------------------------------------------------------------------
+  // Roof — the Avant's rails
+  // -------------------------------------------------------------------------
+  roof: {
+    railInnerX: 0.615,
+    railTopY: 1.474,
+    railBaseY: 1.408,
+    railFrontZ: -1.402,
+    railRearZ: -3.152,
+    railWidth: 0.038,
+    /** Rails stand on feet, not continuous contact. */
+    railFeet: 3,
+    /** Where the roof skin turns down into the D-pillar. */
+    dPillarZ: -3.045,
+  },
+
+  // -------------------------------------------------------------------------
+  // Wipers and cowl
+  // -------------------------------------------------------------------------
+  wiper: {
+    /** Single pantograph wiper is period-correct on many C3s; twin also used. */
+    pivotDriver: [-0.472, 1.032, -0.362] as [number, number, number],
+    pivotPassenger: [0.398, 1.032, -0.362] as [number, number, number],
+    bladeLength: 0.512,
+    parkAngleDeg: -8,
+    sweepDeg: 92,
+  },
+
+  // -------------------------------------------------------------------------
+  // Interior anchors
+  // -------------------------------------------------------------------------
+  interior: {
+    /** Driver's hip point — everything in the cabin is laid out from here. */
+    hipPointDriver: [-0.372, 0.612, -1.145] as [number, number, number],
+    steeringCenter: [-0.372, 0.938, -0.735] as [number, number, number],
+    steeringDiameter: 0.385,
+    steeringTiltDeg: 24,
+    clusterCenter: [-0.372, 1.032, -0.575] as [number, number, number],
+    dashTopY: 1.055,
+    dashFrontZ: -0.395,
+    dashRearZ: -0.712,
+    centreStackCenter: [0, 0.935, -0.688] as [number, number, number],
+    shifterBase: [-0.045, 0.638, -1.005] as [number, number, number],
+    seatBackRakeDeg: 14,
+    rearSeatZ: -2.185,
+    /** Load floor of the estate, behind the rear seat. */
+    cargoFloorY: 0.632,
+    cargoFloorFrontZ: -2.415,
+    cargoFloorRearZ: -3.742,
+  },
+} as const;
+
+/** Mirror a right-hand hardpoint to the left. */
+export function mirrorX(p: readonly [number, number, number]): [number, number, number] {
+  return [-p[0], p[1], p[2]];
+}

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0b0d10" />
+    <title>Audi 5000 S Wagon · C3 Type 44</title>
+    <meta
+      name="description"
+      content="A photoreal, drivable 3D reconstruction of a 1988 Audi 5000 S Wagon in Graphite Metallic."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --ui-bg: rgba(14, 16, 19, 0.82);
+        --ui-line: rgba(255, 255, 255, 0.1);
+        --ui-fg: #e8eaed;
+        --ui-dim: #9aa0a8;
+        --ui-accent: #c8ccd2;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; overflow: hidden; background: #07080a; }
+      body {
+        font: 400 13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: var(--ui-fg);
+        -webkit-font-smoothing: antialiased;
+        overscroll-behavior: none;
+      }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+      /* ---- loading ---- */
+      #boot {
+        position: fixed; inset: 0; z-index: 100;
+        display: grid; place-content: center; gap: 22px;
+        background: #07080a;
+        transition: opacity 0.7s ease 0.15s, visibility 0.7s ease 0.15s;
+      }
+      #boot.done { opacity: 0; visibility: hidden; }
+      #boot .mark { display: flex; justify-content: center; }
+      #boot .rings { width: 148px; height: auto; opacity: 0.92; }
+      #boot .rings circle {
+        fill: none; stroke: #e8eaed; stroke-width: 2.4;
+        stroke-dasharray: 126; stroke-dashoffset: 126;
+        animation: ring 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      }
+      #boot .rings circle:nth-child(2) { animation-delay: 0.12s; }
+      #boot .rings circle:nth-child(3) { animation-delay: 0.24s; }
+      #boot .rings circle:nth-child(4) { animation-delay: 0.36s; }
+      @keyframes ring { to { stroke-dashoffset: 0; } }
+      #boot .label {
+        text-align: center; letter-spacing: 0.34em; text-transform: uppercase;
+        font-size: 10px; color: var(--ui-dim);
+      }
+      #boot .bar { width: 240px; height: 1px; background: rgba(255,255,255,0.12); overflow: hidden; }
+      #boot .bar i { display: block; height: 100%; width: 0%; background: var(--ui-fg); transition: width 0.3s ease; }
+      #boot .pct { text-align: center; font-variant-numeric: tabular-nums; font-size: 10px; color: var(--ui-dim); }
+
+      /* ---- webgl failure ---- */
+      #nogl {
+        position: fixed; inset: 0; z-index: 200; display: none;
+        place-content: center; text-align: center; padding: 32px; background: #07080a;
+      }
+      #nogl.show { display: grid; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="boot">
+      <div class="mark">
+        <svg class="rings" viewBox="0 0 200 60" aria-label="Audi">
+          <circle cx="24" cy="30" r="20" />
+          <circle cx="60" cy="30" r="20" />
+          <circle cx="96" cy="30" r="20" />
+          <circle cx="132" cy="30" r="20" />
+        </svg>
+      </div>
+      <div class="label">5000 S Wagon</div>
+      <div class="bar"><i id="boot-bar"></i></div>
+      <div class="pct" id="boot-pct">0%</div>
+    </div>
+
+    <div id="nogl">
+      <div>
+        <h2 style="font-weight: 500; margin-bottom: 10px">WebGL 2 unavailable</h2>
+        <p style="color: #9aa0a8">This model needs a browser with WebGL 2 and hardware acceleration enabled.</p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

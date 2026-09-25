@@ -1,0 +1,23 @@
+{
+  "name": "audi-5000s-wagon",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A photoreal, drivable 3D Audi 5000 S Wagon (C3/Type 44) built in Three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "shot": "node tools/shoot.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0",
+    "playwright": "^1.48.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  }
+}
