@@ -23,8 +23,21 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:net';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Grab a port the OS says is free. Several work streams run this at once. */
+function freePort() {
+  return new Promise((res, rej) => {
+    const s = createServer();
+    s.once('error', rej);
+    s.listen(0, '127.0.0.1', () => {
+      const { port } = s.address();
+      s.close(() => res(port));
+    });
+  });
+}
 
 // --- args -------------------------------------------------------------------
 const args = Object.fromEntries(
@@ -38,7 +51,7 @@ const WIDTH = Number(args.w ?? 1920);
 const HEIGHT = Number(args.h ?? 1080);
 const OUT = resolve(ROOT, String(args.out ?? 'renders/latest'));
 const ENV = String(args.env ?? '');
-const PORT = Number(args.port ?? 5199);
+const PORT = Number(args.port ?? (await freePort()));
 
 /**
  * Standard review views. Orthographic-ish long-lens poses are deliberate:
