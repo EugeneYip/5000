@@ -141,3 +141,156 @@ Rolling diameter, 185/70 R14 = 355.6 + 2(185 × 0.70) = **614.6 mm**. (205/60 R1
 | **Euro 100 Sedan (the famous number)** | **0.30** — lowest of any production car on sale in 1982 | [en.wikipedia](https://en.wikipedia.org/wiki/Audi_100), [supercars.net](https://www.supercars.net/blog/1982-audi-100-audi-200-c3/), [de.wikipedia](https://de.wikipedia.org/wiki/Audi_100_C3) |
 
 **Do not use 0.30 for this model.** 0.30 is the Euro base sedan. The wagon you are building is **0.34**. Frontal area is not published in any source found; compute it from the model (expect roughly 2.05–2.15 m²).
+
+---
+
+## 2. Body and styling, panel by panel
+
+**Evidence basis.** Descriptions marked *(observed)* were read directly off the factory photography in [BROCHURE-87] — pages 4–5 are the 5000S Wagon spread (front-3/4 and rear-3/4, US-spec, MY1987), pages 8–9 the 5000CS Turbo, pages 10–11 the Turbo quattro. Descriptions marked *(cited)* carry a URL. Anything marked **[VERIFY]** could not be resolved to the precision you need and must be checked against a high-resolution photograph before modelling.
+
+### 2.1 Front
+
+**Grille**
+- A single **shallow, wide, full-width horizontal-slat grille** spanning the gap between the two headlamp units. Fine horizontal ribs, closely pitched, in matt black. The grille is much wider than it is tall — it reads as a letterbox slot, not a face. *(observed, p.9/p.11)*
+- **The four rings sit IN the grille, not on the hood edge.** They are mounted on a solid black central bar within the grille aperture, horizontally centred, in bright chrome. *(observed, p.9 — clearly resolved at magnification)*
+- A **thin bright (chrome/aluminium-look) surround frame** outlines the grille aperture and continues as a bright line along the top edge, tying the grille to the inboard edge of each headlamp. *(observed)*
+- **[VERIFY] Slat count.** At the available scan resolution roughly 8–9 horizontal ribs are countable per side of the central bar, but this is not reliable. Count it off a grille close-up before committing geometry.
+- On quattro cars a **lowercase "quattro" script** sits on the grille's black panel, offset to one side of the rings (not centred). *(observed, p.11)*
+
+**Headlights (US-spec) — it is BOTH composite AND quad**
+
+This was the most confused point in the brief, and the factory photography resolves it. At high magnification on [BROCHURE-87] p.9 the MY1987 US front lamp assembly reads, **outboard → inboard**, as:
+
+1. an **amber turn-signal lens** — outboard-most, roughly trapezoidal/wedge-shaped, wrapping slightly around the corner;
+2. **two clear rectangular optical units side by side**, separated by a visible vertical divider — an outer lamp and an inner lamp;
+3. then the grille aperture begins.
+
+So: **one flush composite housing per side, containing two rectangular headlamp units (four lamps across the car = "quad") plus an integrated outboard amber turn signal, all under a common bright chrome bezel.** *(observed, p.9)*
+
+- The **chrome bezel outlines the whole assembly** and continues along its top and bottom edges to meet the grille's bright surround, so the grille and both lamp units read as one continuous horizontal band across the nose. *(observed)*
+- The assembly is flush-mounted and gently wrapped at the outboard end, following the fender's corner radius.
+- The band's proportions echo the grille: long and shallow, with the top edge following the hood shutline dead straight across.
+- **Model-year split on the US front clip.** A verified **1985 US 5000 S Avant** wears visibly **separate quad rectangular lamps** (two discrete lamps per side, not under one flush bezel) — see `https://germancarsforsaleblog.com/wp-content/uploads/2017/05/441.jpeg`. By MY1987 the flush one-piece composite bezel above is fitted. **If you are building MY1986–1991, use the flush composite assembly, not the 1985 look.**
+- Context: US federal law required sealed-beam headlamps until the early 1980s and permitted composite (replaceable-bulb) units from MY1984, after which European imports switched to home-market-style composites during 1985–86 — consistent with the MY1987 car. ([Hagerty](https://www.hagerty.com/media/automotive-history/how-the-humble-sealed-beam-headlight-hobbled-american-automotive-design-for-decades/), [classiccarstodayonline.com](https://www.classiccarstodayonline.com/2022/05/09/a-brief-history-of-headlamp-styles-in-the-u-s/))
+- **Euro cars differ** — a single one-piece lamp per side with no amber segment and no US side marker. Do not mix Euro and US front-clip references.
+
+**Amber corner / turn-signal placement**
+- Separate **amber wrap-around corner lamps at the outboard ends of the front bumper**, curving around the corner so they are visible from both front and side. These are in addition to the amber segment inside the headlamp unit. *(observed, p.6 and p.11)*
+
+**Bumper and rub strip**
+- Deep, **dark-grey/black moulded impact bumper**, full width, wrapping well around both corners.
+- A **full-width bright rub strip runs horizontally across the bumper face**, aluminium-look, at roughly mid-bumper height, and continues around the corners. *(observed, p.6/p.11)*
+- The bumper visually merges into the **dark lower-body cladding**, so the car reads as having a dark band running its entire perimeter. The factory copy describes a wide, steel-reinforced moulding along the side panels acting as a virtual wraparound bumper. *(cited: [BROCHURE-87] wagon copy, p.5)*
+- US bumpers are the 5-mph impact type and are **~51 mm longer per end** than European ones (see §1.3).
+
+**Lower valance**
+- A separate **plain lower valance/air dam** below the bumper, same dark finish, with no visible grille aperture on the 5000 S. *(observed)*
+
+**Fog lights**
+- **Not fitted** to the 5000 S Wagon in the factory photography. No fog-lamp cutouts are visible in the valance. *(observed)* **[VERIFY]** whether fogs were a dealer/factory option for the US 5000 S — not resolved.
+
+**Hood**
+- Long, gently domed, falling away towards the nose. The **leading edge is soft-radiused** and forms the upper border of the headlamp/grille band.
+- **Shutlines:** the hood's rear shutline runs across the base of the windscreen; the side shutlines run along the top of each front fender, parallel to the body sides. The front shutline is a single straight transverse line across the top of the lamps and grille.
+- **Character line:** a soft crown runs down the hood centre with a gentle break above each headlamp, echoing the fender tops. There is no hard crease — the C3's front is defined by large-radius surfacing, which is exactly what produced the low Cd. *(observed)*
+
+### 2.2 Sides
+
+**Flush glazing — the signature detail**
+- This is the C3's defining feature and the thing that will make or break the model. The side glass is **pin-mounted and sits essentially flush with the surrounding sheet metal**, rather than recessed inside a frame. The C3 was the first mass-market car to do this, and it was central to the 0.30 Cd. ([en.wikipedia](https://en.wikipedia.org/wiki/Audi_100), [supercars.net](https://www.supercars.net/blog/1982-audi-100-audi-200-c3/), [curbsideclassic](https://www.curbsideclassic.com/curbside-classics-european/curbside-classic-1983-1991-audi-5000100-c3-a-picturebook-story-of-the-very-model-of-the-modern-car/))
+- Modelling consequence: **the glass outer surface and the adjacent body outer surface should be near-coplanar**, separated only by a thin black rubber/trim seal. Do not inset the glass. The step is on the order of a few millimetres, not the 10–20 mm typical of contemporaries.
+- Windscreen and rear glass are likewise bonded flush with very thin black surrounds. *(observed)*
+
+**Window frame treatment**
+- Slim frames finished in **black**, with the B-pillar fully blacked out so the DLO reads as one continuous dark band. *(observed, p.4/p.6)*
+
+**Rain gutters**
+- **Concealed/flush** — the C3 deleted the conventional projecting drip rail as part of the aerodynamic programme. On the Avant a slim bright/black moulding runs along the roof-to-body joint above the door glass rather than a proud gutter. *(observed, p.5 roofline; consistent with the flush-body programme cited above)*
+
+**Door handles — the model-year split**
+- **Pre-January-1988:** a **recessed pull handle** sitting in a roughly circular/teardrop-shaped pocket pressed into the door skin, with the lever pivoting out of the pocket. *(observed, p.4 — MY1987 car)*
+- **From January 1988:** **flush/integrated door handles**. ([en.wikipedia](https://en.wikipedia.org/wiki/Audi_100), [de.wikipedia](https://de.wikipedia.org/wiki/Audi_100_C3))
+- Pick one and be consistent with the rest of the body's model year.
+
+**Side rubbing strips and lower cladding**
+- A **wide, steel-reinforced dark moulding runs the full length of the side panels**, front bumper to rear bumper, forming a continuous protective band. Factory copy explicitly calls it a virtual wraparound bumper. *(cited: [BROCHURE-87] p.5)*
+- **A thin bright trim line runs along the top edge** of this moulding. *(observed, p.4)*
+- Below the moulding the rocker area is finished in the same dark grey, giving a two-tone effect on light-coloured cars. *(observed)*
+- A **small oval "audi" badge sits on the front-fender section of the moulding**, just behind the front wheel arch. *(observed, p.4)*
+
+**Side marker lights**
+- US-market requirement. Amber at the front (integrated into the wrap-around front corner lamp) and red at the rear. **[VERIFY]** exact rear side-marker shape and position — not clearly resolvable in the available photography.
+
+**Mirrors**
+- **Large black aero mirror**, wedge/teardrop plan-form, mounted on the door skin at the base of the A-pillar on a short integrated stalk with a triangular sail panel. Housing is matt/satin black on the 5000 S. Power adjustment was fitted. *(observed, p.4; power mirrors listed by [carweek](https://www.carweek.com/research/audi/5000/1988/specs))*
+
+**Fuel filler**
+- Appears on the **right-hand rear quarter** (passenger side on a LHD car), as a small rounded-square flap set into the quarter panel just aft of the rear door, above the rubbing strip. *(observed in the [getoutlines blueprint](https://getoutlines.com/blueprints/221/1986-audi-100-c3-avant-wagon-blueprints) side elevation, which shows the car's right side)* **[VERIFY]** against a photograph — side-of-car determination from a mirrored line drawing is error-prone.
+
+**Wheel arches**
+- **Plain, unflared, near-semicircular openings** with a small radiused lip, cut close to the tyre. No plastic arch extensions on the 5000 S. The arch line is a clean arc that dies into the body sides. *(observed)*
+- Note for contrast: the 1991 200 20V — a different car — did get flared arches. ([en.wikipedia](https://en.wikipedia.org/wiki/Audi_100))
+
+### 2.3 Rear — WAGON specifically
+
+**Tailgate**
+- Large, **full-height tailgate hinged at the roof**, wrapping down to bumper level. The glass occupies roughly the upper two-thirds; below it a body-coloured transverse panel carries the badging, and below that the licence-plate recess. *(observed, p.5/p.7)*
+- The tailgate's shoulder line continues the body's beltline, and the D-pillar/tailgate joint is a crisp vertical-ish shutline. *(observed)*
+
+**Rear glass**
+- Steeply raked relative to a conventional estate — this is the "fastback Avant" profile that made the 0.34 Cd possible. The glass wraps slightly at its lower corners. *(observed)*
+- A **black spoiler/lip runs across the top of the tailgate glass** at the roof trailing edge. *(observed, p.5 roofline crop)*
+
+**Taillights**
+- **Tall, roughly rectangular units with rounded outboard corners**, one per side, flanking the plate recess. Fine vertical lens ribbing across the whole face. *(observed, p.5 at high magnification)*
+- **Internal segmentation, upper band, outboard→inboard:** a dark/black recessed section, then an **amber** segment, then a pale **clear/white** segment (reverse lamp) adjacent to the plate recess.
+- **Lower band:** a single large **red** field (tail/stop) running the full width of the unit, with a small integrated reflector detail towards the bottom.
+- **[VERIFY]** exact segment boundaries and which function is which — get a taillight close-up. The wagon lamps are **not** the same as the sedan's.
+
+**Licence-plate recess**
+- A **black recessed panel set into the lower tailgate, centred between the two taillights**, sitting below the badge line and above the bumper. The plate mounts directly onto this recessed face. *(observed, p.5)*
+
+**Rear bumper**
+- Deep, dark-grey/black, wrapping around both corners, with a **bright horizontal rub strip across the face** matching the front, and a separate lower valance beneath. *(observed)*
+
+**Exhaust tip**
+- A **single round tailpipe** exiting below the bumper, offset to one side. *(observed, p.5 — visible on the right of the rear view)* **[VERIFY]** which side; single exit is clear, side is not.
+
+**Rear wiper**
+- Fitted. Rear wiper blades are catalogued for the C3 Avant and forum threads discuss the Avant's rear-wiper mechanism, confirming it as standard equipment on the body. ([autodoc.de](https://www.autodoc.de/autoteile/scheibenwischer-10233/audi/100/100-avant-44-44q-c3), [group44.de forum](https://forum.group44.de/viewtopic.php?f=6&t=141461)) **[VERIFY]** park position and arm geometry from a photo.
+
+**Centre high-mounted stop lamp (CHMSL)**
+- Present on the US wagon — the factory copy explicitly calls out a centre, high-mounted brake light. *(cited: [BROCHURE-87] p.5)* Expect it at the top of the tailgate glass / spoiler area.
+
+**Antenna**
+- A **mast antenna at the rear of the roof**, offset to one side, raking backwards. *(observed, p.5)*
+
+### 2.4 Roof and roof rails
+
+- **Roof rails were OPTIONAL on the C3 Avant, not standard.** Cars built without them simply have no holes in the roof. ([typ43.eu forum](http://www.typ43.eu/Forum/viewtopic.php?t=6019); aftermarket rails/bars catalogued for the 1982–1990 C3 Avant at [MicksGarage](https://www.micksgarage.com/d/roof-racks-and-bars/audi/audi-100/100-c3-avant-1982-to-1990/products))
+- **The MY1987 US 5000 S Wagon in the factory brochure has NO roof rails** — the roof is smooth from windscreen header to tailgate spoiler. *(observed, p.5)*
+- **The 1986 Euro 100 Avant orthographic drawing DOES show rails** — two longitudinal rails running most of the roof length. *(observed in the [getoutlines blueprint](https://getoutlines.com/blueprints/221/1986-audi-100-c3-avant-wagon-blueprints))*
+- **Decide explicitly which you are building.** If rails: two rails, longitudinal, running from just behind the windscreen header to the tailgate hinge line, standing **~50–55 mm** proud of the roof skin (derived, §1.3, ±15 mm).
+- **[VERIFY]** number of feet/mounting points per rail, rail cross-section profile, and material/colour. Period C3 Avant rails are commonly satin-black or body-coloured aluminium extrusion, but no authoritative source for this specific car was found. Do not guess this from later Audi Avants — the C5/C6 rails are a different design.
+- A slim moulding runs along each roof-to-bodyside joint in place of a conventional drip rail (see §2.2).
+
+### 2.5 Greenhouse / DLO
+
+- **DLO shape:** a long, low, near-parallel-sided band. Front door glass roughly rectangular with a raked leading edge following the A-pillar; rear door glass rectangular; then, on the wagon, the DLO **continues into a large fixed rear quarter window** before the D-pillar. *(observed, p.4/p.5)*
+- The beltline is dead straight and horizontal for the whole length of the DLO — no kick-up until the D-pillar. This straightness is a major part of the car's read; get it exactly level.
+- **D-pillar:** broad and body-coloured, raked forward at the top, forming the transition from the roof into the tailgate. It is noticeably wider than the B- and C-pillars, and it is the only pillar not blacked out. *(observed, p.5)*
+- **Rain gutters:** hidden/flush (§2.2).
+- A-pillar is steeply raked with a flush-bonded windscreen and a very narrow black surround.
+
+### 2.6 Badging
+
+| Badge | Text / form | Location | Evidence |
+|---|---|---|---|
+| Front | **Four rings**, chrome | Centred on the grille's black central bar, in the grille aperture — **not** on the hood edge | *(observed, p.9)* |
+| Front (quattro only) | lowercase **quattro** script | On the grille's black panel, offset to one side of the rings | *(observed, p.11)* |
+| Front fender | small oval **audi** | On the side rubbing strip, just aft of the front wheel arch | *(observed, p.4)* |
+| Rear | **Audi 5000 S** | On the tailgate's body-coloured transverse panel, above the licence-plate recess, offset towards one side (not centred) | *(observed, p.5)* |
+| Rear (Euro) | **Avant** | Euro cars carry an *Avant* script; the US car uses *5000 S* instead | [VERIFY] |
+
+- **Font:** these are 1980s Audi badges and are **not** the modern "Audi Type" face, which Bold Monday only designed in 2008–09 ([boldmonday.com](https://boldmonday.com/custom/audi/)). Model the letterforms from a photograph, not from a current Audi typeface. **[VERIFY]** — no authoritative period typeface identification was found.
+- The four rings of this era are **overlapping open circles with a flat chrome section**, noticeably chunkier than the modern flat logo. *(observed, p.9)*

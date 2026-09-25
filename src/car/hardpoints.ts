@@ -29,8 +29,8 @@
 import { BODY, tyreRadius } from '@/spec';
 
 const R = tyreRadius();
-const NOSE = BODY.overhangFront;                       // +0.900
-const TAIL = -(BODY.wheelbase + BODY.overhangRear);    // −3.893
+const NOSE = BODY.overhangFront;                       // +1.084
+const TAIL = -(BODY.wheelbase + BODY.overhangRear);    // −3.816
 const HW = BODY.width / 2;                             // 0.907
 
 export const HP = {
@@ -51,7 +51,7 @@ export const HP = {
   headerZ: -1.28,
   headerY: 1.398,
   /** Roof skin runs flat-ish from header to the D-pillar break. */
-  roofRearZ: -3.12,
+  roofRearZ: TAIL + 0.773,
   roofRearY: 1.412,
   /** Beltline — top of the door skin, bottom of the side glass. */
   beltY: 0.985,
@@ -117,9 +117,14 @@ export const HP = {
   // Sides
   // -------------------------------------------------------------------------
   side: {
-    /** Wheel arch centres and radii. The arch is larger than the tyre. */
-    archFrontCenter: [HW - 0.02, R, 0] as [number, number, number],
-    archRearCenter: [HW - 0.02, R, -BODY.wheelbase] as [number, number, number],
+    /**
+     * Arch centre is the WHEEL centre — track/2, not the body half-width.
+     * The arch LIP is separately out at the body surface (`archLipX`); the
+     * difference between the two is the tuck-in of the wheel under the arch.
+     */
+    archFrontCenter: [BODY.trackFront / 2, R, 0] as [number, number, number],
+    archRearCenter: [BODY.trackRear / 2, R, -BODY.wheelbase] as [number, number, number],
+    archLipX: HW - 0.016,
     archRadius: R + 0.082,
     /** Arches are not circular — they flatten at the top. */
     archFlatten: 0.88,
@@ -144,7 +149,7 @@ export const HP = {
     rubStripY: 0.556,
     rubStripHeight: 0.054,
     rubStripFrontZ: 0.495,
-    rubStripRearZ: -3.495,
+    rubStripRearZ: TAIL + 0.398,
 
     /** Fuel filler flap — left side on this car. */
     fuelFlapCenter: [-HW + 0.004, 0.795, -2.885] as [number, number, number],
@@ -152,7 +157,7 @@ export const HP = {
 
     /** Side marker lamps. */
     markerFront: [HW - 0.01, 0.712, 0.585] as [number, number, number],
-    markerRear: [HW - 0.01, 0.742, -3.565] as [number, number, number],
+    markerRear: [HW - 0.01, 0.742, TAIL + 0.328] as [number, number, number],
   },
 
   // -------------------------------------------------------------------------
@@ -161,8 +166,9 @@ export const HP = {
   glass: {
     /**
      * Flush-mount offset: how far the glass outer face sits INSIDE the body
-     * surface. On a C3 this is almost nothing — that near-zero step is why the
-     * car achieved Cd 0.30 and it is the single most recognisable detail.
+     * surface. On a C3 this is almost nothing — that near-zero step is how the
+     * range reached Cd 0.30 in saloon form (0.34 for this wagon) and it is the
+     * single most recognisable detail of the car.
      * A conventional 1980s car would be 0.012–0.018 here.
      */
     flushOffset: 0.002,
@@ -172,19 +178,19 @@ export const HP = {
 
     /** Daylight-opening corners at the beltline, right-hand side. */
     dloFrontZ: -0.415,
-    dloRearZ: -3.055,
+    dloRearZ: TAIL + 0.838,
     dloBottomY: 0.998,
 
     /** Quarter light in the front door, ahead of the mirror. */
     quarterFrontZ: -0.445,
     /** The wagon's long rear quarter glass behind the rear door. */
     quarterRearFrontZ: -2.585,
-    quarterRearRearZ: -3.055,
+    quarterRearRearZ: TAIL + 0.838,
 
     /** Tailgate glass. */
     tailgateGlassTopY: 1.372,
     tailgateGlassBottomY: 0.962,
-    tailgateGlassZ: -3.822,
+    tailgateGlassZ: TAIL + 0.086,
     tailgateGlassHalfW: 0.712,
   },
 
@@ -193,7 +199,7 @@ export const HP = {
   // -------------------------------------------------------------------------
   rear: {
     /** Tailgate shutline: it wraps up into the roof. */
-    tailgateHingeZ: -3.185,
+    tailgateHingeZ: TAIL + 0.708,
     tailgateHingeY: 1.408,
     tailgateBottomY: 0.652,
 
@@ -202,7 +208,7 @@ export const HP = {
     lampOuterX: 0.828,
     lampTopY: 0.982,
     lampBottomY: 0.688,
-    lampZ: -3.878,
+    lampZ: TAIL + 0.03,
     /** Internal division: reverse | tail/brake | indicator | fog. */
     lampSegments: 4,
 
@@ -215,16 +221,16 @@ export const HP = {
     plateCenter: [0, 0.518, TAIL + 0.002] as [number, number, number],
 
     /** Badges on the tailgate. */
-    badgeRingsCenter: [0, 0.855, -3.868] as [number, number, number],
-    badgeAudiCenter: [-0.452, 0.742, -3.872] as [number, number, number],
-    badgeModelCenter: [0.472, 0.742, -3.872] as [number, number, number],
+    badgeRingsCenter: [0, 0.855, TAIL + 0.04] as [number, number, number],
+    badgeAudiCenter: [-0.452, 0.742, TAIL + 0.036] as [number, number, number],
+    badgeModelCenter: [0.472, 0.742, TAIL + 0.036] as [number, number, number],
 
     /** Exhaust tip, left of centre. */
     exhaustTip: [-0.412, 0.268, TAIL + 0.055] as [number, number, number],
     exhaustDiameter: 0.052,
 
     /** Rear wash/wipe on the tailgate. */
-    wiperPivot: [-0.315, 0.985, -3.832] as [number, number, number],
+    wiperPivot: [-0.315, 0.985, TAIL + 0.076] as [number, number, number],
     wiperLength: 0.375,
   },
 
@@ -236,12 +242,12 @@ export const HP = {
     railTopY: 1.474,
     railBaseY: 1.408,
     railFrontZ: -1.402,
-    railRearZ: -3.152,
+    railRearZ: TAIL + 0.741,
     railWidth: 0.038,
     /** Rails stand on feet, not continuous contact. */
     railFeet: 3,
     /** Where the roof skin turns down into the D-pillar. */
-    dPillarZ: -3.045,
+    dPillarZ: TAIL + 0.848,
   },
 
   // -------------------------------------------------------------------------
@@ -276,7 +282,7 @@ export const HP = {
     /** Load floor of the estate, behind the rear seat. */
     cargoFloorY: 0.632,
     cargoFloorFrontZ: -2.415,
-    cargoFloorRearZ: -3.742,
+    cargoFloorRearZ: TAIL + 0.166,
   },
 } as const;
 

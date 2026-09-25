@@ -28,37 +28,49 @@
 // ---------------------------------------------------------------------------
 
 export const BODY = {
-  /** Overall length, bumper to bumper (Avant/wagon). */
-  length: 4.793,
+  /** Overall length. US wagon: the 5 mph impact bumpers add ~102 mm over Euro. */
+  length: 4.895,
   /** Overall width, excluding mirrors. */
   width: 1.814,
   /** Width across the mirrors, both extended. */
   widthOverMirrors: 2.01,
   /** Roof height at the highest point of the roof skin, unladen. */
-  height: 1.43,
-  /** Top of the roof rails. */
-  heightOverRails: 1.474,
+  height: 1.415,
+  /** Top of the roof rails — they stand ~50 mm proud of the skin. */
+  heightOverRails: 1.468,
 
   wheelbase: 2.687,
-  trackFront: 1.512,
-  trackRear: 1.502,
+  /** Factory brochure gives the same track front and rear. */
+  trackFront: 1.468,
+  trackRear: 1.468,
 
-  /** Nose ahead of the front axle. */
-  overhangFront: 0.9,
-  /** Tail behind the rear axle. */
-  overhangRear: 1.206,
+  /**
+   * Overhangs are not published. Measured off the 1986 100 Avant orthographic
+   * elevation (Euro 1033/1078 mm, validated to 0.15 % against the published
+   * wheelbase), then +51 mm each end for the US impact bumpers.
+   */
+  overhangFront: 1.084,
+  overhangRear: 1.129,
 
-  groundClearance: 0.14,
+  groundClearance: 0.135,
 
-  /** Kerb weight, 2.3 5-cyl automatic Avant. */
-  massKerb: 1320,
-  /** Static front axle weight fraction — nose-heavy longitudinal inline-5. */
-  weightDistFront: 0.61,
+  /** Kerb weight, US 5000 S Wagon. */
+  massKerb: 1340,
+  /**
+   * Static front axle weight fraction. NOT a sourced figure — no period test
+   * or factory split was found. 0.60 is the figure commonly quoted for Audi's
+   * longitudinal-FWD layout, which hangs the inline-5 ahead of the axle.
+   */
+  weightDistFront: 0.6,
 
-  /** The C3's headline figure. Class-leading in 1983. */
-  dragCoefficient: 0.3,
-  /** Frontal area, m². */
-  frontalArea: 2.05,
+  /**
+   * The wagon's figure, from the factory brochure. The famous Cd 0.30 belongs
+   * to the EURO SALOON and does not apply to this car — using it would be
+   * wrong both aerodynamically and historically.
+   */
+  dragCoefficient: 0.34,
+  /** Not published; computed from the modelled body. */
+  frontalArea: 2.1,
 
   /** Beltline height above ground — top of the door skin / base of the DLO. */
   beltlineHeight: 0.985,
@@ -74,12 +86,15 @@ export const BODY = {
 // ---------------------------------------------------------------------------
 
 export const WHEEL = {
-  /** Rim diameter in inches — period-correct 5000 S alloy. */
-  rimDiameterIn: 15,
+  /**
+   * 6J x 14 light alloy with 185/70 HR14, the factory fitment for the 5000 S
+   * saloon and wagon. The 15-inch wheel belongs to the CS Turbo, not this car.
+   * Rolling diameter 614.6 mm.
+   */
+  rimDiameterIn: 14,
   rimWidthIn: 6,
-  /** Tyre section width (mm) / aspect (%) / rim (in) → 195/60 R15. */
-  tyreSectionMm: 195,
-  tyreAspect: 60,
+  tyreSectionMm: 185,
+  tyreAspect: 70,
 
   /** Derived at module load — see `tyreRadius()` below. */
   get radius(): number {
@@ -210,7 +225,7 @@ export const STEERING = {
   /** Rack and pinion, engine-speed-sensitive power assist. */
   maxSteerAngleDeg: 36,
   turnsLockToLock: 3.3,
-  turningCircle: 11.1,
+  turningCircle: 10.42,
   /** Caster, gives self-centring. */
   casterDeg: 2.0,
   /** Ackermann fraction: 1 = perfect Ackermann. */
@@ -232,7 +247,7 @@ export const BRAKES = {
 export const TYRE_MODEL = {
   /** Pacejka-style magic-formula coefficients, longitudinal. */
   longitudinal: { B: 11.0, C: 1.62, D: 1.05, E: 0.95 },
-  /** Lateral — a period 195/60 with modest grip. */
+  /** Lateral — a period 185/70 HR14: tall sidewall, modest grip, lots of squirm. */
   lateral: { B: 9.2, C: 1.4, D: 0.98, E: 0.97 },
   /** Load sensitivity: grip falls off as vertical load rises. */
   loadSensitivity: 0.00008,
