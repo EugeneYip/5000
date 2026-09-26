@@ -15,8 +15,7 @@ import { LIGHTS, PLATE } from '@/spec';
 import { surfaceNormal, surfacePoint, tAtY } from '@/car/body/surface';
 import type { BuildContext } from '@/types';
 import { bothSides, bowl, merge, slab, type Outline } from './shapes';
-import type { Glow, GlowFactory } from './optics';
-import { FILAMENT } from './headlamp';
+import { FILAMENT, type Glow, type GlowFactory } from './optics';
 
 const FLAT = (): number => 0;
 

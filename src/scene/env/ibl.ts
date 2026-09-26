@@ -286,7 +286,48 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     renderer.shadowMap.enabled = prevShadow;
     renderer.setRenderTarget(prevTarget);
 
+
     pmrem.fromCubemap(cubeRT.texture, target!);
+
+    // TEMP-PROBE (removed before hand-off)
+    (globalThis as any).__IBL_PROBE = () => {
+      const half = (h: number): number => {
+        const s = (h & 0x8000) >> 15, e = (h & 0x7c00) >> 10, f = h & 0x03ff;
+        if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+        if (e === 31) return f ? NaN : (s ? -Infinity : Infinity);
+        return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
+      };
+      const faceStats = [];
+      let total = 0;
+      for (let f = 0; f < 6; f++) {
+        const buf = new Uint16Array(512 * 512 * 4);
+        renderer.readRenderTargetPixels(cubeRT as any, 0, 0, 512, 512, buf, f);
+        let r = 0, g = 0, b = 0;
+        for (let i = 0; i < buf.length; i += 4) {
+          r += half(buf[i]); g += half(buf[i + 1]); b += half(buf[i + 2]);
+        }
+        const n = 512 * 512;
+        faceStats.push([r / n, g / n, b / n]);
+        total += (0.2126 * r + 0.7152 * g + 0.0722 * b) / n;
+      }
+      const pw = target!.width, ph = target!.height;
+      const pbuf = new Uint16Array(pw * ph * 4);
+      renderer.readRenderTargetPixels(target!, 0, 0, pw, ph, pbuf);
+      let pr = 0, pg = 0, pb = 0, pmax = 0, cnt = 0;
+      for (let i = 0; i < pbuf.length; i += 4) {
+        const R = half(pbuf[i]), G = half(pbuf[i + 1]), B = half(pbuf[i + 2]);
+        if (!Number.isFinite(R)) continue;
+        pr += R; pg += G; pb += B; cnt++;
+        pmax = Math.max(pmax, 0.2126 * R + 0.7152 * G + 0.0722 * B);
+      }
+      return {
+        cubeFaces: { px: faceStats[0], nx: faceStats[1], py: faceStats[2], ny: faceStats[3], pz: faceStats[4], nz: faceStats[5] },
+        cubeMeanLuminance: total / 6,
+        pmremSize: [pw, ph],
+        pmremMean: [pr / cnt, pg / cnt, pb / cnt],
+        pmremMaxLuminance: pmax,
+      };
+    };
   };
 
   return {

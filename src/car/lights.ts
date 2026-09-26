@@ -113,18 +113,18 @@ export function buildLights(ctx: BuildContext): PartResult {
     tailgate: (): string => tail.inner.parent?.name ?? 'unparented',
     /** Draw calls and triangles this part costs, for the perf budget. */
     cost: (): { meshes: number; triangles: number; lights: number } => {
-      let meshes = 0;
+      const seen = new Set<THREE.Mesh>();
       let triangles = 0;
       for (const root of [group, tail.inner]) {
         root.traverse((o) => {
           const m = o as THREE.Mesh;
-          if (!m.isMesh || !m.geometry) return;
-          meshes++;
+          if (!m.isMesh || !m.geometry || seen.has(m)) return;
+          seen.add(m);
           const g = m.geometry as THREE.BufferGeometry;
           triangles += (g.index ? g.index.count : (g.attributes.position?.count ?? 0)) / 3;
         });
       }
-      return { meshes, triangles: Math.round(triangles), lights: lights.length };
+      return { meshes: seen.size, triangles: Math.round(triangles), lights: lights.length };
     },
   };
 

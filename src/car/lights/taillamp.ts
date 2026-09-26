@@ -34,8 +34,7 @@ import {
   bothSides, bowl, frame, inset, merge, mirrored, slab, sliceX, sliceY, spanAt,
   type Outline,
 } from './shapes';
-import type { Glow, GlowFactory } from './optics';
-import { FILAMENT } from './headlamp';
+import { FILAMENT, type Glow, type GlowFactory } from './optics';
 
 const R = HP.rear;
 const FACE = rearFaceZ;

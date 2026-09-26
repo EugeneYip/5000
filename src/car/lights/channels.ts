@@ -112,7 +112,3 @@ export class LampChannels {
     return s;
   }
 }
-
-/** Index into anything stored left-first. */
-export const LEFT = 0;
-export const RIGHT = 1;

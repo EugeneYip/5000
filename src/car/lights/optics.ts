@@ -29,6 +29,15 @@ import type { MaterialLibrary } from '@/types';
  * keeps the patch *and* the program-cache key, so the two still share one
  * compiled program.
  */
+/**
+ * Blaze colour behind a *tinted* lens. The bulb in a turn signal or a stop
+ * lamp is clear or lightly frosted; the colour is in the lens. Driving the
+ * blaze in the signal colour as well runs the light through the dye twice and
+ * the section comes out crimson — which is the wrong signal colour at the
+ * front of a car and a dead one at the back.
+ */
+export const FILAMENT = 0xfff0dc;
+
 export function independent<T extends THREE.Material>(src: T): T {
   const m = src.clone() as T;
   m.onBeforeCompile = src.onBeforeCompile;

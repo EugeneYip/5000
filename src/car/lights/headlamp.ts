@@ -33,12 +33,10 @@ import {
   bowl, bothSides, frame, filament, inset, merge, mirrored, slab, sliceX, spanAt, tubeZ,
   type Outline,
 } from './shapes';
-import { fluteHorizontal, type Glow, type GlowFactory } from './optics';
+import { FILAMENT, fluteHorizontal, type Glow, type GlowFactory } from './optics';
 import type { BeamGeometry } from './beam';
 
 const F = HP.front;
-/** A 2700 K coil: what actually sits behind a coloured lens. */
-export const FILAMENT = 0xfff0dc;
 const FACE = noseFaceZ;
 const FACING = 1 as const;
 
@@ -92,13 +90,6 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   // the library's rim lift reads as glass and costs nothing when unlit.
   const coldBulb = ctx.materials.emissive(0xe6ebf4, 0.06);
   const coldFilament = ctx.materials.emissive(0xffe6b4, 0.4);
-
-  /**
-   * Blaze colour behind a *tinted* lens. The bulb in a US turn signal is
-   * clear; the amber is in the lens. Driving the blaze amber as well runs the
-   * light through the dye twice and the section comes out crimson — which is
-   * exactly the wrong signal colour to show at the front of a car.
-   */
 
   // --- bezel and seal ------------------------------------------------------
   // The bezel's crest stands 4 mm proud of the skin, then rolls back and sinks

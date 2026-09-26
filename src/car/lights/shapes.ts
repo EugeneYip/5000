@@ -255,11 +255,6 @@ export function slab(o: SlabOpts): THREE.BufferGeometry {
   return parts.length === 1 ? parts[0] : mergeGeometries(parts, false)!;
 }
 
-/** A flat-ish panel on the skin — one face only. */
-export function facePanel(o: Omit<SlabOpts, 'back' | 'capBack' | 'walls'>): THREE.BufferGeometry {
-  return slab({ ...o, back: o.front, capBack: false, walls: false });
-}
-
 // ---------------------------------------------------------------------------
 // Reflector bowls
 // ---------------------------------------------------------------------------

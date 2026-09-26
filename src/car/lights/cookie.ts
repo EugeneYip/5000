@@ -19,8 +19,7 @@
  *
  * Values are consumed raw — `lights_fragment_begin` multiplies the sampled rgb
  * straight into the light colour with no colour-space decode — so the data is
- * linear, and float rather than byte because the gradient under the cutoff
- * bands visibly at 8 bits.
+ * written linear.
  */
 
 import * as THREE from 'three';
@@ -131,17 +130,24 @@ export function highBeamCookie(opts: { halfAngle: number; size?: number }): THRE
   return pack(lum, size, peak);
 }
 
+/**
+ * Half-float rather than byte or full float: eight bits bands visibly in the
+ * long gradient under the cutoff, and linear filtering of a *full* float
+ * texture needs `OES_texture_float_linear`, which is an optional extension
+ * even on WebGL2. Half-float filtering is core.
+ */
 function pack(lum: Float32Array, size: number, peak: number): THREE.DataTexture {
   const k = peak > 0 ? 1 / peak : 1;
-  const data = new Float32Array(size * size * 4);
+  const data = new Uint16Array(size * size * 4);
+  const one = THREE.DataUtils.toHalfFloat(1);
   for (let i = 0; i < lum.length; i++) {
-    const v = lum[i] * k;
+    const v = THREE.DataUtils.toHalfFloat(lum[i] * k);
     data[i * 4] = v;
     data[i * 4 + 1] = v;
     data[i * 4 + 2] = v;
-    data[i * 4 + 3] = 1;
+    data[i * 4 + 3] = one;
   }
-  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.HalfFloatType);
   tex.colorSpace = THREE.NoColorSpace;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
