@@ -15,7 +15,6 @@ import { HP } from '@/car/hardpoints';
 import type { BuildContext } from '@/types';
 import { skinY } from './bodyref';
 import { makeCanvas } from './glyphs';
-import { createPrinted } from './printed';
 import { DEG, at, lathe, merge, mesh, roundedBox, type Pt } from './util';
 
 /** A period PA inspection sticker: month band, year, and the issuing station. */
@@ -141,7 +140,7 @@ export function buildDetails(ctx: BuildContext): THREE.Group {
     const y = HP.cowlY + k * (HP.headerY - HP.cowlY);
 
     const plane = new THREE.PlaneGeometry(0.052, 0.067);
-    const sticker = new THREE.Mesh(plane, createPrinted(stickerTexture(), { roughness: 0.55, clearcoat: 0.1 }));
+    const sticker = new THREE.Mesh(plane, ctx.materials.printed(stickerTexture(), { roughness: 0.55, clearcoat: 0.1 }));
     sticker.name = 'inspectionSticker';
     sticker.quaternion.setFromRotationMatrix(basis);
     // Applied on the inside of the glass, passenger side, high in the corner.

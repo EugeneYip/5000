@@ -13,7 +13,15 @@
  *
  * Rear-wiper note: §6.7 reads the motor housing at the *top* of the tailgate
  * aperture and infers a top pivot, but `HP.rear.wiperPivot` (y = 0.985) is at
- * the bottom of the glass. Built to the hardpoint; see the stream report.
+ * the bottom of the glass. Built to the hardpoint.
+ *
+ * The hardpoint is right and the blade was still 49 mm clear of the glass
+ * (`docs/CRITIQUE.md` §8) — because the tailgate glass is built 56 % short of
+ * its own package drawing (§2, and not this stream's to fix). A wiper is
+ * defined by the glass it wipes, not by a number, so `fitRearWiper` below
+ * measures the pane that actually got built and drops the pivot onto its lower
+ * edge. When the glazing stream lands `HP.glass.tailgateGlassBottomY` (0.962)
+ * this quietly converges back on `HP.rear.wiperPivot` (0.985) and stops moving.
  */
 
 import * as THREE from 'three';
@@ -85,7 +93,7 @@ function arm(bladeLength: number): { metal: THREE.BufferGeometry; rubber: THREE.
   return { metal: merge(metal), rubber: merge(rubber) };
 }
 
-interface Pivot { group: THREE.Group; park: number; sweep: number }
+interface Pivot { mount: THREE.Group; group: THREE.Group; park: number; sweep: number }
 
 function mount(
   parent: THREE.Group,
@@ -96,6 +104,7 @@ function mount(
   flip: boolean,
   metalMat: THREE.Material,
   rubberMat: THREE.Material,
+  parkDeg: number = W.parkAngleDeg,
 ): Pivot {
   const g = new THREE.Group();
   g.name = name;
@@ -114,13 +123,15 @@ function mount(
   parent.add(g);
 
   const sign = flip ? -1 : 1;
-  return { group: inner, park: W.parkAngleDeg * DEG * sign, sweep: W.sweepDeg * DEG * sign };
+  return { mount: g, group: inner, park: parkDeg * DEG * sign, sweep: W.sweepDeg * DEG * sign };
 }
 
 export interface WiperResult {
   group: THREE.Group;
   articulation: Articulation;
   nodes: { driver: THREE.Object3D; passenger: THREE.Object3D; rear: THREE.Object3D };
+  /** The rear arm's pivot, for `fitRearWiper` and for riding on the tailgate. */
+  rearMount: THREE.Group;
   update(dt: number, elapsed: number, state: VehicleState): void;
 }
 
@@ -154,7 +165,10 @@ export function buildWipers(ctx: BuildContext): WiperResult {
   const tail = new THREE.Matrix4().makeBasis(rRight, rUp, rN);
   const rearOrigin = new THREE.Vector3(HP.rear.wiperPivot[0], ry, rearFaceZ(HP.rear.wiperPivot[0], ry))
     .addScaledVector(rN, 0.020);
-  const rear = mount(group, 'wiperRear', rearOrigin, tail, HP.rear.wiperLength, true, metalMat, rubberMat);
+  // Parked flat rather than at the windscreen's −8°: over a 523 mm arm that
+  // droop drops the blade tip 73 mm, which on a tailgate puts the far half of
+  // the blade off the bottom of the glass and onto paint.
+  const rear = mount(group, 'wiperRear', rearOrigin, tail, HP.rear.wiperLength, true, metalMat, rubberMat, 0);
 
   const arms = [driver, passenger, rear];
   const setSweep = (f: number): void => {
@@ -177,6 +191,7 @@ export function buildWipers(ctx: BuildContext): WiperResult {
     group,
     articulation,
     nodes: { driver: driver.group, passenger: passenger.group, rear: rear.group },
+    rearMount: rear.mount,
     update(_dt, elapsed, state) {
       const mode = state.wipers;
       if (mode <= 0) return;
@@ -190,4 +205,35 @@ export function buildWipers(ctx: BuildContext): WiperResult {
       articulation.target = f;
     },
   };
+}
+
+/**
+ * Put the rear blade on the glass that was actually built.
+ *
+ * Returns false until the glazing stream's pane is in the graph, so the caller
+ * can retry. Measured in the car's own frame, which is the tailgate-closed
+ * pose — the mount is re-parented onto the tailgate afterwards, so the fit
+ * survives the panel opening.
+ */
+export function fitRearWiper(mount: THREE.Group, root: THREE.Object3D): boolean {
+  const pane = root.getObjectByName('tailgateGlassOuter') ?? root.getObjectByName('tailgateGlazing');
+  if (!pane) return false;
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(pane);
+  if (box.isEmpty() || !Number.isFinite(box.min.y)) return false;
+  root.worldToLocal(box.min);
+  root.worldToLocal(box.max);
+
+  // Parked just inside the lower edge, the blade lying along the glass.
+  const y = box.min.y + 0.026;
+  const x = HP.rear.wiperPivot[0];
+  const dz = rearFaceZ(x, y + 0.06) - rearFaceZ(x, y - 0.06);
+  const up = new THREE.Vector3(0, 0.12, dz).normalize();
+  const n = new THREE.Vector3(0, up.z, -up.y).normalize();
+  mount.quaternion.setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(new THREE.Vector3(-1, 0, 0), up, n),
+  );
+  // The pane's outer face is its most negative z; sit the arm just clear of it.
+  mount.position.set(x, y, Math.min(rearFaceZ(x, y), box.min.z) - 0.012);
+  return true;
 }

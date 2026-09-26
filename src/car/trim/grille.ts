@@ -26,19 +26,25 @@ import { arc, at, lerp, merge, mesh, roundedBox, sweep, type Frame, type Pt } fr
 const F = HP.front;
 
 /** Depth of a slat, front to back. */
-const SLAT_DEPTH = 0.0175;
+const SLAT_DEPTH = 0.0105;
 /** Where the slat fronts sit: the quoted recess behind the grille datum. */
 const SLAT_Z = F.grilleZ - F.grilleRecess;
 /** The dark box behind the slats, and the core in front of its back wall. */
 const BACK_Z = SLAT_Z - 0.052;
 const CORE_Z = SLAT_Z - 0.030;
 
-/** 2 : 1 open to solid, so seven slats and eight apertures fill the opening. */
+/**
+ * Open to solid. §6.1 says "roughly twice"; the owner's photograph scans
+ * 30 : 70 bright to dark across seven slats, which is 2.25 : 1 once the slat's
+ * own lit edge is counted, and that is the number the render has to match.
+ */
+const OPEN_RATIO = 2.25;
+
 function pitch(): { slat: number; aperture: number } {
   const n = F.grilleSlats;
   const height = F.grilleTopY - F.grilleBottomY;
-  const slat = height / (n + 2 * (n + 1));
-  return { slat, aperture: slat * 2 };
+  const slat = height / (n + OPEN_RATIO * (n + 1));
+  return { slat, aperture: slat * OPEN_RATIO };
 }
 
 /**
@@ -49,6 +55,13 @@ function pitch(): { slat: number; aperture: number } {
  * grille then reads as a set of wires rather than blades. §6.1 calls the slats
  * "thin, flat-faced, bright, with a rounded leading edge" — the radius is the
  * edge break, not the whole front.
+ *
+ * The skirt below the leading edge used to drop 5.4 mm, which is 40 % of the
+ * aperture under it. `pitch()` was already 30 : 70 open-to-solid, but a column
+ * scan of the render came back 50 : 50 (`docs/CRITIQUE.md` §11) because the
+ * skirt is bright chrome too and the eye counts it as slat. It is 0.8 mm now,
+ * and the blade is 10.5 mm deep rather than 17.5, so less of the top face is
+ * presented to a camera looking slightly down at the nose.
  */
 function slatSection(t: number): Pt[] {
   const r = t / 2;
@@ -59,12 +72,14 @@ function slatSection(t: number): Pt[] {
     [0, r - fr],
     ...arc(-fr, r - fr, fr, 0, Math.PI / 2, 3),
     // Top face runs back and drops a little — you see it from above.
-    [-d + 0.0015, r - 0.0014],
-    [-d, r - 0.0024],
-    // Back edge, then the underside, which sits lower than the leading edge so
-    // it throws a clean shadow onto the slat below.
-    [-d, -r - 0.0052],
-    [-d + 0.0020, -r - 0.0054],
+    [-d + 0.0012, r - 0.0011],
+    [-d, r - 0.0019],
+    // Back edge, then the underside. It still sits a shade lower than the
+    // leading edge, so it throws a clean shadow onto the slat below, but only
+    // a shade: this is the millimetre that decides whether the grille reads
+    // black or silver.
+    [-d, -r - 0.0006],
+    [-d + 0.0014, -r - 0.0008],
     [-fr - 0.0004, -r - 0.0004],
   ];
 }

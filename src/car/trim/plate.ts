@@ -21,12 +21,12 @@
 
 import * as THREE from 'three';
 import { PLATE, QUALITY } from '@/spec';
+import type { BuildContext } from '@/types';
 import {
   BADGE_FONT_STACK, PLATE_FONT_STACK, capHeightPx, drawRun, embossGeometry,
   layout, makeCanvas, maskFromCanvas, shapesFromMask,
 } from './glyphs';
 import { bolt, clamp, merge, mesh } from './util';
-import { createPrinted } from './printed';
 
 const W = PLATE.widthM;
 const H = PLATE.heightM;
@@ -314,7 +314,7 @@ function outline(a: number, b: number, r: number, per = 44): THREE.Vector2[] {
   const n = pts.length;
   for (let i = 0; i < n; i++) {
     const p = pts[i], q = pts[(i + 1) % n];
-    const steps = Math.max(1, Math.ceil(p.distanceTo(q) / 0.006));
+    const steps = Math.max(1, Math.ceil(p.distanceTo(q) / 0.012));
     for (let s = 0; s < steps; s++) dense.push(p.clone().lerp(q, s / steps));
   }
   return dense;
@@ -384,13 +384,13 @@ export interface PlateParts {
  * Build the plate once; both ends of the car share the geometry, the texture
  * and the material, so two plates cost one extra draw call, not two.
  */
-export function buildPlate(renderer: THREE.WebGLRenderer): PlateParts {
+export function buildPlate(ctx: BuildContext): PlateParts {
   const run = measure();
 
   const faceCanvas = drawFace(run);
   const map = new THREE.CanvasTexture(faceCanvas);
   map.colorSpace = THREE.SRGBColorSpace;
-  map.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  map.anisotropy = ctx.renderer.capabilities.getMaxAnisotropy();
   map.needsUpdate = true;
 
   const mask = maskFromCanvas(drawEmbossMask(run));
@@ -398,14 +398,22 @@ export function buildPlate(renderer: THREE.WebGLRenderer): PlateParts {
     scale: 1 / PPM,
     // maskFromCanvas pads by 2 px, and the mask's origin is its top-left.
     originPx: [TEX_W / 2 + 2, TEX_H / 2 + 2],
-    epsilon: 0.9,
-    minArea: 20,
+    // 1.6 px at 6.7 px/mm is 0.24 mm of chord error on a character edge — a
+    // quarter of the die's own draft, and below what `platecam` resolves. At
+    // the previous 0.9 px the marching-squares trace was carrying a vertex
+    // every couple of pixels and the pressing alone cost 6.6 k triangles.
+    epsilon: 1.6,
+    minArea: 24,
   });
   const emboss = conform(embossGeometry(shapes, { depth: LAYOUT.emboss, bevel: EMBOSS_DRAFT, sink: 0.0040 }));
 
   const ring = outline(HW, HH, PLATE.cornerRadius);
-  const front = facePanel(ring, 16, (x, y) => bow(x, y), false);
-  const back = facePanel(ring, 6, (x, y) => bow(x, y) - LAYOUT.gauge, true);
+  // The blank is a 2.6 mm quadratic bow over 305 mm. A 16-ring radial fan on
+  // an 0.006 m outline was 4.7 k triangles of it; the shading is identical at
+  // 8 rings on an 0.012 m outline, and the UVs are linear in x and y so no
+  // amount of coarsening moves the artwork.
+  const front = facePanel(ring, 8, (x, y) => bow(x, y), false);
+  const back = facePanel(ring, 3, (x, y) => bow(x, y) - LAYOUT.gauge, true);
 
   // Rolled edge between the two faces.
   const rimPos: number[] = [];
@@ -443,7 +451,17 @@ export function buildPlate(renderer: THREE.WebGLRenderer): PlateParts {
   return {
     plate: merge([front, back, rim, emboss]),
     bolts: merge(bolts),
-    material: createPrinted(map, { roughness: 0.33, clearcoat: 0.42 }),
+    material: ctx.materials.printed(map, {
+      roughness: 0.33,
+      clearcoat: 0.42,
+      clearcoatRoughness: 0.16,
+      envMapIntensity: 0.9,
+      // A large, nearly flat panel carrying 2.9 mm of relief is exactly the
+      // case a shadow map self-shadows into acne; casting from the back faces
+      // moves the recorded depth off the lit surface. `Car` forces castShadow
+      // on every mesh after the builders run, so it has to be the material.
+      backfaceShadow: true,
+    }) as THREE.MeshPhysicalMaterial,
   };
 }
 

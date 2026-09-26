@@ -192,19 +192,35 @@ export const HP = {
 
     /** Daylight-opening corners at the beltline, right-hand side. */
     dloFrontZ: -0.585,
-    dloRearZ: TAIL + 0.838,
+    /**
+     * The body's `tDloRear` and the glazing both build the DLO's trailing edge
+     * to -3.420 at the beltline. This said -2.978 — a 442 mm disagreement in
+     * which the hardpoint, not the geometry, was the odd one out.
+     */
+    dloRearZ: -3.42,
     dloBottomY: 0.998,
 
     /** Quarter light in the front door, ahead of the mirror. */
     quarterFrontZ: -0.445,
     /** The wagon's long rear quarter glass behind the rear door. */
     quarterRearFrontZ: -2.585,
-    quarterRearRearZ: TAIL + 0.838,
+    quarterRearRearZ: -3.42,
 
     /** Tailgate glass. */
-    tailgateGlassTopY: 1.372,
+    /**
+     * 1.372 was unreachable: the tailgate hinge is at 1.340 and the body's
+     * roof profile at that station is 1.338, so no point on the tailgate can
+     * be higher. With the header band and a 4 mm lap the glass tops out here.
+     */
+    tailgateGlassTopY: 1.285,
     tailgateGlassBottomY: 0.962,
     tailgateGlassZ: TAIL + 0.086,
+    /**
+     * Unresolved: the glazing builds 0.745 to preserve the glass-to-body
+     * width ratio the photograph shows, given the tail we have. Either this
+     * figure is 33 mm narrow, or the body's tail is ~80 mm too wide at
+     * y ~ 0.98. Needs a body pass to arbitrate, not a guess here.
+     */
     tailgateGlassHalfW: 0.712,
   },
 

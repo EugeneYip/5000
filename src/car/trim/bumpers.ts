@@ -288,23 +288,13 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
 
   // --- rear detail ---------------------------------------------------------
   const rearExtras: THREE.BufferGeometry[] = [r.moulding];
-  // The rear plate sits in a recess rather than on a plinth (§2.3), so the
-  // surround is a frame rather than a pad.
-  const rp = HP.rear.plateCenter;
-  const surround: THREE.BufferGeometry[] = [];
-  // Set BEHIND the plate face, not proud of it: standing 4 mm forward of the
-  // plate threw a grazing shadow 30 mm across it at low sun, which read as a
-  // rash of dark blotches over the characters.
-  for (const [w, h, y, x] of [[0.352, 0.018, 0.094, 0], [0.352, 0.018, -0.094, 0], [0.020, 0.206, 0, 0.166], [0.020, 0.206, 0, -0.166]] as const) {
-    surround.push(at(roundedBox(w, h, 0.016, 0.005), [rp[0] + x, rp[1] + y, rp[2] + 0.012]));
-  }
-  rearExtras.push(...surround);
+  // Nothing mounts on the rear bumper's face. The plate recess that used to be
+  // here has gone to the tailgate, where this car actually carries it
+  // (`trim/tailgate.ts`, `docs/CRITIQUE.md` §3) — `HP.rear.plateCenter` still
+  // describes the bumper position and is no longer read by anything.
   group.add(mesh('rearBumper', merge(rearExtras), plastic));
   group.add(mesh('rearRubStrip', r.bright, bright));
   group.add(mesh('rearValance', r.valance, paint));
-
-  // Black backing panel the rear plate mounts against.
-  group.add(mesh('rearPlatePanel', at(roundedBox(0.330, 0.178, 0.012, 0.004), [rp[0], rp[1], rp[2] + 0.012]), dark));
 
   void QUALITY;
   return { group };

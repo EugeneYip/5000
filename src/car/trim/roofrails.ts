@@ -5,32 +5,74 @@
  * books as "Roof rails (wagon)", and `docs/REFERENCE-PHOTO.md` records them
  * visible above the windscreen header in the reference photograph.
  *
- * Section is a flattened extrusion with a rounded top — about twice as wide as
- * it is tall (§6.6), not round tube, which is the detail that separates a
- * period Typ 44 rail from every later Avant. Three feet per rail, per
- * `HP.roof.railFeet`, with the ends closed by moulded caps rather than swept
- * down onto the skin.
+ * WHERE THEY SIT. `docs/CRITIQUE.md` §4: the previous build put them 120 mm
+ * inboard, standing on corrugated stacked-box posts that read as an
+ * aftermarket luggage rack. Every reference — `US-F`, `AV-R1` and the owner's
+ * own photograph, where the rails measure x 785–832 and 1095–1140 against a
+ * roof spanning 800–1140 — puts them **on the roof edge**. So the centreline
+ * here is taken from the body's own roof-to-bodyside joint rather than from
+ * `HP.roof.railInnerX`, and it follows that joint, tucking inboard at the rear
+ * where the roof narrows into the D-pillar, exactly as the real extrusion does.
  *
- * NOTE on height: `HP.roof.railTopY` (1.474) and `BODY.heightOverRails` both
- * put the rail top at y ≈ 1.47, and the spec comments read that as ~50 mm of
- * stand-off. It is only 50 mm above the roof *centreline* crown; at the rail's
- * own station (x = 0.615) the skin is 32 mm lower, so taking the figure
- * literally would put the rail 90 mm in the air on stilt-like legs. The rail
- * therefore follows the roof at a constant stand-off, clamped to 75 mm. See
- * the stream report.
+ * ⚠ The joint measures **x ≈ 0.700** over the rail's span, not the 0.774 the
+ * critique quotes for "roof half-width" — 0.774 is the roof *panel's* bounding
+ * box, which includes the skin after it has turned down into the bodyside. So
+ * the move available is ~45 mm, not 120. See the stream report.
+ *
+ * SECTION. §6.6: a slim extrusion, roughly twice as wide as it is tall with a
+ * rounded top, about 25–30 mm; four support points per rail, the front and
+ * rear ends sweeping down onto the skin as integral terminations with two
+ * short posts between them. Built that way here — the blade dives to the roof
+ * over its last 90 mm at each end, so the terminations are the extrusion
+ * itself rather than something bolted under it.
+ *
+ * HEIGHT. `HP.roof.railTopY` (1.474) and `BODY.heightOverRails` are overall
+ * *vehicle* height, measured over the roof's centreline crown — at the rail's
+ * own station the skin is 47 mm lower, and taking 1.474 literally puts the
+ * blade 100 mm in the air on stilts. What is achievable is `railBaseY`: the
+ * blade's underside sits at 1.408, which is 40 mm above the skin under it and
+ * within §6.6's 50–55 mm. Reported.
  */
 
 import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import type { BuildContext } from '@/types';
-import { skinNormal, skinY } from './bodyref';
-import { arc, at, clamp, framesFrom, lerp, merge, mesh, roundedBox, sweep, type Pt } from './util';
+import { roofEdgePoint, skinY } from './bodyref';
+import { clamp, framesFrom, lerp, merge, mesh, roundedBox, smoothstep, sweep, type Pt } from './util';
 
 const R = HP.roof;
-const CX = R.railInnerX + R.railWidth / 2;
-const SECTION_H = 0.028;
-const FOOT_W = 0.030;
-const FOOT_L = 0.048;
+/** Blade section: 38 × 22 mm, the "twice as wide as tall" of §6.6. */
+const SECTION_H = 0.022;
+/** Gap the blade keeps above the skin through the straight part of its run. */
+const STANDOFF = 0.040;
+/** How far in from the roof-to-bodyside joint the blade's outer face sits. */
+const EDGE_GAP = 0.008;
+/** Length over which each end sweeps down onto the skin. */
+const TERMINATION = 0.090;
+
+const SPAN = Math.abs(R.railFrontZ - R.railRearZ);
+
+/** Blade centreline at station `z`, riding just inboard of the roof edge. */
+function railX(z: number): number {
+  return roofEdgePoint(z).x - EDGE_GAP - R.railWidth / 2;
+}
+
+/** Roof skin directly under the blade. */
+function skinUnder(z: number): number {
+  return skinY(z, railX(z));
+}
+
+/**
+ * Underside of the blade. Level at `railBaseY` where the roof is flat enough
+ * to carry it, following the skin down where it is not, and diving onto the
+ * skin over the last `TERMINATION` at each end.
+ */
+function baseY(z: number, t: number): number {
+  const skin = skinUnder(z);
+  const run = Math.min(R.railBaseY, skin + STANDOFF);
+  const k = clamp(Math.min(t, 1 - t) / (TERMINATION / SPAN), 0, 1);
+  return lerp(skin + 0.003, run, smoothstep(k));
+}
 
 /** Flattened D-section: flat underside, radiused flanks, elliptical top. */
 function railSection(scale: number): Pt[] {
@@ -50,69 +92,50 @@ function railSection(scale: number): Pt[] {
   return pts;
 }
 
-function railTopY(z: number, standoff: number): number {
-  return skinY(z, CX) + standoff;
-}
-
 export function buildRoofRails(ctx: BuildContext): THREE.Group {
   const group = new THREE.Group();
   group.name = 'roofRails';
   const anodised = ctx.materials.blackTrim();
 
-  // Stand-off the rail keeps above the skin, taken from the hardpoint where
-  // the hardpoint is physically sane and clamped where it is not.
-  let crest = 0;
-  for (let z = R.railRearZ; z <= R.railFrontZ; z += 0.05) crest = Math.max(crest, skinY(z, CX));
-  const standoff = clamp(R.railTopY - crest, 0.045, 0.075);
-
   const parts: THREE.BufferGeometry[] = [];
 
-  const n = 40;
+  const n = 48;
   const pts: THREE.Vector3[] = [];
   const nor: THREE.Vector3[] = [];
   for (let i = 0; i <= n; i++) {
     // Ordered rear → front so the frame's up vector comes out pointing up.
-    const z = lerp(R.railRearZ, R.railFrontZ, i / n);
-    pts.push(new THREE.Vector3(CX, railTopY(z, standoff) - SECTION_H / 2, z));
+    const t = i / n;
+    const z = lerp(R.railRearZ, R.railFrontZ, t);
+    pts.push(new THREE.Vector3(railX(z), baseY(z, t) + SECTION_H / 2, z));
     nor.push(new THREE.Vector3(1, 0, 0));
   }
   const frames = framesFrom(pts, nor);
 
-  // Ends: the section closes down over the last 55 mm into a moulded cap.
-  const capFrac = 0.055 / Math.abs(R.railFrontZ - R.railRearZ);
+  // The section also narrows into the last 55 mm, so the termination is a
+  // moulded taper rather than a blade cut off square on the roof.
+  const capFrac = 0.055 / SPAN;
   parts.push(
     sweep(
-      (_j, t) => {
-        const end = Math.min(t / capFrac, (1 - t) / capFrac, 1);
-        return railSection(lerp(0.34, 1, Math.sqrt(clamp(end, 0, 1))));
-      },
+      (_j, t) => railSection(lerp(0.42, 1, Math.sqrt(clamp(Math.min(t, 1 - t) / capFrac, 0, 1)))),
       frames,
       { closed: true, capStart: true, capEnd: true, uvScale: 0.05 },
     ),
   );
 
-  // Feet: short pedestals, inset from the ends so the rail visibly overhangs.
-  const feet: number = R.railFeet;
-  for (let k = 0; k < feet; k++) {
-    const t = feet < 2 ? 0.5 : 0.09 + (k / (feet - 1)) * 0.82;
+  // Two short posts between the terminations, at roughly the B- and C-pillar
+  // stations — the other two of §6.6's four support points are the ends
+  // themselves. One tapered pedestal each: the previous six-segment stack read
+  // as a bellows from every angle that mattered.
+  const posts = Math.max(1, R.railFeet - 1);
+  for (let k = 0; k < posts; k++) {
+    const t = posts < 2 ? 0.5 : 0.28 + (k / (posts - 1)) * 0.44;
     const z = lerp(R.railRearZ, R.railFrontZ, t);
-    const top = railTopY(z, standoff) - SECTION_H * 0.55;
-    const skin = skinY(z, CX);
-    const h = Math.max(top - skin, 0.012);
-    const tilt = Math.asin(clamp(skinNormal(z, CX).x, -1, 1));
-
-    // One tapered leg per foot, flaring into the roof and buried a few
-    // millimetres below the skin so there is never a gap under it. An extra
-    // base flange looked like a loose tab from anything but dead abeam.
-    const nSeg = 6;
-    for (let i = 0; i < nSeg; i++) {
-      const t = i / nSeg;
-      const k = 1 + 0.55 * Math.pow(t, 2.4);
-      const seg = roundedBox(FOOT_W * k, h / nSeg + 0.004, FOOT_L * (0.78 + 0.34 * Math.pow(t, 2.2)), 0.005);
-      seg.rotateZ(-tilt * t);
-      seg.translate(CX, skin - 0.006 + h * (1 - t - 0.5 / nSeg), z);
-      parts.push(seg);
-    }
+    const skin = skinUnder(z);
+    const top = baseY(z, t) + 0.002;
+    const h = Math.max(top - skin, 0.010) + 0.006;
+    const post = roundedBox(0.026, h, 0.044, 0.005);
+    post.translate(railX(z), skin - 0.005 + h / 2, z);
+    parts.push(post);
   }
 
   const right = merge(parts);
@@ -127,7 +150,5 @@ export function buildRoofRails(ctx: BuildContext): THREE.Group {
   left.computeVertexNormals();
 
   group.add(mesh('roofRails', merge([right, left]), anodised));
-
-  void arc; void at;
   return group;
 }

@@ -137,7 +137,13 @@ export function buildBody(ctx: BuildContext): PartResult {
     front: BUTT, rear: BUTT, lo: OPEN, hi: SHUT_DEEP,
   });
   const tgFace = facePatch({
-    yLo: HP.rear.tailgateBottomY, yHi: REAR_Y_TOP,
+    // Stop at the glass line, not the top of the tail. Running it to
+    // REAR_Y_TOP painted metal over the whole 176 mm of backlight aperture, so
+    // the glazing stream's correctly-built 320 mm backlight rendered as the
+    // slit it had been before. An oversight in the change that moved the
+    // tailgate's bottom down — that commit's own comment noted 0.962 is where
+    // the glass stops.
+    yLo: HP.rear.tailgateBottomY, yHi: HP.glass.tailgateGlassBottomY,
     xLo: (y) => -tailgateHalfWidth(y), xHi: tailgateHalfWidth,
     zAt: rearFaceZ, facing: -1,
     bottom: SHUT_DEEP, top: BUTT, inner: OPEN, outer: OPEN,

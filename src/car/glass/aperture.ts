@@ -63,14 +63,15 @@ export const SCREEN_T = 0.1150;
 /**
  * The DLO's top edge, and the black surround that defines it.
  *
- * The body's A-pillar is 87 mm wide and its outboard edge sits 49 mm below the
- * roof skin's edge, so the aperture the body left steps down by 49 mm at the
- * header — in the middle of the front door, where a step is unarguably wrong.
- * The fix is the moulding the real car has: the C3 deleted the drip rail and
- * runs a slim black finisher along the roof-to-bodyside joint, continuous from
- * the A-pillar to the D-pillar. Held at a constant section level it covers the
- * step, squares the DLO's top line, and is what makes the greenhouse read as
- * one dark band rather than as separate windows.
+ * The C3 deleted the drip rail and runs a slim black finisher along the
+ * roof-to-bodyside joint, continuous from the A-pillar to the D-pillar. Held at
+ * a constant section level it squares the DLO's top line and is what makes the
+ * greenhouse read as one dark band rather than as separate windows. It used to
+ * have to do more than that — the body's A-pillar was 87 mm wide with its
+ * outboard edge 49 mm below the roof skin's, and the moulding had to widen
+ * across the front door to cover the step. The pillar is now slim enough that
+ * its edge lands on `tRoofOuter` exactly, so the moulding can be what it is on
+ * the car: one constant width.
  */
 const smooth = (e0: number, e1: number, x: number): number => {
   const k = clamp((x - e0) / (e1 - e0), 0, 1);
@@ -88,14 +89,18 @@ export function mouldTopT(z: number): number {
 }
 
 /**
- * Lower edge of the moulding, and so the DLO's visible top line. It has to
- * clear the A-pillar's outboard edge (t = 0.1421) at the front and wants to be
- * a slim lip by the B-pillar, so it tapers — 47 mm of rise across the front
- * door, about 2.5°, which is far less conspicuous than the 49 mm step the bare
- * aperture would otherwise put in the middle of that door.
+ * Lower edge of the moulding, and so the DLO's visible top line.
+ *
+ * Constant, and dead level along the whole flank — which is the point. It used
+ * to taper 0.1300 → 0.1462, a 47 mm rise across the front door, because the
+ * body's A-pillar was then 87 mm wide and its outboard edge sat 49 mm below the
+ * roof skin's, so the moulding had to grow to swallow the step. The pillar has
+ * since been narrowed until its outboard edge lands on `tRoofOuter` exactly;
+ * the step is 0.0 mm, and a moulding that rises across a door for no reason is
+ * worse than none.
  */
-export function mouldBotT(z: number): number {
-  return lerp(0.1300, 0.1462, smooth(-1.78, -0.64, z));
+export function mouldBotT(_z: number): number {
+  return 0.1300;
 }
 
 /** Top of the side glass: 14 mm up behind the moulding's lower lip. */
@@ -112,13 +117,25 @@ export function dloBotT(z: number): number {
 // Longitudinal landmarks for the daylight opening
 // ---------------------------------------------------------------------------
 
-/** Division between the fixed front quarter light and the door drop glass. */
-export const QUARTER_DIV_Z = -0.558;
+/**
+ * Division between the fixed front quarter light and the door drop glass.
+ *
+ * Has to sit aft of the *rearmost* point of the A-pillar's lower edge, which is
+ * its top corner at −0.700. At −0.558 it was forward of that corner and aft of
+ * the bottom one, so the quarter-light pane crossed itself — a bow tie whose
+ * upper half was wound inside out.
+ */
+export const QUARTER_DIV_Z = -0.745;
 
 /** Shutline-relative z limits of each pane, in the order they run back. */
 export const DLO = {
-  /** Front corner of the DLO at the beltline, where the A-pillar dies into it. */
-  frontZ: -0.400,
+  /**
+   * Front corner of the DLO at the beltline, where the A-pillar dies into it.
+   * Follows the body: `aPillarLower` reaches the beltline at −0.560 now that
+   * its transition runs −0.700 … −0.560, so the corner is aft of the front
+   * door's shutline rather than 155 mm ahead of it on the wing.
+   */
+  frontZ: -0.570,
   quarterDivZ: QUARTER_DIV_Z,
   bPillarFrontZ: Z.doorM + 0.040,
   bPillarRearZ: Z.doorM - 0.048,
@@ -137,6 +154,9 @@ export const DLO = {
 // far easier to sample the other way round, so both are inverted by bisection.
 // Twenty-two iterations over a 220 mm span resolves to well under a micron.
 
+/** Forward end of the A-pillar's belt transition: the pillar is slim from here aft. */
+export const PILLAR_SLIM_Z = -0.700;
+
 function invert(f: (z: number) => number, target: number, zLo: number, zHi: number): number {
   let lo = zLo, hi = zHi;
   const rising = f(zHi) > f(zLo);
@@ -149,9 +169,9 @@ function invert(f: (z: number) => number, target: number, zLo: number, zHi: numb
 
 /** z of the A-pillar's lower edge at section position `t`. */
 export function zAtPillarFront(t: number): number {
-  if (t <= aPillarLower(-0.640)) return -0.640;
+  if (t <= aPillarLower(PILLAR_SLIM_Z)) return PILLAR_SLIM_Z;
   if (t >= T.belt) return DLO.frontZ;
-  return invert(aPillarLower, t, -0.640, DLO.frontZ);
+  return invert(aPillarLower, t, PILLAR_SLIM_Z, DLO.frontZ);
 }
 
 /** z of the D-pillar's leading edge at section position `t`. */
@@ -207,11 +227,8 @@ export function dloPane(zFront: number, zRear: number): Region {
 export function quarterFrontPane(): Region {
   return (a, b) => {
     const t = lerp(dloTopT(QUARTER_DIV_Z), dloBotT(QUARTER_DIV_Z), b);
-    // The DLO's bottom-front corner falls 55 mm ahead of the door cut, on the
-    // wing. Stop there and let the mirror sail fill the wedge — a sliver of
-    // glass on the far side of a shutline would be nonsense.
-    const zf = Math.min(zAtPillarFront(t) + 0.008, Z.doorF + 0.006);
-    return { z: lerp(zf, QUARTER_DIV_Z + 0.003, a), t };
+    // 8 mm under the pillar's edge, so the pillar laps the glass.
+    return { z: lerp(zAtPillarFront(t) + 0.008, QUARTER_DIV_Z + 0.003, a), t };
   };
 }
 
