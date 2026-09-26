@@ -212,9 +212,13 @@ const xBelt = spline(
   [-1.600, BODY.tumblehomeTop],                  // 0.855
   [-2.600, 0.854],
   [-2.978, 0.850],
-  [-3.300, 0.843],
-  [-3.500, 0.836],
-  [Z_TAIL_END, 0.822],
+  // The tail's taper in plan. These were 0.843 / 0.836 / 0.822, so the
+  // beltline ran nearly parallel to the centreline right to the back of the
+  // car and the tailgate came out a full-width slab. See `dloFullX` below for
+  // the measurement all three tail changes come from.
+  [-3.300, 0.838],
+  [-3.500, 0.820],
+  [Z_TAIL_END, 0.795],
 );
 
 /**
@@ -230,6 +234,43 @@ const dloFullY = spline(
   [-3.300, 0.78],
   [-3.500, 0.88],
   [Z_TAIL_END, 0.90],
+);
+
+/**
+ * The same thing laterally: where the dlo-mid level sits between the beltline
+ * half-width and the roof-edge half-width. 0.42 along the whole cabin, but the
+ * tail tucks in much harder than that.
+ *
+ * This was the constant 0.42 everywhere.
+ *
+ * The tail was measured off the dead-on rear photograph of the 1988 wagon
+ * entirely in *ratios to the taillamp band's own half-width*, so no absolute
+ * calibration of the photograph is needed and the answer does not depend on
+ * knowing the camera distance — everything compared sits in the same plane.
+ * Half-widths in those units, against the model as it was:
+ *
+ *   height              photo   model (before)   model (now)
+ *   lamp centreline     1.000       1.000           1.000
+ *   lamp top            0.984       0.994           0.973
+ *   beltline            0.937       0.978           0.942
+ *   100 mm above belt   0.864       0.897           0.864
+ *
+ * The old tail held nearly full width all the way up past the beltline and
+ * then broke sharply, instead of rolling over just above the lamps. That is
+ * why the tailgate glass had to be built 33 mm wider than `HP.glass
+ * .tailgateGlassHalfW` before it looked right against the body beside it: the
+ * body, not the glass, was the part that was wrong. Three changes put the
+ * tumblehome back where the photograph has it — `xBelt` at the last three
+ * stations, `flankCrown` (which keeps the lamp band full while the belt comes
+ * in), and this. None of them touches the beltline height, the roof edge, the
+ * shoulder, the maximum half-width or anything in the side elevation.
+ */
+const dloFullX = spline(
+  [Z_NOSE_FACE, 0.42],
+  [-3.108, 0.42],
+  [-3.300, 0.44],
+  [-3.500, 0.45],
+  [Z_TAIL_END, 0.46],
 );
 
 // ---------------------------------------------------------------------------
@@ -331,13 +372,22 @@ const glassBulge = spline(
   [Z_TAIL_END, 0.004],
 );
 
+/**
+ * Across the doors this is a 6-8 mm crown on a nearly flat skin. Over the tail
+ * it does a second job: it holds the section out at the taillamp band while
+ * `xBelt` brings the beltline 55 mm inboard above it, which is what turns the
+ * tail's shoulder into a radius sitting just above the lamps rather than a
+ * chamfer starting at the beltline. Without it, narrowing the belt dragged the
+ * lamp band in with it and the taillamps overhung the body.
+ */
 const flankCrown = spline(
   [Z_NOSE_FACE, 0.003],
   [0.000, 0.006],
   [-0.455, 0.008],
   [-2.585, 0.008],
-  [-3.300, 0.005],
-  [Z_TAIL_END, 0.002],
+  [-3.100, 0.009],
+  [-3.300, 0.012],
+  [Z_TAIL_END, 0.018],
 );
 
 const scratch: number[] = new Array(18).fill(0);
@@ -356,7 +406,7 @@ function levels(z: number): number[] {
   const xw = xWide.at(z);
   const yw = yWide.at(z);
 
-  const kx = 0.42;
+  const kx = dloFullX.at(z);
   const ky = dloFullY.at(z);
   const xd = lerp(xb, xr, kx) + glassBulge.at(z);
   const yd = lerp(yb, yr, ky);
@@ -379,10 +429,52 @@ function levels(z: number): number[] {
 }
 
 /**
- * Evaluate the half-section at |t|. Uses the same non-uniform Catmull-Rom as
- * the longitudinal splines, with a phantom point mirrored across the
- * centreline so the roof crown has a horizontal tangent at t = 0 — otherwise
- * the two halves meet in a ridge and the roof highlight breaks.
+ * Fritsch-Carlson limited tangent for one coordinate at one control level.
+ *
+ * The transverse section is NOT parameterised by arc length: t runs 0 → 0.12
+ * from the roof centreline out to the roof edge, which at the scuttle is
+ * 790 mm of skin, and then 0.12 → 0.26 for the next 50 mm. A plain
+ * Catmull-Rom tangent at the roof-edge knot is therefore ~3.2 per unit t,
+ * against a secant of 0.44 into the span that follows, and the curve carries
+ * that momentum straight past the next control point.
+ *
+ * Where the cowl is nearly as wide at the shutline as it is at the beltline —
+ * z −0.35 … −0.72, the scuttle and the base of the A-pillar — the overshoot
+ * was larger than the gap between the two levels, so the section **folded
+ * back on itself**: x ran 0.766 → 0.848 → 0.828 → 0.846 → 0.859 across
+ * t 0.12 … 0.38, y was non-monotone with it, ∂S/∂t reversed, and the analytic
+ * normal inverted over that whole band. `panel.ts` builds every rolled edge
+ * and flange along that normal, so the cowl's rear edge and the front wing's
+ * top edge extruded their 30-34 mm returns *outward through the skin* instead
+ * of inward behind it. That is the bright shard on the front wing at the
+ * A-pillar's base; `arcLen`/`arcRate` were also meaningless through the cusp,
+ * which quietly corrupted every `dtFor` inset taken there.
+ *
+ * Limiting the tangents fixes it without moving a single control level, so
+ * every hardpoint and the whole verified side elevation are untouched: the
+ * curve still passes exactly through all nine levels, it simply no longer
+ * leaves the box they bracket. At a genuine local extremum (the flank crown,
+ * where `xc` sits a millimetre proud of `xWide`) the tangent goes to zero,
+ * which is what a crown actually is.
+ */
+function limitedTangent(
+  vPrev: number, vHere: number, vNext: number,
+  tPrev: number, tHere: number, tNext: number,
+): number {
+  const dL = (vHere - vPrev) / (tHere - tPrev);
+  const dR = (vNext - vHere) / (tNext - tHere);
+  if (dL * dR <= 0) return 0;
+  const m = (vNext - vPrev) / (tNext - tPrev);
+  const lim = 3 * Math.min(Math.abs(dL), Math.abs(dR));
+  return Math.abs(m) <= lim ? m : (m < 0 ? -lim : lim);
+}
+
+/**
+ * Evaluate the half-section at |t|. Non-uniform Catmull-Rom through the nine
+ * control levels with monotone-limited tangents (see `limitedTangent`), and a
+ * phantom point mirrored across the centreline so the roof crown has a
+ * horizontal tangent at t = 0 — otherwise the two halves meet in a ridge and
+ * the roof highlight breaks.
  */
 function sectionPoint(z: number, a: number, out: THREE.Vector2): THREE.Vector2 {
   const L = levels(z);
@@ -399,12 +491,10 @@ function sectionPoint(z: number, a: number, out: THREE.Vector2): THREE.Vector2 {
   const py = (k: number): number => (k < 0 ? L[3] : k > n - 1 ? 2 * L[17] - L[15] : L[k * 2 + 1]);
   const pt = (k: number): number => (k < 0 ? -LEVEL_T[1] : k > n - 1 ? 2 * LEVEL_T[8] - LEVEL_T[7] : LEVEL_T[k]);
 
-  const hm0 = t1 - pt(i - 1);
-  const hm1 = pt(i + 2) - t0;
-  const mx0 = (px(i + 1) - px(i - 1)) / hm0;
-  const my0 = (py(i + 1) - py(i - 1)) / hm0;
-  const mx1 = (px(i + 2) - px(i)) / hm1;
-  const my1 = (py(i + 2) - py(i)) / hm1;
+  const mx0 = limitedTangent(px(i - 1), px(i), px(i + 1), pt(i - 1), t0, t1);
+  const my0 = limitedTangent(py(i - 1), py(i), py(i + 1), pt(i - 1), t0, t1);
+  const mx1 = limitedTangent(px(i), px(i + 1), px(i + 2), t0, t1, pt(i + 2));
+  const my1 = limitedTangent(py(i), py(i + 1), py(i + 2), t0, t1, pt(i + 2));
 
   const s2 = s * s, s3 = s2 * s;
   const h00 = 2 * s3 - 3 * s2 + 1;

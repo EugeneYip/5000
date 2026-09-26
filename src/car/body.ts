@@ -25,6 +25,7 @@ import {
   rearHalfWidth, rearFaceZ, noseHalfWidth, noseFaceZ,
   FRONT_AXLE, REAR_AXLE,
   SHUT, SHUT_DEEP, OPEN, SOFT, ARCH, BUTT,
+  type Bound,
 } from './body/panels';
 
 const REAR_Y_TOP = heightAt(Z_TAIL_END, 0.0);
@@ -136,20 +137,36 @@ export function buildBody(ctx: BuildContext): PartResult {
     tHi: tTailgate,
     front: BUTT, rear: BUTT, lo: OPEN, hi: SHUT_DEEP,
   });
-  const tgFace = facePatch({
-    // Stop at the glass line, not the top of the tail. Running it to
-    // REAR_Y_TOP painted metal over the whole 176 mm of backlight aperture, so
-    // the glazing stream's correctly-built 320 mm backlight rendered as the
-    // slit it had been before. An oversight in the change that moved the
-    // tailgate's bottom down — that commit's own comment noted 0.962 is where
-    // the glass stops.
-    yLo: HP.rear.tailgateBottomY, yHi: HP.glass.tailgateGlassBottomY,
+  // The tailgate's lower face is a frame, not a sheet: the whole span between
+  // the lamp apertures is a real hole that the trim stream's black ribbed
+  // moulding recesses into, with the licence plate bolted through it. Cutting
+  // a *pocket* in the analytic rear surface does not work and was tried — the
+  // surface is already the outermost skin, so anything set behind it is simply
+  // buried and only the plate shows.
+  //
+  // The aperture is as wide as the tailgate's face is at this height (the face
+  // necks to `lampInnerX`, so the hole runs lamp to lamp, exactly as on the
+  // car) and stops 20 mm short of the tailgate's bottom shutline so that edge
+  // survives. The trim panel is derived from the same lamp hardpoints and comes
+  // out 17 mm wider and 20 mm taller than the hole on every side, so the recess
+  // cannot leak daylight however the lamp aperture moves.
+  const apLoY = HP.rear.tailgateBottomY + 0.020;
+  const apHiY = HP.rear.lampTopY;
+  const tgFaceRail = (yLo: number, yHi: number, bottom: Bound, top: Bound, ny: number) => facePatch({
+    yLo, yHi,
     xLo: (y) => -tailgateHalfWidth(y), xHi: tailgateHalfWidth,
     zAt: rearFaceZ, facing: -1,
-    bottom: SHUT_DEEP, top: BUTT, inner: OPEN, outer: OPEN,
-    ny: 22,
+    bottom, top, inner: OPEN, outer: OPEN,
+    ny,
   });
-  const tailgateGeo = mergeGeometries([tgHeader, tgSideR, mirrorGeometry(tgSideR), tgFace]);
+  // Below the hole: the tailgate's bottom shutline. Above it: the painted band
+  // the model scripts sit on, which flares back out to full width as soon as it
+  // clears the lamps and runs up to the backlight aperture.
+  const tgFaceLower = tgFaceRail(HP.rear.tailgateBottomY, apLoY, SHUT_DEEP, OPEN, 3);
+  const tgFaceUpper = tgFaceRail(apHiY, HP.glass.tailgateGlassBottomY, OPEN, BUTT, 6);
+  const tailgateGeo = mergeGeometries([
+    tgHeader, tgSideR, mirrorGeometry(tgSideR), tgFaceLower, tgFaceUpper,
+  ]);
   const tgHinge = new THREE.Vector3(0, topAt(Z.tgHinge), Z.tgHinge);
   tailgateGeo.translate(-tgHinge.x, -tgHinge.y, -tgHinge.z);
   const tgPivot = new THREE.Group();

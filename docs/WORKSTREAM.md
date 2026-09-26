@@ -109,6 +109,13 @@ integrates and commits. Committing concurrently will conflict.
   directly. `__AUDI_MAT.audit()` lists meshes wearing materials the registry
   never issued, and `__AUDI_MAT.raw()` records every option set the library
   was handed before quantisation.
+- **Probing a node other streams attach to: use `mesh.geometry.boundingBox`
+  transformed by `matrixWorld`, never `Box3.setFromObject`.** The latter
+  descends into children, and several nodes are shared parents —
+  `tailgatePanel` alone carries the inner taillamps, the plate, the ribbed
+  panel and the rear wiper, contributed by three other streams. A probe of it
+  with `setFromObject` reported 52,794 triangles for a 3,548-triangle panel
+  and looked exactly like a corruption bug.
 - Nothing in a real car is a perfectly sharp edge. Every visible edge gets a
   radius (`QUALITY.edgeRadius`). This single habit does more for realism than
   any texture.

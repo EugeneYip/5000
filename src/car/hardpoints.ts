@@ -213,13 +213,22 @@ export const HP = {
      * be higher. With the header band and a 4 mm lap the glass tops out here.
      */
     tailgateGlassTopY: 1.285,
-    tailgateGlassBottomY: 0.962,
+    /**
+     * Raised from 0.962, which sat 23 mm BELOW `beltY` — a backlight sill
+     * under the beltline, where the reference has the tailgate's shoulder
+     * continuing it. It also left only 42 mm of painted badge band above the
+     * lamps where the photograph shows ~92, and stranded `HP.rear.badgeY`
+     * above a height with no tailgate skin on it. 1.010 reconciles all three.
+     */
+    tailgateGlassBottomY: 1.01,
     tailgateGlassZ: TAIL + 0.086,
     /**
-     * Unresolved: the glazing builds 0.745 to preserve the glass-to-body
-     * width ratio the photograph shows, given the tail we have. Either this
-     * figure is 33 mm narrow, or the body's tail is ~80 mm too wide at
-     * y ~ 0.98. Needs a body pass to arbitrate, not a guess here.
+     * Settled: this figure is right and the TAIL was too wide. Measured in
+     * ratios between features in the same plane of the rear photograph, so no
+     * calibration is involved — backlight aperture 962 px against a
+     * taillamp band of 1141 px whose ends coincide with the body silhouette,
+     * a ratio of 0.843, giving 0.710-0.717. The tail has been narrowed; the
+     * 0.745 the glazing built to is not reachable on the corrected body.
      */
     tailgateGlassHalfW: 0.712,
   },
@@ -254,6 +263,12 @@ export const HP = {
      * mix the two cars' rear measurements.
      */
     lampInnerX: 0.165,
+    /**
+     * A single number for a band spanning y 0.688..0.920, but the real lamp's
+     * outer end follows the body edge, which tapers ~12 mm over that height.
+     * Consumers should clip the lamp to the body's own half-width at each y
+     * rather than treating this as a constant.
+     */
     lampOuterX: 0.85,
     lampTopY: 0.92,
     lampBottomY: 0.688,

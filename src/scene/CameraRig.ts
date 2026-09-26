@@ -46,7 +46,8 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
   // The money shot. 3/4 front, slightly below eye level so the car looks
   // planted rather than looked-down-upon.
   front3q:   { target: [0, 0.68, CZ + 0.35], position: [3.35, 1.32, 5.15], focalMm: 62, aperture: 2.8 },
-  rear3q:    { target: [0, 0.72, CZ - 0.35], position: [3.5, 1.38, -5.4], focalMm: 62, aperture: 2.8 },
+  // Was framed too tight to hold the car and shot straight into the low sun.
+  rear3q:    { target: [0, 0.78, CZ - 0.2], position: [5.4, 1.72, -7.2], focalMm: 62, aperture: 2.8 },
 
   // Dead-on profile at a long focal length: the only honest way to judge
   // proportion, DLO shape and wheelbase-to-overhang relationships.
