@@ -28,6 +28,8 @@ export class Stage {
   private clock = new THREE.Clock();
   private frameCount = 0;
   private fpsSamples: number[] = [];
+  private lastCalls = 0;
+  private lastTriangles = 0;
 
   constructor(private opts: StageOptions) {
     const canvas = document.createElement('canvas');
@@ -56,6 +58,11 @@ export class Stage {
     this.renderer.toneMappingExposure = 1.0;
 
     // --- shadows ---
+    // Take manual control of the stats counters: the composer issues many
+    // render calls per frame and each one resets them, so the automatic reset
+    // leaves you reading the last pass instead of the frame.
+    this.renderer.info.autoReset = false;
+
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.VSMShadowMap;
     this.renderer.shadowMap.autoUpdate = true;
@@ -96,9 +103,12 @@ export class Stage {
   /** One frame. Returns the delta time actually used. */
   render(): number {
     const dt = Math.min(this.clock.getDelta(), 0.1);
+    this.renderer.info.reset();
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
 
+    this.lastCalls = this.renderer.info.render.calls;
+    this.lastTriangles = this.renderer.info.render.triangles;
     this.frameCount++;
     if (dt > 0) {
       this.fpsSamples.push(1 / dt);
@@ -115,13 +125,12 @@ export class Stage {
   stats(): { fps: number; ms: number; drawCalls: number; triangles: number; programs: number } {
     const s = [...this.fpsSamples].sort((a, b) => a - b);
     const fps = s.length ? s[Math.floor(s.length / 2)] : 0;
-    const info = this.renderer.info;
     return {
       fps,
       ms: fps > 0 ? 1000 / fps : 0,
-      drawCalls: info.render.calls,
-      triangles: info.render.triangles,
-      programs: info.programs?.length ?? 0,
+      drawCalls: this.lastCalls,
+      triangles: this.lastTriangles,
+      programs: this.renderer.info.programs?.length ?? 0,
     };
   }
 

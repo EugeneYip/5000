@@ -35,13 +35,17 @@ export const RIM = {
   wall: 0.0058,
   /** Drop centre: the well that lets a tyre be fitted at all. */
   wellDepth: 0.0235,
-  /** Offset. ET45 for the Type 44's 5x112 alloys. Positive = the mounting face
-   *  sits outboard of the rim centreline. */
-  offset: 0.045,
+  /** Offset. ET45. Positive = the mounting face sits outboard of the rim
+   *  centreline. */
+  offset: WHEEL.offsetMm / 1000,
 
-  /** Bolt circle. Audi used bolts into the hub, not studs and nuts. */
-  pcd: 0.112,
-  bolts: 5,
+  /**
+   * Bolt circle. Audi bolted its wheels on rather than using studs and nuts.
+   * FOUR bolts on 108 mm — 5x112 is the quattro's pattern, not the 5000 S's,
+   * and the difference is obvious on any wheel close-up.
+   */
+  pcd: WHEEL.boltCircleMm / 1000,
+  bolts: WHEEL.boltCount,
   boltHeadR: 0.0105,
   boltPocketR: 0.0158,
   boltPocketDepth: 0.0135,

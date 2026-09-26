@@ -92,8 +92,8 @@ export const HP = {
     bumperTopY: 0.648,
     bumperBottomY: 0.402,
     bumperZ: NOSE,
-    /** The rub strip inset into the bumper face. */
-    rubStripY: 0.523,
+    /** Bright strip along the bumper's UPPER EDGE, not across its face. */
+    rubStripY: 0.625,
     rubStripHeight: 0.046,
     /** Amber marker at the bumper's outboard end. */
     markerX: 0.822,
@@ -135,12 +135,12 @@ export const HP = {
     doorRearZ: -2.585,
 
     /** Door handle: the C3's flush pull-up type. */
-    handleFrontCenter: [HW - 0.008, 0.905, -1.115] as [number, number, number],
-    handleRearCenter: [HW - 0.008, 0.905, -2.145] as [number, number, number],
+    handleFrontCenter: [HW - 0.038, 0.905, -1.115] as [number, number, number],
+    handleRearCenter: [HW - 0.038, 0.905, -2.145] as [number, number, number],
     handleSize: [0.118, 0.032, 0.026] as [number, number, number],
 
     /** Mirror base on the front door's sail panel. */
-    mirrorBase: [HW - 0.012, 1.028, -0.552] as [number, number, number],
+    mirrorBase: [HW - 0.05, 1.028, -0.552] as [number, number, number],
     /** Mirror shell centre, relative to the base. */
     mirrorOffset: [0.092, 0.012, 0.03] as [number, number, number],
     mirrorSize: [0.058, 0.098, 0.168] as [number, number, number],
@@ -152,7 +152,7 @@ export const HP = {
     rubStripRearZ: TAIL + 0.398,
 
     /** Fuel filler flap — left side on this car. */
-    fuelFlapCenter: [-HW + 0.004, 0.795, -2.885] as [number, number, number],
+    fuelFlapCenter: [-HW + 0.03, 0.795, -2.885] as [number, number, number],
     fuelFlapSize: [0.152, 0.152] as [number, number],
 
     /** Side marker lamps. */
@@ -172,7 +172,13 @@ export const HP = {
      * A conventional 1980s car would be 0.012–0.018 here.
      */
     flushOffset: 0.002,
-    windscreenRakeDeg: 61.5,
+    /**
+     * Informational only. The real constraint is the loft through cowlZ/cowlY
+     * and headerZ/headerY; as built that chord is 68.8 deg from vertical,
+     * flattening from 66 at the base to 74 at the header. Do not drive
+     * geometry from this number.
+     */
+    windscreenRakeDeg: 68.8,
     windscreenThickness: 0.0058,
     sideThickness: 0.0042,
 
@@ -215,15 +221,20 @@ export const HP = {
     bumperTopY: 0.636,
     bumperBottomY: 0.392,
     bumperZ: TAIL,
-    rubStripY: 0.516,
+    rubStripY: 0.613,
 
     /** Plate recess, in the bumper below the tailgate. */
     plateCenter: [0, 0.518, TAIL + 0.002] as [number, number, number],
 
     /** Badges on the tailgate. */
-    badgeRingsCenter: [0, 0.855, TAIL + 0.04] as [number, number, number],
-    badgeAudiCenter: [-0.452, 0.742, TAIL + 0.036] as [number, number, number],
-    badgeModelCenter: [0.472, 0.742, TAIL + 0.036] as [number, number, number],
+    /**
+     * Everything here must stay inboard of `lampInnerX` (0.238) — outboard of
+     * that is taillamp aperture, not sheet metal. Rings sit just right of
+     * centre with the model text to their left.
+     */
+    badgeRingsCenter: [0.062, 0.855, TAIL + 0.04] as [number, number, number],
+    badgeAudiCenter: [-0.138, 0.742, TAIL + 0.036] as [number, number, number],
+    badgeModelCenter: [0.118, 0.742, TAIL + 0.036] as [number, number, number],
 
     /** Exhaust tip, left of centre. */
     exhaustTip: [-0.412, 0.268, TAIL + 0.055] as [number, number, number],

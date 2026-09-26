@@ -20,6 +20,10 @@ export interface Pose {
   focalMm: number;
   /** Optional depth-of-field hint for the post chain. */
   aperture?: number;
+  /**
+   * Only set this to defocus deliberately. Left undefined — which is the norm
+   * — `focusDistanceFor()` focuses on the pose's own target.
+   */
   focusDistance?: number;
   /** Orthographic-style framing for blueprint views. */
   ortho?: boolean;
@@ -41,8 +45,8 @@ export function fovFromFocal(focalMm: number, sensorHeightMm = 24): number {
 export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinematic'>, Pose> = {
   // The money shot. 3/4 front, slightly below eye level so the car looks
   // planted rather than looked-down-upon.
-  front3q:   { target: [0, 0.68, CZ + 0.35], position: [3.35, 1.32, 5.15], focalMm: 62, aperture: 2.8, focusDistance: 6.2 },
-  rear3q:    { target: [0, 0.72, CZ - 0.35], position: [3.5, 1.38, -5.4], focalMm: 62, aperture: 2.8, focusDistance: 6.4 },
+  front3q:   { target: [0, 0.68, CZ + 0.35], position: [3.35, 1.32, 5.15], focalMm: 62, aperture: 2.8 },
+  rear3q:    { target: [0, 0.72, CZ - 0.35], position: [3.5, 1.38, -5.4], focalMm: 62, aperture: 2.8 },
 
   // Dead-on profile at a long focal length: the only honest way to judge
   // proportion, DLO shape and wheelbase-to-overhang relationships.
@@ -52,21 +56,30 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
   top:       { target: [0, 0.6, CZ], position: [0, 24, CZ + 0.001], focalMm: 200 },
 
   // Detail poses.
-  wheel:     { target: [-BODY.trackFront / 2 + 0.05, R, 0], position: [-3.1, 0.62, 1.35], focalMm: 105, aperture: 2.0, focusDistance: 3.1 },
-  headlight: { target: [-0.56, 0.78, BODY.overhangFront - 0.02], position: [-2.0, 1.02, 3.3], focalMm: 105, aperture: 2.2, focusDistance: 3.6 },
-  taillight: { target: [-0.66, 0.86, -(WB + BODY.overhangRear) + 0.02], position: [-2.2, 1.12, -3.5], focalMm: 105, aperture: 2.2, focusDistance: 3.6 },
-  badge:     { target: [0.2, 0.78, -(WB + BODY.overhangRear) + 0.03], position: [0.75, 0.95, -2.35], focalMm: 135, aperture: 2.0, focusDistance: 2.4 },
-  platecam:  { target: [0, 0.52, BODY.overhangFront + 0.01], position: [0, 0.58, 2.05], focalMm: 135, aperture: 2.8, focusDistance: 2.05 },
-  roofrail:  { target: [-0.6, 1.42, -1.95], position: [-2.9, 2.35, -0.25], focalMm: 85, aperture: 2.8, focusDistance: 3.3 },
+  wheel:     { target: [-BODY.trackFront / 2 + 0.05, R, 0], position: [-3.1, 0.62, 1.35], focalMm: 105, aperture: 2.0 },
+  headlight: { target: [-0.56, 0.78, BODY.overhangFront - 0.02], position: [-2.0, 1.02, 3.3], focalMm: 105, aperture: 2.2 },
+  taillight: { target: [-0.66, 0.86, -(WB + BODY.overhangRear) + 0.02], position: [-2.2, 1.12, -3.5], focalMm: 105, aperture: 2.2 },
+  badge:     { target: [0.2, 0.78, -(WB + BODY.overhangRear) + 0.03], position: [0.62, 0.95, -5.05], focalMm: 135, aperture: 2.0 },
+  platecam:  { target: [0, 0.52, BODY.overhangFront + 0.01], position: [0, 0.58, 2.05], focalMm: 135, aperture: 2.8 },
+  roofrail:  { target: [-0.6, 1.42, -1.95], position: [-2.9, 2.35, -0.25], focalMm: 85, aperture: 2.8 },
 
   // Cabin.
   interior:  { target: [0.1, 0.95, -0.85], position: [-1.55, 1.18, -0.35], focalMm: 24 },
-  dash:      { target: [-0.38, 1.02, -0.42], position: [-0.38, 1.12, -1.35], focalMm: 40, aperture: 2.8, focusDistance: 0.95 },
+  dash:      { target: [-0.38, 1.02, -0.42], position: [-0.38, 1.12, -1.35], focalMm: 40, aperture: 2.8 },
 
   // Reproduces the original photograph's viewpoint: low, close, front-on with
   // a slight offset to the car's right, warm low sun from camera-left.
-  photomatch:{ target: [0.05, 0.75, BODY.overhangFront - 0.4], position: [-0.55, 1.12, 4.55], focalMm: 44, aperture: 5.6, focusDistance: 4.8 },
+  photomatch:{ target: [0.05, 0.75, BODY.overhangFront - 0.4], position: [-0.55, 1.12, 4.55], focalMm: 44, aperture: 5.6 },
 };
+
+/** Where a pose actually focuses: its own subject unless told otherwise. */
+export function focusDistanceFor(p: Pose): number {
+  if (p.focusDistance !== undefined) return p.focusDistance;
+  const dx = p.position[0] - p.target[0];
+  const dy = p.position[1] - p.target[1];
+  const dz = p.position[2] - p.target[2];
+  return Math.hypot(dx, dy, dz);
+}
 
 export class CameraRig {
   private current: ViewName = 'front3q';

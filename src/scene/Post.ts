@@ -33,7 +33,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { Stage } from './Stage';
 import type { EnvironmentHandle } from './Environment';
-import type { Pose } from './CameraRig';
+import { focusDistanceFor, type Pose } from './CameraRig';
 import { AccumulationPass, DofPass, GradePass } from './post/passes';
 
 export interface PostChain {
@@ -205,7 +205,7 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       dof.setLens({
         focalMm: pose.focalMm,
         aperture: pose.aperture,
-        focusDistance: pose.focusDistance ?? 6,
+        focusDistance: focusDistanceFor(pose),
       });
     },
   };
