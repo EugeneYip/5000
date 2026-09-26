@@ -59,10 +59,10 @@ export interface LegendRow {
  * for a car built in 1988.
  */
 export const LEGEND_ROWS: readonly LegendRow[] = [
-  { text: 'NORDSTERN', t: LEGEND.brandT, cap: 0.0115, relief: 0.0011, centreDeg: 96, tracking: 0.10, weight: '700' },
-  { text: '185/70 HR 14', t: LEGEND.sizeT, cap: 0.0092, relief: 0.0010, centreDeg: 96, tracking: 0.09, weight: '700' },
-  { text: 'STEEL RADIAL TUBELESS', t: LEGEND.constructionT, cap: 0.0050, relief: 0.0006, centreDeg: -84, tracking: 0.10, weight: '500' },
-  { text: 'DOT HU L9 0487', t: LEGEND.dotT, cap: 0.0044, relief: 0.0006, centreDeg: -84, tracking: 0.08, weight: '400' },
+  { text: 'NORDSTERN', t: LEGEND.brandT, cap: 0.0118, relief: 0.0014, centreDeg: 96, tracking: 0.10, weight: '700' },
+  { text: '185/70 HR 14', t: LEGEND.sizeT, cap: 0.0094, relief: 0.0013, centreDeg: 96, tracking: 0.09, weight: '700' },
+  { text: 'STEEL RADIAL TUBELESS', t: LEGEND.constructionT, cap: 0.0050, relief: 0.0008, centreDeg: -84, tracking: 0.10, weight: '500' },
+  { text: 'DOT HU L9 0487', t: LEGEND.dotT, cap: 0.0044, relief: 0.0008, centreDeg: -84, tracking: 0.08, weight: '400' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -192,8 +192,10 @@ export function buildLegend(profile: ReadonlyArray<readonly [number, number]>): 
       const r = r0 + tz * nr;
       const axial = section.axialAt(r0) + tz * na;
       // Arc length along the row's own radius, so a run does not shear as it
-      // climbs the sidewall.
-      const phi = phi0 + tx / rRef;
+      // climbs the sidewall. The sign is negative because +phi runs *towards*
+      // the viewer's left on the outboard face: with +tx the whole legend came
+      // out mirror-written.
+      const phi = phi0 - tx / rRef;
 
       out[i * 3] = axial;
       out[i * 3 + 1] = r * Math.cos(phi);
@@ -202,8 +204,15 @@ export function buildLegend(profile: ReadonlyArray<readonly [number, number]>): 
 
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(out, 3));
+    // Reversing phi mirrors the mapping, which flips every triangle's winding.
+    // Reversing the index list flips it back, so the relief still faces out.
     const idx = run.geom.getIndex();
-    if (idx) g.setIndex(idx);
+    if (idx) {
+      const src = idx.array;
+      const flipped = new Uint32Array(src.length);
+      for (let k = 0; k < src.length; k++) flipped[k] = src[src.length - 1 - k] as number;
+      g.setIndex(new THREE.BufferAttribute(flipped, 1));
+    }
     g.computeVertexNormals();
     parts.push(g);
     run.geom.dispose();

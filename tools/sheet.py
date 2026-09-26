@@ -134,21 +134,51 @@ def compare_to_photo(render_path: Path):
     # Paint readout from the render: sample the brightest large neutral region
     # in the lower-middle of the frame, which is where bodywork lands in the
     # photomatch pose.
-    # Sample the front wing's VERTICAL face, which is what the target colour
-    # was measured from. A centre-of-frame patch lands on the grille, lamps and
-    # plate under the corrected photomatch pose and reports a meaningless
-    # number. These fractions were measured against the pose; past x~0.283 the
-    # panel curves into the sky and correctly gains blue.
+    # Find the paint rather than assuming where it is.
+    #
+    # This used to be a fixed patch, and it broke every time the photomatch
+    # pose moved — reading the grille and reporting a meaningless 112 while the
+    # paint was actually within 6 of target. So: search for the patch that most
+    # looks like the surface the target was measured from, which is a
+    # near-neutral mid-value body panel. Saturation is the discriminator; the
+    # photograph's fender sits at 0.096, while the sky-mirroring bonnet is 0.31
+    # and the grille and bumper are far darker.
     a = np.array(ren.convert("RGB")).astype(float)
     hgt, wid = a.shape[:2]
-    patch = a[int(hgt * 0.420):int(hgt * 0.502), int(wid * 0.254):int(wid * 0.283)].reshape(-1, 3)
-    med = np.median(patch, axis=0)
-    dist = float(np.sqrt(((med - np.array(PAINT_TARGET)) ** 2).sum()))
+    tgt = np.array(PAINT_TARGET, dtype=float)
+
+    candidates = []
+    for fy in np.arange(0.28, 0.72, 0.02):
+        for fx in np.arange(0.10, 0.92, 0.02):
+            y0, y1 = int(hgt * fy), int(hgt * (fy + 0.05))
+            x0, x1 = int(wid * fx), int(wid * (fx + 0.03))
+            block = a[y0:y1, x0:x1].reshape(-1, 3)
+            if block.size == 0:
+                continue
+            m = np.median(block, axis=0)
+            hi, lo = m.max(), m.min()
+            sat = (hi - lo) / max(hi, 1.0)
+            # Body paint under this light: near-neutral, and neither the dark
+            # cladding nor a blown highlight.
+            if sat < 0.13 and 90.0 < hi < 200.0:
+                candidates.append((float(np.sqrt(((m - tgt) ** 2).sum())), m, sat, fx, fy))
+
+    if candidates:
+        candidates.sort(key=lambda c: c[0])
+        dist, med, sat, fx, fy = candidates[0]
+        where = f"x {fx:.2f} y {fy:.2f}, sat {sat:.3f}"
+    else:
+        # Nothing on screen looks like paint at all — report that honestly
+        # rather than quietly measuring whatever is in the middle.
+        patch = a[int(hgt * 0.45):int(hgt * 0.65), int(wid * 0.40):int(wid * 0.60)].reshape(-1, 3)
+        med = np.median(patch, axis=0)
+        dist = float(np.sqrt(((med - tgt) ** 2).sum()))
+        where = "NO PAINT FOUND — centre patch"
 
     note = (
         f"paint target (white-balanced fender)  #{PAINT_TARGET[0]:02x}{PAINT_TARGET[1]:02x}{PAINT_TARGET[2]:02x}"
         f"     render centre patch  #{int(med[0]):02x}{int(med[1]):02x}{int(med[2]):02x}"
-        f"     RGB distance {dist:.1f}"
+        f"     RGB distance {dist:.1f}   ({where})"
     )
     d.text((gap, h + 74), note, fill=(150, 155, 162), font=fs)
     d.text(

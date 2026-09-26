@@ -115,7 +115,7 @@ if (uChromeParams.z > 0.0) {
  * origin** — the axle line. A wheel built anywhere else in its own object
  * space will still look like metal, it just loses the lip/face distinction.
  */
-export function createAlloy(opts: { polished?: boolean } = {}): THREE.MeshPhysicalMaterial {
+export function createAlloy(opts: { polished?: boolean; vertexColors?: boolean } = {}): THREE.MeshPhysicalMaterial {
   const rimRadius = (WHEEL.rimDiameterIn * 0.0254) / 2;
   // The turned band on this generation of Audi alloy is the outer lip only.
   const machinedFrom = opts.polished ? -1 : rimRadius * 0.86;
@@ -132,6 +132,10 @@ export function createAlloy(opts: { polished?: boolean } = {}): THREE.MeshPhysic
     metalness: 1,
     roughness: 0.3,
     envMapIntensity: 1,
+    // For a caller baking brake dust or occlusion into the rim mesh. Opting in
+    // through the library rather than cloning keeps one shared instance per
+    // variant instead of one per wheel.
+    vertexColors: opts.vertexColors ?? false,
     dithering: true,
   });
 
@@ -174,6 +178,108 @@ diffuseColor.rgb *= mix(audiCastTone, mix(0.96, 1.04, audiRings), audiMachined);
   float resR = audiResolved1(audiWheelR / uAlloyParams.y);
   float h = (audiCast - 0.5) * audiSlopeAmp(uAlloyFinish.w, uAlloyParams.z) * (1.0 - audiMachined) * resC
           + (audiRings - 0.5) * audiSlopeAmp(uAlloyFinish.z, 1.0 / uAlloyParams.y) * audiMachined * resR;
+  normal = audiBump(-vViewPosition, normal, dFdx(h), dFdy(h), 1.0);
+}
+`,
+      },
+    ],
+  });
+
+  return material;
+}
+
+// ---------------------------------------------------------------------------
+// Dirty metal — castings, heat shields, oxidised iron
+// ---------------------------------------------------------------------------
+
+export interface DirtyMetalOptions {
+  /** Base tint. Oxide browns, phosphate greys, dull aluminium. */
+  color?: number;
+  roughness?: number;
+  /** Oxide is mostly *not* a metal; a rusty part at metalness 1 reads as
+   *  painted brown chrome. 0.1–0.35 is the useful band. */
+  metalness?: number;
+  /** 0 = washed casting, 1 = a decade under a car. Darkens the grain floors. */
+  grime?: number;
+  /** For callers baking occlusion or road film into the mesh. */
+  vertexColors?: boolean;
+}
+
+/**
+ * Everything metal on the car that is neither brightwork nor a wheel.
+ *
+ * `alloy()` exists for the wheels and is authored for them — near-white and
+ * fully metallic — so a sump, a bellhousing or a heat shield wearing it blazes
+ * like a lamp the moment a low sun gets under the car. `chrome()` is no better:
+ * it floors at roughness 0.09 whatever it is asked for, and a mirror-finish
+ * heat shield throws sky-blue light around an area that should be in shadow.
+ * Both the underbody and the wheel corner had to fork a local material for
+ * this; this is the entry they fork *to*.
+ *
+ * The shading is deliberately the cheap half of `alloy()`: a cast grain, the
+ * dirt that lives in the bottom of it, and nothing turned or machined, because
+ * nothing down here is. What makes it read as a real part is that the grime is
+ * *in the grain* rather than a flat multiplier — the high spots stay metallic
+ * and the low spots go dead, which is what a dirty casting looks like.
+ */
+export function createDirtyMetal(opts: DirtyMetalOptions = {}): THREE.MeshPhysicalMaterial {
+  const grime = THREE.MathUtils.clamp(opts.grime ?? 0.7, 0, 1);
+
+  const uniforms = {
+    // x grain cells/m  y grain slope  z grime  w mottle cells/m
+    uDirtParams: { value: new THREE.Vector4(900.0, 0.26, grime, 24.0) },
+    // Road film: a warm-neutral dust, dark in linear terms. A grey that looks
+    // right on paper is several times the reflectance of what is actually
+    // under a car and turns every casting into concrete.
+    uDirtColor: { value: new THREE.Color(0.055, 0.050, 0.044) },
+  };
+
+  const material = new THREE.MeshPhysicalMaterial({
+    color: opts.color ?? 0x3a3c3d,
+    metalness: opts.metalness ?? 0.22,
+    roughness: opts.roughness ?? 0.78,
+    envMapIntensity: 0.55,
+    vertexColors: opts.vertexColors ?? false,
+    dithering: true,
+  });
+
+  extend(material, {
+    key: 'audi-dirtymetal-v1',
+    uniforms,
+    vertex: OBJECT_SPACE_VARYINGS.vertex,
+    fragment: [
+      { find: '#include <common>', replace: `$&\n${METAL_PRELUDE}\nuniform vec4 uDirtParams;\nuniform vec3 uDirtColor;` },
+      {
+        find: '#include <color_fragment>',
+        replace: /* glsl */ `$&
+float audiDirtGrain = audiGrain(vAudiObjPos, uDirtParams.x, 3.1);
+float audiDirtRes = audiResolved(vAudiObjPos * uDirtParams.x);
+// Dirt collects in the grain, not on top of it, and pools where the mottle
+// says the part has been sheltered from spray.
+float audiDirtAmt = uDirtParams.z * (1.0 - audiDirtGrain)
+                  * (0.55 + 0.45 * audiFbm2(vAudiObjPos * uDirtParams.w));
+diffuseColor.rgb = mix(diffuseColor.rgb * mix(0.82, 1.04, mix(0.5, audiDirtGrain, audiDirtRes)),
+                       uDirtColor, audiDirtAmt);
+`,
+      },
+      {
+        find: '#include <roughnessmap_fragment>',
+        replace: /* glsl */ `$&
+roughnessFactor = clamp(roughnessFactor + audiDirtAmt * 0.18
+                        + (1.0 - audiDirtRes) * 0.06, 0.08, 1.0);
+`,
+      },
+      {
+        // Dust is a dielectric film. Without this the dirt still reflects the
+        // sky like the metal underneath it and the part never looks dirty.
+        find: '#include <metalnessmap_fragment>',
+        replace: '$&\nmetalnessFactor = mix(metalnessFactor, 0.03, audiDirtAmt);',
+      },
+      {
+        find: '#include <normal_fragment_maps>',
+        replace: /* glsl */ `$&
+{
+  float h = (audiDirtGrain - 0.5) * audiSlopeAmp(uDirtParams.y, uDirtParams.x) * audiDirtRes;
   normal = audiBump(-vViewPosition, normal, dFdx(h), dFdy(h), 1.0);
 }
 `,

@@ -24,6 +24,13 @@ export interface SmallLamps {
   /** Markers and plate lamps all run off the parking-lamp circuit. */
   markers: Glow[];
   plate: Glow;
+  /**
+   * The two plate lamps and nothing else, built about their own origin so
+   * `lights.ts` can set them onto wherever the trim stream actually put the
+   * plate — and, on this car, onto the tailgate, which carries it.
+   */
+  plateLamps: THREE.Group;
+  /** Where the plate lamp's spill sits, in `plateLamps` local space. */
   plateLightAt: THREE.Vector3;
 }
 
@@ -56,36 +63,50 @@ export function buildSmallLamps(ctx: BuildContext, glows: GlowFactory): SmallLam
 
   // --- plate lamps ---------------------------------------------------------
   // Two festoon lamps in the lip above the plate recess, shining down onto it.
+  // Built about the lip's own centre rather than about the car's origin: the
+  // plate is in the tailgate on this car, so where these end up is the trim
+  // stream's business, and `lights.ts` sets the group onto the plate it finds.
+  const plateLamps = new THREE.Group();
+  plateLamps.name = 'plateLamps';
+  plateLamps.position.set(
+    0,
+    HP.rear.plateCenter[1] + PLATE.heightM / 2 + 0.019,
+    HP.rear.plateCenter[2] - 0.014,
+  );
+  group.add(plateLamps);
+
   const plateLensGeo: THREE.BufferGeometry[] = [];
   const plateGlowGeo: THREE.BufferGeometry[] = [];
   const plateBodies: THREE.BufferGeometry[] = [];
-  // In the lip above the plate recess, standing proud of the recess face so
-  // the housings cannot fight the trim stream's plate and bumper for depth.
-  const plateY = HP.rear.plateCenter[1] + PLATE.heightM / 2 + 0.019;
-  const plateZ = HP.rear.plateCenter[2] - 0.014;
   for (const sx of [-1, 1]) {
     const m = new THREE.Matrix4()
       .makeRotationX(-Math.PI * 0.62)
-      .setPosition(sx * 0.106, plateY, plateZ);
+      .setPosition(sx * 0.106, 0, 0);
     const parts = markerParts(0.042, 0.016, 0.0022);
     plateBodies.push(place(parts.body, m));
     plateLensGeo.push(place(parts.lens, m));
     plateGlowGeo.push(place(parts.glow, m));
   }
 
-  const add = (name: string, geo: THREE.BufferGeometry | null, mat: THREE.Material, mirror: boolean): void => {
+  const add = (
+    name: string,
+    geo: THREE.BufferGeometry | null,
+    mat: THREE.Material,
+    mirror: boolean,
+    into: THREE.Object3D = group,
+  ): void => {
     if (!geo) return;
     const mesh = new THREE.Mesh(mirror ? bothSides(geo) : geo, mat);
     mesh.name = name;
-    group.add(mesh);
+    into.add(mesh);
   };
 
   add('markerBodies', merge(bodies), black, true);
   add('markerReflectors', merge(bowls), reflectorMat, true);
   add('markerLensFront', merge(amberLensGeo), ctx.materials.lens(LIGHTS.sidemarkerFrontColor, { prismatic: true }), true);
   add('markerLensRear', merge(redLensGeo), ctx.materials.lens(LIGHTS.sidemarkerRearColor, { prismatic: true }), true);
-  add('plateLampBodies', merge(plateBodies), black, false);
-  add('plateLampLens', merge(plateLensGeo), ctx.materials.lens(0xf2f4fa, { prismatic: false }), false);
+  add('plateLampBodies', merge(plateBodies), black, false, plateLamps);
+  add('plateLampLens', merge(plateLensGeo), ctx.materials.lens(0xf2f4fa, { prismatic: false }), false, plateLamps);
 
   const markers: Glow[] = [
     glows.make(bothSides(merge(amberGlowGeo)!), { color: FILAMENT, peak: 2.6 }),
@@ -97,13 +118,14 @@ export function buildSmallLamps(ctx: BuildContext, glows: GlowFactory): SmallLam
 
   const plate = glows.make(merge(plateGlowGeo)!, { color: 0xfff4e2, peak: 2.6 });
   plate.mesh.name = 'plateLampGlow';
-  group.add(plate.mesh);
+  plateLamps.add(plate.mesh);
 
   return {
     group,
     markers,
     plate,
-    plateLightAt: new THREE.Vector3(0, plateY - 0.008, plateZ - 0.030),
+    plateLamps,
+    plateLightAt: new THREE.Vector3(0, -0.008, -0.030),
   };
 }
 

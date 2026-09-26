@@ -53,6 +53,7 @@ export interface PaintUniforms {
   uFlakeShape: THREE.IUniform<THREE.Vector4>;
   uFlopParams: THREE.IUniform<THREE.Vector4>;
   uOrangePeel: THREE.IUniform<THREE.Vector4>;
+  uPaintScatter: THREE.IUniform<number>;
 }
 
 /** Linear-space colour from sRGB components. */
@@ -76,7 +77,36 @@ function saturate3(c: [number, number, number], k: number): [number, number, num
 }
 
 /**
- * Derive the three tints the shader needs from one sRGB base colour.
+ * Flake weight in the face tint at the authored basecoat, and the strength
+ * with which the binder's hue is allowed to colour the flake.
+ *
+ * Both are written so that `derivePaintTints(PAINT.baseColor, PAINT.flakeColor)`
+ * is bit-for-bit what it was before the recolour path existed. The
+ * photograph match is calibrated on that one result and nothing here may
+ * move it; everything below only bites for colours the picker can ask for.
+ */
+const FLAKE_WEIGHT = 0.48;
+const FLAKE_TINT = 0.35;
+
+/** Strongest channel — how much light the binder lets back out at all. */
+function peak(c: [number, number, number]): number {
+  return Math.max(c[0], c[1], c[2]);
+}
+
+/** Rec. 709 luminance, used only as a lightness ordinate. */
+function lum(c: [number, number, number]): number {
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/**
+ * Ceiling on the scatter lift. A white basecoat is titanium dioxide — a dense
+ * diffuse scatterer, not a tinted glaze — and reaching ~0.72 albedo is what
+ * stops "white" rendering as silver.
+ */
+const SCATTER_MAX = 2.4;
+
+/**
+ * Derive the four tints the shader needs from one sRGB base colour.
  *
  * `PAINT.baseColor` is the *basecoat* as it would be measured flat and
  * unlit — a mid-dark graphite. What the eye sees is considerably lighter,
@@ -87,32 +117,90 @@ function saturate3(c: [number, number, number], k: number): [number, number, num
  *              aluminium, the colour a photograph of a horizontal panel gives.
  * - `flop`     the same layer at grazing, after a long absorption path through
  *              the binder: much darker and more chromatic.
+ * - `flake`    the individual particles' own tint.
+ *
+ * ## Why the flake weight is not a constant
+ *
+ * The flake lies *under* the binder, so light reaches it and returns through
+ * two passes of whatever the binder absorbs. Mixing it in at a fixed 48 %
+ * therefore only holds while the binder passes something. Ask the picker for
+ * black and a constant weight hands back a 35 %-reflectance neutral — a car
+ * that is barely darker than the graphite it replaced, which is exactly the
+ * symptom "the swatches do nothing" describes.
+ *
+ * The weight is scaled by how much the binder passes at its *strongest*
+ * channel, relative to the authored basecoat, and clamped at 1. A saturated
+ * colour — a fire-engine red, a pure blue — passes fully in one channel and so
+ * keeps the authored behaviour exactly; only genuinely dark basecoats lose
+ * their flake, which is what real paint does. A small floor is kept because no
+ * real metallic, however black, has no flake in it at all.
+ *
+ * The two weights are complementary (`1 - kFlake`), so the layer never gains
+ * energy: pure white lands at 0.91, not clipped at 1.
+ *
+ * ## And why the binder's scattering is not a constant either
+ *
+ * `scatter` scales the diffuse term the shader takes off the binder. The
+ * authored constants were tuned on a dark metallic, where almost all the
+ * brightness is the flake's *specular* and the diffuse is a tenth of the
+ * answer. Ask for white with those constants and the panel is a near-mirror
+ * with an albedo of 0.31 — so it reflects a dark street and reads silver-grey.
+ * Real white paint is the opposite case: a dense diffuse scatterer that hides
+ * its own flake. Scaling the diffuse with lightness above the authored point
+ * (and never below it) is what makes the light end of the picker work, and it
+ * is identically 1 at Graphite Metallic.
  */
 export function derivePaintTints(baseHex: number, flakeHex: number): {
   pigment: THREE.Color;
   face: THREE.Color;
   flop: THREE.Color;
   flake: THREE.Color;
+  scatter: number;
 } {
   const b = hexToSrgb(baseHex);
   const fl = hexToSrgb(flakeHex);
+  const b0 = hexToSrgb(PAINT.baseColor);
+
+  const transmit = THREE.MathUtils.clamp(peak(b) / Math.max(peak(b0), 1e-4), 0, 1);
+  const kFlake = FLAKE_WEIGHT * Math.max(transmit, 0.06);
+  const kBinder = 1 - kFlake;
+
+  // Aluminium seen through a tinted binder picks up some of that tint. The
+  // ratio is normalised against its own mean, so this shifts the flake's hue
+  // without changing how bright the sparkle is — and is identically (1,1,1)
+  // at the authored basecoat.
+  const ratio: [number, number, number] = [
+    b[0] / Math.max(b0[0], 1e-4),
+    b[1] / Math.max(b0[1], 1e-4),
+    b[2] / Math.max(b0[2], 1e-4),
+  ];
+  const ratioMean = (ratio[0] + ratio[1] + ratio[2]) / 3;
+  const tinted: [number, number, number] = ratioMean < 1e-3
+    ? [fl[0], fl[1], fl[2]] // a black binder still sparkles silver
+    : [0, 1, 2].map((i) => {
+      const n = THREE.MathUtils.clamp(ratio[i] / ratioMean, 0, 2);
+      return fl[i] * (1 + FLAKE_TINT * (n - 1));
+    }) as [number, number, number];
 
   const pigmentS = saturate3([b[0] * 0.78, b[1] * 0.78, b[2] * 0.78], 1.2);
   const faceS = saturate3(
     [
-      (b[0] * 0.52 + fl[0] * 0.48) * 1.06,
-      (b[1] * 0.52 + fl[1] * 0.48) * 1.06,
-      (b[2] * 0.52 + fl[2] * 0.48) * 1.06,
+      (b[0] * kBinder + fl[0] * kFlake) * 1.06,
+      (b[1] * kBinder + fl[1] * kFlake) * 1.06,
+      (b[2] * kBinder + fl[2] * kFlake) * 1.06,
     ],
     1.05,
   );
   const flopS = saturate3([b[0] * 0.34, b[1] * 0.34, b[2] * 0.34], 1.35);
 
+  const scatter = THREE.MathUtils.clamp(lum(b) / Math.max(lum(b0), 1e-4), 1, SCATTER_MAX);
+
   return {
     pigment: srgb(pigmentS[0], pigmentS[1], pigmentS[2]),
     face: srgb(faceS[0], faceS[1], faceS[2]),
     flop: srgb(flopS[0], flopS[1], flopS[2]),
-    flake: srgb(fl[0], fl[1], fl[2]),
+    flake: srgb(tinted[0], tinted[1], tinted[2]),
+    scatter,
   };
 }
 
@@ -132,6 +220,9 @@ uniform vec4 uFlakeShape;
 uniform vec4 uFlopParams;
 // x scale (cells/m)  y slope  z long-wave fraction  w unused
 uniform vec4 uOrangePeel;
+// How much more the binder scatters than the authored graphite does. 1 there
+// by construction; above 1 only for a lighter basecoat.
+uniform float uPaintScatter;
 
 ${GLSL_NOISE}
 ${GLSL_FRAME}
@@ -199,7 +290,7 @@ float audiIor = uFlopParams.z;
 float audiTrav = pow(audiTravel(audiNdV, audiIor), uFlopParams.x);
 
 // --- basecoat: tinted binder (diffuse) under aluminium flake (specular) ---
-material.diffuseColor = uPaintPigment * mix(0.40, 0.14, audiTrav);
+material.diffuseColor = uPaintPigment * mix(0.40, 0.14, audiTrav) * uPaintScatter;
 material.specularColor = mix(uPaintFace, uPaintFlop, audiTrav);
 // Clamped F90: light reaches the basecoat only through the clearcoat, so the
 // grazing Fresnel rise that a bare metal would show is largely refracted away.
@@ -256,6 +347,8 @@ export interface PaintMaterial {
   material: THREE.MeshPhysicalMaterial;
   uniforms: PaintUniforms;
   setColor(hex: number): void;
+  /** The basecoat hex currently in the uniforms. */
+  color(): number;
 }
 
 export function createPaint(): PaintMaterial {
@@ -280,6 +373,7 @@ export function createPaint(): PaintMaterial {
     uFlakeShape: { value: new THREE.Vector4(0.075, 900.0, 0.34, 0.30) },
     uFlopParams: { value: new THREE.Vector4(0.85, PAINT.roughness, PAINT.clearcoatIor, 0.0375) },
     uOrangePeel: { value: new THREE.Vector4(PAINT.orangePeelScale, PAINT.orangePeelStrength, 0.16, 0) },
+    uPaintScatter: { value: tints.scatter },
   };
 
   const material = new THREE.MeshPhysicalMaterial({
@@ -344,12 +438,23 @@ export function createPaint(): PaintMaterial {
     ],
   });
 
+  // `material.color` is left at white and `metalness` at 1, so the visible
+  // colour is entirely `uPaintFace`/`uPaintFlop`/`uPaintPigment`. Writing
+  // `material.color` from outside would do almost nothing; a recolour has to
+  // re-derive all four tints and copy them into the live uniform objects.
+  // Copying in place is what keeps this a uniform swap: the material, its
+  // program and every mesh referencing it are untouched, so the body's single
+  // batched draw call survives the change.
+  let current: number = PAINT.baseColor;
   const setColor = (hex: number): void => {
     const t = derivePaintTints(hex, PAINT.flakeColor);
     uniforms.uPaintPigment.value.copy(t.pigment);
     uniforms.uPaintFace.value.copy(t.face);
     uniforms.uPaintFlop.value.copy(t.flop);
+    uniforms.uFlakeColor.value.copy(t.flake);
+    uniforms.uPaintScatter.value = t.scatter;
+    current = hex;
   };
 
-  return { material, uniforms, setColor };
+  return { material, uniforms, setColor, color: () => current };
 }

@@ -72,17 +72,34 @@ export const RIM = {
 export const FLANGE_R = RIM.beadR + RIM.flangeH;                   // 0.1951
 
 /**
- * The face of the 9-slot "bottlecap".
+ * The face of the "bottlecap".
  *
  * Proportions measured off a face-on photograph of a bare 443 601 025 A:
- * nine capsule slots on a 40 deg pitch, spanning 0.66..0.82 of the flange
+ * capsule slots on a 360/WHEEL.bottlecapSlots pitch, spanning 0.66..0.82 of the flange
  * radius and about 33 deg of arc each, with the centre pocket wall at 0.46.
  */
 export const FACE = {
-  slots: 9,
+  /**
+   * Read from spec rather than duplicated here. Spec says 12, on a 30 degree
+   * pitch, from two converging measurements: slot centres off a US 5000 S
+   * Wagon photograph corrected for ~50 degree foreshortening (30.3 / 29.8
+   * degrees), and an independent radial scan finding 9 clean slots plus a
+   * 1-slot and a 2-slot gap.
+   *
+   * This was hard-coded at 9, and 9 is easy to arrive at: a wheel-dealer
+   * catalogue calls the part a "9 Slot", and the bright land between two slots
+   * reads as a slot at small sizes — two separate reviewers counted 12 by eye
+   * off a render that actually had 9.
+   */
+  slots: WHEEL.bottlecapSlots,
   slotInnerR: 0.660 * FLANGE_R,      // 0.1288
   slotOuterR: 0.820 * FLANGE_R,      // 0.1600
-  slotSpanDeg: 32.5,
+  /**
+   * Derived from the pitch, not fixed: the original 32.5 deg was sized against
+   * a 40 deg pitch, and left unchanged at a 30 deg pitch the slots would
+   * overlap into each other. 0.8125 is the original span-to-pitch ratio.
+   */
+  slotSpanDeg: (360 / WHEEL.bottlecapSlots) * 0.8125,
   /** Face disc runs out to the bead seat, where it meets the barrel. */
   outerR: RIM.beadR,
   /** Centre pocket: the bolts live in here and the cap covers it. */
@@ -130,14 +147,15 @@ export const TYRE = {
  */
 const SIDEWALL_SECTION: ReadonlyArray<readonly [number, number]> = [
   // axial   t = height above the bead seat, as a fraction of section height
-  [0.0870, 0.0900],   // tucked behind the flange tip, never seen
-  [0.0912, 0.1290],   // emerges at the flange tip
-  [0.0958, 0.1800],   // rim protector rib crest — proud of the flange
-  [0.0938, 0.2340],   // back in above the rib
-  [0.0906, 0.3000],   // concave waist
-  [0.0898, 0.3950],   // waist minimum
-  [0.0906, 0.4960],   // legend band, lower
-  [0.0917, 0.5920],   // legend band, upper
+  [0.0868, 0.0880],   // tucked behind the flange tip, never seen
+  [0.0908, 0.1250],   // emerges at the flange tip
+  [0.0938, 0.1540],   // rib flank, climbing fast
+  [0.0955, 0.1830],   // rim protector rib crest — 3.0 mm proud of the section
+  [0.0936, 0.2120],   // over the crest and straight back in
+  [0.0903, 0.2680],
+  [0.0889, 0.3500],   // waist minimum — 3.6 mm inside the widest point
+  [0.0898, 0.4500],   // legend band, lower
+  [0.0913, 0.5700],   // legend band, upper
   [0.0925, 0.6900],   // widest point — half of the 185 section
   [0.0921, 0.7820],
   [0.0903, 0.8670],

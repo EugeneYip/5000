@@ -47,9 +47,9 @@
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import {
-  DEFLECT_MAX, DEFLECT_MIN, DEFLECT_STATIC, LEGEND, RIM, TYRE, sidewallProfile,
+  DEFLECT_MAX, DEFLECT_MIN, DEFLECT_STATIC, RIM, TYRE, sidewallProfile,
 } from './dims';
-import { fbm3, smoothstep } from './util';
+import { smoothstep } from './util';
 import { buildTyreNormalMap } from './textures';
 import { buildLegend } from './sidewall';
 import { layerVertex, privateClone, type EnvLink } from './materials';
@@ -63,9 +63,8 @@ const PITCHES = TYRE.pitches;
  * nothing by reading the flag from a *shifted* ring for each band, so the two
  * shoulders and the two intermediate ribs never slot in lockstep.
  */
-const RING_PHASES = [0.00, 0.54, 0.60, 0.76, 0.82];
+const RING_PHASES = [0.00, 0.52, 0.60, 0.80, 0.88];
 const CUT_AT = [false, false, true, true, false];
-const RINGS = PITCHES * RING_PHASES.length;
 
 /** Real tyres vary the pitch length so the tread noise spreads over a band
  *  instead of putting it all on one screaming harmonic. */
@@ -87,6 +86,9 @@ interface Lateral {
   v: number;
   /** 0 = land, 1 = full groove depth. */
   baseDepth: number;
+  /** How much of this band's lateral cut reaches this station. Lets a shoulder
+   *  block carry on over the shoulder and die out down the sidewall. */
+  cutScale: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +128,22 @@ const TREAD_S: Array<[number, Band, number]> = [
 ];
 
 /** The inboard sidewall is never on camera: same section, every other point. */
-const INBOARD_KEEP = [0, 1, 2, 4, 6, 8, 10, 12];
+const INBOARD_KEEP = [0, 1, 3, 5, 7, 9, 11, 13];
+
+/**
+ * How much of the contact-patch deflection a station at radius `r` follows.
+ *
+ * The belt is inextensible, so where it flattens it is the *sidewall* that
+ * gives, folding outward. The bead is clamped on the rim and cannot move at
+ * all; the shoulder moves with the belt. Ramping between the two over the
+ * whole section height — rather than saturating a third of the way up, as an
+ * earlier version did — is what stops the tyre reading as a flat one: the
+ * mid-sidewall no longer balloons radially either side of the patch.
+ */
+function flexAt(r: number): number {
+  const Rb = RIM.beadR;
+  return smoothstep(Rb + TYRE.sectionH * 0.09, Rb + TYRE.sectionH * 0.96, r);
+}
 
 export interface CrossSection {
   lat: Lateral[];
@@ -149,7 +166,6 @@ function buildCrossSection(): CrossSection {
   }
   const arcTotal = arc[arc.length - 1];
 
-  const flexOf = (r: number): number => smoothstep(Rb + 0.010, Rb + 0.105, r);
   const bulgeOf = (r: number): number => {
     const t = Math.max(0, Math.min(1, (r - Rb) / sec));
     return Math.sin(Math.PI * Math.pow(t, 1.45));
@@ -157,20 +173,36 @@ function buildCrossSection(): CrossSection {
 
   const lat: Lateral[] = [];
 
+  // The shoulder blocks do not stop at the edge of the tread band. On a real
+  // 185/70 they wrap over the shoulder and die out a centimetre down the
+  // sidewall, and that wrap is the ONLY part of the tread a camera outside the
+  // car can see at all — everything on the crown is inside the arch. Keyed by
+  // sidewall station index, counting down from the shoulder.
+  const SHOULDER_WRAP = [0.78, 0.42, 0.16];
+
   const pushSide = (i: number, outboard: boolean): void => {
     const [ax, r] = side[i];
+    const fromTop = side.length - 1 - i;
+    const wrap = SHOULDER_WRAP[fromTop] ?? 0;
     lat.push({
       axial: outboard ? ax : -ax,
       rBase: r,
-      band: 'sidewall',
-      flex: flexOf(r),
+      band: wrap > 0 ? (outboard ? 'shoulderOut' : 'shoulderIn') : 'sidewall',
+      flex: flexAt(r),
       bulge: bulgeOf(r),
       v: outboard ? 0.72 + 0.28 * (arc[i] / arcTotal) : 0.28 - 0.28 * (arc[i] / arcTotal),
       baseDepth: 0,
+      cutScale: wrap,
     });
   };
 
-  for (let k = INBOARD_KEEP.length - 1; k >= 0; k--) pushSide(INBOARD_KEEP[k], false);
+  // The strip has to trace the section in ONE direction — inboard bead up to
+  // the inboard shoulder, across the tread, down to the outboard bead — or the
+  // triangle winding reverses halfway along it. Both sidewalls used to be
+  // traversed the wrong way round, so both came out inside-out; backface
+  // culling then removed whichever one faced the camera and the tyre lost most
+  // of its visible width. That is what made the car look like it was on stilts.
+  for (const k of INBOARD_KEEP) pushSide(k, false);
 
   for (const [s, band, depth] of TREAD_S) {
     // Barrelled, not cylindrical: the crown stands proud of the shoulders.
@@ -183,10 +215,11 @@ function buildCrossSection(): CrossSection {
       bulge: bulgeOf(rBase),
       v: 0.5 + s * 0.22,
       baseDepth: depth,
+      cutScale: 1,
     });
   }
 
-  for (let i = 0; i < side.length; i++) pushSide(i, true);
+  for (let i = side.length - 1; i >= 0; i--) pushSide(i, true);
 
   const vAtT = (t: number, outboard: boolean): number => {
     const target = Rb + t * sec;
@@ -278,7 +311,7 @@ function buildCarcass(lat: Lateral[], rings: Ring[]): Built {
 
     for (let i = 0; i < n; i++) {
       const L = lat[i];
-      const d = Math.max(L.baseDepth, cutDepth(L.band, rings, wrapped));
+      const d = Math.max(L.baseDepth, cutDepth(L.band, rings, wrapped) * L.cutScale);
       const r = L.rBase - d * depth;
       if (r > maxR) maxR = r;
 
@@ -295,12 +328,17 @@ function buildCarcass(lat: Lateral[], rings: Ring[]): Built {
 
       // Baked occlusion. Smooth normals cannot tell a groove from a dimple;
       // darkening the floors is what makes the channels read as channels.
-      const ao = 1 - 0.58 * d;
-      // Road film collects low on the sidewall and in the tread.
-      const film =
-        0.13 * smoothstep(0.30, 0.08, (L.rBase - RIM.beadR) / TYRE.sectionH) +
-        (fbm3(L.axial * 60, r * 30 * ca, r * 30 * sa, 2) - 0.5) * 0.10;
-      const g = Math.max(0.35, Math.min(1.1, ao * (1 - film)));
+      const ao = 1 - 0.62 * d;
+      // Road film collects low on the sidewall and in the tread. It is a clean
+      // radial gradient and nothing else: a vertex-rate fbm on a mesh this
+      // coarse cannot make anything finer than 50 mm blotches, and those read
+      // as damp cardboard. The fine variation is the material's job.
+      const film = 0.13 * smoothstep(0.30, 0.08, (L.rBase - RIM.beadR) / TYRE.sectionH);
+      // 0.88: the shared rubber carries a road-film tint that is right for a
+      // weatherstrip and a little light for a carbon-black tread compound.
+      // Vertex colour is the cheap, local way to take a tyre back towards
+      // tyre black without touching a material five other parts wear.
+      const g = Math.max(0.35, Math.min(1.1, ao * (1 - film))) * 0.88;
       const k = (c * n + i) * 3;
       col[k] = g * 1.02;
       col[k + 1] = g;
@@ -332,32 +370,29 @@ function buildCarcass(lat: Lateral[], rings: Ring[]): Built {
  * they are moulded into, not sit on it as a separate object.
  */
 function dressLegend(legend: THREE.BufferGeometry, xs: CrossSection): THREE.BufferGeometry {
-  const Rb = RIM.beadR;
   const pos = legend.getAttribute('position');
   const n = pos.count;
   const uv = new Float32Array(n * 2);
   const flex = new Float32Array(n * 2);
   const col = new Float32Array(n * 3);
 
-  const flexOf = (r: number): number => smoothstep(Rb + 0.010, Rb + 0.105, r);
-
   for (let i = 0; i < n; i++) {
     const y = pos.getY(i);
     const z = pos.getZ(i);
     const r = Math.hypot(y, z);
-    const t = (r - Rb) / TYRE.sectionH;
+    const t = (r - RIM.beadR) / TYRE.sectionH;
 
     uv[i * 2] = ((Math.atan2(z, y) / (Math.PI * 2) + 1) % 1) * 2;
     uv[i * 2 + 1] = xs.vAtT(Math.max(0, Math.min(1, t)), true);
 
-    flex[i * 2] = flexOf(r);
+    flex[i * 2] = flexAt(r);
     flex[i * 2 + 1] = Math.sin(Math.PI * Math.pow(Math.max(0, Math.min(1, t)), 1.45));
 
     // A polished mould cavity leaves the characters cleaner than the
     // sand-blasted carcass around them.
-    col[i * 3] = 1.08;
-    col[i * 3 + 1] = 1.06;
-    col[i * 3 + 2] = 1.03;
+    col[i * 3] = 0.96;
+    col[i * 3 + 1] = 0.94;
+    col[i * 3 + 2] = 0.91;
   }
 
   legend.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -399,8 +434,12 @@ const DEFORM = /* glsl */ `
   float cd = -(rot.x * audiTyreUp.y + rot.y * audiTyreUp.z);   // 1 = pointing down
   float rGround = cd > 1e-3 ? (H + position.x * audiTyreUp.x) / cd : 1.0e6;
 
+  // Half-angle of the chord a real tyre of this sag would cut. The ramp is a
+  // fraction of it, so the patch keeps the right length as the load changes
+  // instead of growing a fixed skirt that never scales.
   float cosA = (uFreeRadius - uDeflect) / uFreeRadius;
-  float win  = smoothstep(cosA - 0.026, cosA + 0.004, cd);
+  float ramp = (1.0 - cosA) * 0.45 + 0.002;
+  float win  = smoothstep(cosA - ramp, cosA + ramp, cd);
   float push = max(0.0, rGround - uFreeRadius) * win * aFlex.x;
   // The min() is the no-penetration guarantee: nothing can end up at a radius
   // that would put it below the road, whatever the load or the camber.
@@ -476,7 +515,7 @@ export function buildTyre(ctx: BuildContext): TyreResult {
   const material = privateClone(source);
   material.vertexColors = true;
   material.normalMap = normalMap;
-  material.normalScale = new THREE.Vector2(0.85, 0.85);
+  material.normalScale = new THREE.Vector2(0.62, 0.62);
   material.envMap = ctx.envMap;
 
   const uniforms = {
@@ -496,6 +535,39 @@ export function buildTyre(ctx: BuildContext): TyreResult {
     // Keep the library's procedural grain locked to the rubber rather than
     // letting the tyre spin through a pattern fixed in object space.
     rebindObjPos: 'position',
+    tuneUniforms: (u) => {
+      // `createRubber` is tuned for weatherstrips, and its road-dust blotch
+      // runs at 120 cells/m — an 8 mm cell. On a door seal that is invisible.
+      // On a 130 mm sidewall filling half a close-up it reads as camouflage,
+      // which is what made the tyre look like wet cardboard. Same material,
+      // finer and fainter dust: a tyre's dirt is a film, not a pattern.
+      //
+      // A new uniform object, not an edit to the one that is there: the
+      // library hands the same object to every material it extends.
+      const p = u.uRubberParams?.value as THREE.Vector4 | undefined;
+      if (p && (p as THREE.Vector4).isVector4) {
+        u.uRubberParams = { value: new THREE.Vector4(p.x, p.y, 0.10, 320) };
+      }
+      // Lettering gloss. The library finds a moulded character by how sharply
+      // the surface curves, and a 1.3 mm relief on a surface this big curves
+      // hard enough to clear a much lower threshold than a weatherstrip's
+      // bead does. Letting more of the character's flank count, and asking for
+      // more gloss when it does, is the difference between a legend you can
+      // read in a still and a smudge.
+      const m = u.uRubberMould?.value as THREE.Vector4 | undefined;
+      if (m && (m as THREE.Vector4).isVector4) {
+        u.uRubberMould = { value: new THREE.Vector4(55.0, m.y, 0.46, m.w) };
+      }
+
+      // Both retunes reach into uniforms `createRubber` owns, by name. If the
+      // library renames or restructures them the tyre silently goes back to
+      // weatherstrip settings and looks like damp cardboard again, which is a
+      // horrible thing to have to rediscover from a render.
+      if (!p || !m) {
+        console.warn('[wheels] materials.rubber() no longer exposes uRubberParams/uRubberMould;'
+          + ' the tyre sidewall is running weatherstrip dust and gloss');
+      }
+    },
   });
 
   const mesh = new THREE.Mesh(geom, material);
@@ -567,7 +639,3 @@ export function deflectionFor(compression: number): number {
     ? DEFLECT_MIN + (DEFLECT_STATIC - DEFLECT_MIN) * (c / 0.5)
     : DEFLECT_STATIC + (DEFLECT_MAX - DEFLECT_STATIC) * Math.pow((c - 0.5) / 0.5, 1.35);
 }
-
-/** Radial band of the sidewall each legend row occupies — the texture needs
- *  it to keep the serration ring clear of the lettering. */
-export const LEGEND_BANDS = LEGEND;

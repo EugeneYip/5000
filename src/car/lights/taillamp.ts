@@ -1,28 +1,53 @@
 /**
  * Rear lamp cluster — Avant, and split across the tailgate shutline.
  *
- * `docs/REFERENCE-VEHICLE.md` §6.4 settles the wagon's arrangement, and it is
- * not the saloon's. The band on each side is **two separate lamps** that read
- * as one:
+ * ## What the reference photographs show
  *
- *   **outer section, on the rear quarter panel** — two amber segments over a
- *   full-width red field;
- *   **inner section, on the tailgate** — a clear reversing lamp and an amber
- *   segment over a full-width red field.
+ * Measured off a dead-on rear frame of a US-market 5000 Avant, with a close-up
+ * of the same car's left cluster to resolve the lens divisions the dead-on
+ * frame compresses. Scaled on the cluster's own span, so the fractions below
+ * are independent of the aperture's absolute size:
  *
- * So the inner section travels with the tailgate when it opens, and is
- * therefore built into its own group for `lights.ts` to re-parent onto the
- * body stream's `tailgatePanel`.
+ * ```
+ *   inboard edge                                            outboard edge
+ *   0.000        0.400        0.470   0.643      0.707            1.000
+ *     |            |            |       |          |                |
+ *     |   amber    ‖   amber    | clear |  amber   ‖     amber      |   upper
+ *     |------------‖------------+-------+----------‖----------------|
+ *     |    red     ‖          red                  ‖      red       |   lower
+ *                  ↑                               ↑
+ *              lens rib                    TAILGATE SHUTLINE
+ * ```
  *
- * The lower red field is 55 % of the unit's height and the division between
- * the bands is a straight horizontal line running the full width. The outboard
- * corner is rounded and follows the body, which on this tail means it wraps
- * about 90 mm forward — so every face here is built on `rearFaceZ` rather than
- * on a plane.
+ * So: **one reversing lamp per side**, a clear window inset into the amber
+ * band — amber above it, below it and to either side — and it lives on the
+ * *tailgate* half, which is the inboard 71 % of the band, not the outboard
+ * half. The quarter-panel section is the short outboard piece, and it is the
+ * only one that flashes: the ambers on the tailgate are lens, not filament.
+ * The upper band is very slightly the taller of the two (50.5 : 49.5).
+ *
+ * The inner section is built into its own group for `lights.ts` to re-parent
+ * onto the body stream's `tailgatePanel`, so it opens with the tailgate.
+ *
+ * The outboard corner is rounded and follows the body, which on this tail
+ * means it wraps about 90 mm forward — so every face here is built on
+ * `rearFaceZ` rather than on a plane.
  *
  * The red must glow with depth rather than read as a red sticker, and that is
  * almost entirely a question of what is *behind* it: a stippled aluminium bowl,
  * seen through 4 mm of dyed acrylic with prisms moulded into its back face.
+ *
+ * ## Two things the photographs disagree with `hardpoints.ts` about
+ *
+ * Both are aperture-level and therefore not fixable here — the body cuts the
+ * hole to the same numbers — but they are recorded so the measurement is not
+ * lost. Scaling the dead-on frame on the body's own half-width at lamp height:
+ * the real cluster is about **675 x 205 mm**, an aspect of 3.3 : 1, against
+ * `HP.rear`'s 590 x 294 = 2.0 : 1; and its inboard edge is at about
+ * **x 0.185**, not 0.238 — the black ribbed centre panel is only ~30 mm wider
+ * than the plate in it, where the hardpoints leave ~100 mm. Everything below
+ * is therefore expressed as a *fraction* of whatever aperture it is given, so
+ * the arrangement stays right when the aperture is corrected.
  */
 
 import * as THREE from 'three';
@@ -40,14 +65,34 @@ const R = HP.rear;
 const FACE = rearFaceZ;
 const FACING = -1 as const;
 
-const SEAL = 0.005;
-const SURROUND = 0.008;
+const SEAL = 0.003;
+const SURROUND = 0.0035;
 const LENS_BODY = 0.0042;
-/** Upper (signal) band is 45 % of the unit's height; the red field is 55 %. */
-const BAND = R.lampBottomY + (R.lampTopY - R.lampBottomY) * 0.55;
+const RIB = 0.004;
+/** Gap between the reversing window and the amber around it. */
+const WIN_RIB = 0.0035;
+
+const SPAN = R.lampOuterX - R.lampInnerX;
+const RISE = R.lampTopY - R.lampBottomY;
+
+/** Absolute x of a fraction of the cluster's width, from its inboard edge. */
+const atX = (f: number): number => R.lampInnerX + SPAN * f;
+
 /** Where the tailgate shutline crosses the band. */
-const SPLIT = R.lampInnerX + (R.lampOuterX - R.lampInnerX) * 0.42;
-const RIB = 0.005;
+const SPLIT = atX(0.707);
+/** Lens rib dividing the tailgate section into its two cells. */
+const RIB_X = atX(0.400);
+/**
+ * The reversing window, inset into the outboard tailgate cell's amber. It sits
+ * centred in that cell — 0.470 to 0.643 of the cluster against a cell of 0.400
+ * to 0.707 — so it is given as a width and centred rather than as two absolute
+ * edges, which would drift off centre whenever the surround changed.
+ */
+const REVERSE_WIDTH = 0.173;
+/** How much of the signal band's height the reversing window takes. */
+const REVERSE_RISE = 0.46;
+/** Division between the signal band and the red field. */
+const BAND = R.lampBottomY + RISE * 0.495;
 
 const cluster: Outline = {
   yLo: R.lampBottomY,
@@ -78,6 +123,8 @@ export function buildTaillamps(ctx: BuildContext, glows: GlowFactory): TaillampS
   const amberLens = ctx.materials.lens(LIGHTS.indicatorColor, { prismatic: true });
   const clearLens = ctx.materials.lens(0xeef2fb, { prismatic: true });
 
+  const mats = { black, rubber, reflectorMat, redLens, amberLens, clearLens };
+
   const gap = QUALITY.panelGap / 2;
   const outerShape = sliceX(cluster, SPLIT + gap, 10, 0.006);
   const innerShape = sliceX(cluster, 0, SPLIT - gap, 0.006);
@@ -86,65 +133,72 @@ export function buildTaillamps(ctx: BuildContext, glows: GlowFactory): TaillampS
   outerShape.radiusOuter = cluster.radiusOuter;
   innerShape.radiusInner = cluster.radiusInner;
 
-  const outerMid = (SPLIT + gap + R.lampOuterX) / 2;
+  // Quarter panel: one amber over one red field, and the only flashing amber
+  // on the car's rear.
   const outer = section(glows, {
     name: 'taillampOuter',
     shape: outerShape,
-    segments: [
-      // outboard → inboard. Both ambers flash: the outboard one is the wrap
-      // round the body corner, the inboard one the indicator proper.
-      { kind: 'indicator', x0: outerMid, x1: 10 },
-      { kind: 'indicator', x0: 0, x1: outerMid },
-    ],
-    black, rubber, reflectorMat, redLens, amberLens, clearLens,
+    segments: [{ kind: 'indicator', x0: 0, x1: 10 }],
+    ...mats,
   });
 
-  // The reversing lamp is "roughly square" — the signal band is 132 mm tall.
-  const clearWidth = 0.115;
+  // Tailgate: two cells. The outboard one carries the reversing window.
   const inner = section(glows, {
     name: 'taillampInner',
     shape: innerShape,
+    ribs: [RIB_X],
     segments: [
-      { kind: 'reverse', x0: SPLIT - clearWidth, x1: 10 },
-      { kind: 'indicator', x0: 0, x1: SPLIT - clearWidth },
+      { kind: 'amber', x0: RIB_X, x1: 10, window: true },
+      { kind: 'amber', x0: 0, x1: RIB_X },
     ],
-    black, rubber, reflectorMat, redLens, amberLens, clearLens,
+    ...mats,
   });
 
   const sy = (R.lampBottomY + BAND) / 2;
-  const sx = (SPLIT + R.lampOuterX) / 2;
+  const sx = atX(0.5);
   // Well clear of the lens: a point source with inverse-square falloff sitting
   // on the lamp face puts hundreds of units onto its own glass.
   const sz = FACE(sx, sy) + FACING * 0.30;
+
+  const indicator: [Glow[], Glow[]] = [[], []];
+  for (const s of [outer, inner]) {
+    if (!s.indicator) continue;
+    indicator[0].push(s.indicator[0]);
+    indicator[1].push(s.indicator[1]);
+  }
 
   return {
     outer: outer.group,
     inner: inner.group,
     tail: [outer.tail, inner.tail],
     reverse: inner.reverse ? [inner.reverse] : [],
-    indicator: [
-      [outer.indicator[0], inner.indicator[0]],
-      [outer.indicator[1], inner.indicator[1]],
-    ],
+    indicator,
     spill: [new THREE.Vector3(-sx, sy, sz), new THREE.Vector3(sx, sy, sz)],
   };
 }
 
 // ---------------------------------------------------------------------------
 
-type SegmentKind = 'indicator' | 'reverse';
+/** `indicator` flashes; `amber` is lens colour with no filament behind it. */
+type SegmentKind = 'indicator' | 'amber';
 
 interface SegmentSpec {
   kind: SegmentKind;
+  /** Inboard limit; 0 means the section's own inboard edge. */
   x0: number;
+  /** Outboard limit; 10 means the section's own outboard edge. */
   x1: number;
+  /** Inset a clear reversing window into this segment's amber. */
+  window?: boolean;
 }
 
 interface SectionSpec {
   name: string;
   shape: Outline;
-  /** Upper-band segments, outboard → inboard. */
+  /** Signal-band segments, outboard → inboard. */
   segments: SegmentSpec[];
+  /** Full-height lens ribs inside this section. */
+  ribs?: number[];
   black: THREE.Material;
   rubber: THREE.Material;
   reflectorMat: THREE.Material;
@@ -157,7 +211,8 @@ interface SectionResult {
   group: THREE.Group;
   tail: Glow;
   reverse: Glow | null;
-  indicator: [Glow, Glow];
+  /** Left and right flashing ambers, or null if this section has none. */
+  indicator: [Glow, Glow] | null;
 }
 
 function section(glows: GlowFactory, spec: SectionSpec): SectionResult {
@@ -220,6 +275,20 @@ function section(glows: GlowFactory, spec: SectionSpec): SectionResult {
       nu: 22, nv: 3,
     }),
   );
+  // Full-height lens ribs: on the tailgate section the band is one moulding
+  // divided into cells, and the rib runs through the red field as well as the
+  // signal band.
+  for (const x of spec.ribs ?? []) {
+    structure.push(
+      slab({
+        outline: { ...lensArea, xInner: () => x - RIB, xOuter: () => x + RIB, radiusInner: 0.0015, radiusOuter: 0.0015 },
+        zAt: FACE, facing: FACING,
+        front: 0.0008, back: 0.040,
+        capBack: false,
+        nu: 3, nv: 16,
+      }),
+    );
+  }
 
   // --- red field -----------------------------------------------------------
   {
@@ -248,24 +317,13 @@ function section(glows: GlowFactory, spec: SectionSpec): SectionResult {
   }
 
   // --- signal band ---------------------------------------------------------
-  const perSide: Record<SegmentKind, THREE.BufferGeometry[]> = { indicator: [], reverse: [] };
-  for (let i = 0; i < spec.segments.length; i++) {
-    const s = spec.segments[i];
+  for (const s of spec.segments) {
     const lo = s.x0 === 0 ? 0 : s.x0 + RIB;
     const hi = s.x1 === 10 ? 10 : s.x1 - RIB;
     const fit = sliceX(upper, lo, hi, 0.005);
-    if (i > 0) {
-      structure.push(
-        slab({
-          outline: { ...upper, xInner: () => s.x1 - RIB, xOuter: () => s.x1 + RIB, radiusInner: 0.0015, radiusOuter: 0.0015 },
-          zAt: FACE, facing: FACING,
-          front: 0.0008, back: 0.038,
-          capBack: false,
-          nu: 3, nv: 8,
-        }),
-      );
-    }
     const b = extent(fit);
+    // One bowl behind the whole cell. The reversing window gets its own,
+    // shallower one, which sits in front of this and hides it.
     bowls.push(
       bowl({
         cx: b.cx, cy: b.cy, halfW: b.halfW - 0.002, halfH: b.halfH - 0.002,
@@ -274,8 +332,46 @@ function section(glows: GlowFactory, spec: SectionSpec): SectionResult {
         fit: inset(fit, 0.0015), nu: 22, nv: 16,
       }),
     );
-    (s.kind === 'reverse' ? clearLensGeo : amberLensGeo).push(lensSlab(fit));
-    perSide[s.kind].push(dish(fit, b));
+
+    if (!s.window) {
+      amberLensGeo.push(lensSlab(fit));
+      if (s.kind === 'indicator') amberGlow.push(dish(fit, b));
+      continue;
+    }
+
+    // Amber is the cell minus the window: a strip either side of it and one
+    // above and below. Built as four pieces rather than one lens with a hole
+    // so the clear window can sit in its own rebate with its own optic.
+    const win = reverseWindow(fit);
+    for (const part of aroundWindow(fit, win)) {
+      amberLensGeo.push(lensSlab(part));
+      if (s.kind === 'indicator') amberGlow.push(dish(part, extent(part)));
+    }
+    structure.push(
+      frame({
+        outline: inset(win, -WIN_RIB),
+        zAt: FACE, facing: FACING,
+        // Sits a shade *behind* the lens face, so the window reads as a thin
+        // dark groove in the amber rather than a raised chrome picture frame.
+        profile: [
+          [0.0, 0.0022],
+          [0.0028, 0.0020],
+          [0.0034, 0.030],
+        ],
+        ns: 48,
+      }),
+    );
+    const wb = extent(win);
+    bowls.push(
+      bowl({
+        cx: wb.cx, cy: wb.cy, halfW: wb.halfW - 0.002, halfH: wb.halfH - 0.002,
+        zAt: FACE, rimDepth: 0.010,
+        facing: FACING, depth: 0.026, corner: 4.6,
+        fit: inset(win, 0.0015), nu: 18, nv: 14,
+      }),
+    );
+    clearLensGeo.push(lensSlab(win));
+    clearGlow.push(dish(win, wb));
   }
 
   // --- assembly ------------------------------------------------------------
@@ -304,23 +400,53 @@ function section(glows: GlowFactory, spec: SectionSpec): SectionResult {
   tail.mesh.name = `${spec.name}TailGlow`;
   group.add(tail.mesh);
 
-  const amberRight = merge(perSide.indicator)!;
-  const indicator: [Glow, Glow] = [
-    glows.make(mirrored(amberRight), { color: FILAMENT, peak: 2.6 }),
-    glows.make(amberRight, { color: FILAMENT, peak: 2.6 }),
-  ];
-  indicator[0].mesh.name = `${spec.name}IndicatorL`;
-  indicator[1].mesh.name = `${spec.name}IndicatorR`;
-  group.add(indicator[0].mesh, indicator[1].mesh);
+  let indicator: [Glow, Glow] | null = null;
+  const amberRight = merge(amberGlow);
+  if (amberRight) {
+    indicator = [
+      glows.make(mirrored(amberRight), { color: FILAMENT, peak: 2.6 }),
+      glows.make(amberRight, { color: FILAMENT, peak: 2.6 }),
+    ];
+    indicator[0].mesh.name = `${spec.name}IndicatorL`;
+    indicator[1].mesh.name = `${spec.name}IndicatorR`;
+    group.add(indicator[0].mesh, indicator[1].mesh);
+  }
 
   let reverse: Glow | null = null;
-  if (perSide.reverse.length > 0) {
-    reverse = glows.make(bothSides(merge(perSide.reverse)!), { color: LIGHTS.reverseColor, peak: 2.6 });
+  const clear = merge(clearGlow);
+  if (clear) {
+    reverse = glows.make(bothSides(clear), { color: LIGHTS.reverseColor, peak: 2.6 });
     reverse.mesh.name = `${spec.name}ReverseGlow`;
     group.add(reverse.mesh);
   }
 
   return { group, tail, reverse, indicator };
+}
+
+/** The clear window, centred in the cell and inset into its amber. */
+function reverseWindow(cell: Outline): Outline {
+  const s = { y: 0, xLo: 0, xHi: 0 };
+  spanAt(cell, 0.5, s);
+  const cx = (s.xLo + s.xHi) / 2;
+  const halfW = (SPAN * REVERSE_WIDTH) / 2;
+  const cy = (cell.yLo + cell.yHi) / 2;
+  const halfH = ((cell.yHi - cell.yLo) * REVERSE_RISE) / 2;
+  return sliceY(sliceX(cell, cx - halfW, cx + halfW, 0.004), cy - halfH, cy + halfH, 0.004);
+}
+
+/** The four amber strips left once the window is cut out of a cell. */
+function aroundWindow(cell: Outline, win: Outline): Outline[] {
+  const s = { y: 0, xLo: 0, xHi: 0 };
+  const mid = spanAt(win, 0.5, s);
+  const xLo = mid.xLo;
+  const xHi = mid.xHi;
+  const middle = sliceX(cell, xLo - WIN_RIB, xHi + WIN_RIB, 0.004);
+  return [
+    sliceX(cell, 0, xLo - WIN_RIB, 0.004),
+    sliceX(cell, xHi + WIN_RIB, 10, 0.004),
+    sliceY(middle, win.yHi + WIN_RIB, 10, 0.003),
+    sliceY(middle, 0, win.yLo - WIN_RIB, 0.003),
+  ];
 }
 
 function lensSlab(o: Outline): THREE.BufferGeometry {

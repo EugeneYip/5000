@@ -62,9 +62,14 @@ export function buildTyreNormalMap(layout: SidewallLayout, freeR: number): THREE
 
   const yOf = (v: number): number => (1 - v) * H;
 
-  // --- moulded lettering, both sidewalls ------------------------------------
+  // --- moulded lettering, INBOARD sidewall only -----------------------------
+  // The outboard side carries real extruded relief built by `sidewall.ts`;
+  // stamping the same legend into the normal map as well double-prints it, at
+  // a different size and a different clocking. The far side never gets close
+  // enough for the difference between relief and a normal map to show, so it
+  // keeps the cheap version.
   const dt = 0.004 / layout.sectionHeight;
-  for (const outboard of [true, false]) {
+  for (const outboard of [false]) {
     for (const row of LETTER_STACK) {
       const v = layout.vAtT(row.t, outboard);
       const texelsPerM = Math.abs(yOf(layout.vAtT(row.t + dt, outboard)) - yOf(v)) / 0.004;
@@ -138,9 +143,15 @@ export function buildTyreNormalMap(layout: SidewallLayout, freeR: number): THREE
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
       // Grain plus a slow blotch so the rubber is not uniform.
-      const n = fbm3(x * inv * 3.1, y * inv * 3.1, 0, 3) - 0.5;
-      const blotch = fbm3(x * 0.004, y * 0.004, 11.5, 2) - 0.5;
-      const val = d[i] + n * 26 + blotch * 10;
+      //
+      // The grain has to be FINE. One texel is about half a millimetre of real
+      // sidewall here, so the 3.1 this used to run at made 14 mm pebbles and
+      // the close-up read as cast concrete rather than rubber. 13 puts the
+      // cell at ~3.5 mm, which is what moulded rubber actually looks like, and
+      // the amplitude comes down to match because fine grain needs less of it.
+      const n = fbm3(x * inv * 13.0, y * inv * 13.0, 0, 3) - 0.5;
+      const blotch = fbm3(x * 0.0016, y * 0.0016, 11.5, 2) - 0.5;
+      const val = d[i] + n * 13 + blotch * 6;
       d[i] = d[i + 1] = d[i + 2] = val < 0 ? 0 : val > 255 ? 255 : val;
     }
   }

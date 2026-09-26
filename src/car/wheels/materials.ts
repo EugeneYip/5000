@@ -76,6 +76,15 @@ export interface VertexLayer {
    *  procedural grain stays locked to the rubber instead of swimming through
    *  it as the tyre turns. Pass the GLSL expression to bind. */
   rebindObjPos?: string;
+  /**
+   * Retune uniforms the *library* installed, after its own hook has run.
+   *
+   * `extend()` assigns the same `IUniform` objects into every shader compiled
+   * from a material, so the callback must **replace** an entry rather than
+   * mutate the value it finds — mutating would reach every other part wearing
+   * the same library material.
+   */
+  tuneUniforms?(uniforms: Record<string, THREE.IUniform>): void;
 }
 
 /**
@@ -89,6 +98,7 @@ export function layerVertex<T extends THREE.Material>(material: T, layer: Vertex
   material.onBeforeCompile = function (shader, renderer) {
     prev?.call(this, shader, renderer);
     Object.assign(shader.uniforms, layer.uniforms);
+    layer.tuneUniforms?.(shader.uniforms);
 
     let v = shader.vertexShader;
     if (layer.declarations) {

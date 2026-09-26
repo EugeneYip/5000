@@ -192,7 +192,7 @@ diffuseColor.rgb *= (1.0 + audiPlasticMottle * uPlasticGrain.w)
  * visibly glossier than the carcass around it. Curvature is measured per metre
  * rather than per pixel, so the lettering stays glossy from any distance.
  */
-export function createRubber(opts: { roughness?: number } = {}): THREE.MeshPhysicalMaterial {
+export function createRubber(opts: { roughness?: number; vertexColors?: boolean } = {}): THREE.MeshPhysicalMaterial {
   const uniforms = {
     // x micro cells/m  y micro slope  z dust amount  w dust cells/m
     uRubberParams: { value: new THREE.Vector4(2400.0, 0.30, 0.30, 120.0) },
@@ -212,10 +212,15 @@ export function createRubber(opts: { roughness?: number } = {}): THREE.MeshPhysi
     sheenRoughness: 0.9,
     sheenColor: new THREE.Color(0.14, 0.13, 0.12),
     envMapIntensity: 0.6,
+    // For a tyre carrying baked road film in its vertices.
+    vertexColors: opts.vertexColors ?? false,
   });
 
   extend(material, {
-    key: `audi-rubber-${(opts.roughness ?? 0.92).toFixed(2)}-v1`,
+    // One key for every roughness. Roughness is a material property, not part
+    // of this source, so a per-roughness key compiled the identical program
+    // once per caller — six extra links for nothing.
+    key: 'audi-rubber-v1',
     uniforms,
     vertex: OBJECT_SPACE_VARYINGS.vertex,
     fragment: [

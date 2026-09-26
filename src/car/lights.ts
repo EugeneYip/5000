@@ -13,11 +13,15 @@
  * here as plain anchors, riding the body like the rest of the car, and their
  * world transform is copied onto the scene-level lights every frame.
  *
- * **The inner rear sections belong to the tailgate.** On the Avant the rear
- * lamp is split across the shutline (§6.4): the outer section is on the
- * quarter panel, the inner one on the tailgate and travels with it. They are
- * built as separate assemblies and the inner pair is re-parented onto the body
- * stream's `tailgatePanel` on the first frame, once the scene graph exists.
+ * **Half the rear lighting belongs to the tailgate.** On the Avant the rear
+ * lamp is split across the shutline: the outer section is on the quarter
+ * panel, the inner one — the larger one, carrying the reversing lamp — is on
+ * the tailgate and travels with it. So are the plate lamps, because on this
+ * car the plate is in the tailgate too. Both are re-parented once the scene
+ * graph exists: the lamp sections onto the body stream's `tailgatePanel`, the
+ * plate lamps onto whatever panel the trim stream's `plateRear` turns out to
+ * be on, which is also how they find the plate's height rather than assuming
+ * one.
  *
  * **`state.lights` is real now.** Physics and input drive every flag, so the
  * lamps do exactly what the driver asks and nothing else; the auto-on fallback
@@ -71,7 +75,9 @@ export function buildLights(ctx: BuildContext): PartResult {
   // Near-field spill: what a lit rear cluster throws onto its own bumper, the
   // plate and the road. Colour is mixed from whichever filaments are alight.
   const rearSpill = tail.spill.map((p, i) => new Spill(group, p, 3.6, `rearSpill${i}`));
-  const plateSpill = new Spill(group, small.plateLightAt, 0.75, 'plateSpill');
+  // Parented to the plate-lamp group rather than to the car, so it follows
+  // them onto the tailgate and swings with it.
+  const plateSpill = new Spill(small.plateLamps, small.plateLightAt, 0.75, 'plateSpill');
 
   const channels = new LampChannels();
 
@@ -83,6 +89,8 @@ export function buildLights(ctx: BuildContext): PartResult {
 
   let tidied = false;
   let attached = false;
+  let plated = false;
+  let hook = 0;
   let darkAge = 99;
   let dark = false;
 
@@ -111,11 +119,13 @@ export function buildLights(ctx: BuildContext): PartResult {
     state: (): LampState => channels.state,
     /** Which panel the tailgate-mounted rear sections ended up on. */
     tailgate: (): string => tail.inner.parent?.name ?? 'unparented',
+    /** Which panel the plate lamps followed the plate onto. */
+    plateLamps: (): string => small.plateLamps.parent?.name ?? 'unparented',
     /** Draw calls and triangles this part costs, for the perf budget. */
     cost: (): { meshes: number; triangles: number; lights: number } => {
       const seen = new Set<THREE.Mesh>();
       let triangles = 0;
-      for (const root of [group, tail.inner]) {
+      for (const root of [group, tail.inner, small.plateLamps]) {
         root.traverse((o) => {
           const m = o as THREE.Mesh;
           if (!m.isMesh || !m.geometry || seen.has(m)) return;
@@ -132,9 +142,12 @@ export function buildLights(ctx: BuildContext): PartResult {
     if (!tidied) {
       tidied = true;
       tidy(group);
-      attached = attachToTailgate(group, tail.inner);
-    } else if (!attached && darkAge % 30 === 0) {
-      attached = attachToTailgate(group, tail.inner);
+    }
+    // Both of these need another stream's node to exist, so they are tried on
+    // the first frame and then retried every half second until they take.
+    if ((!attached || !plated) && hook++ % 30 === 0) {
+      if (!attached) attached = attachToTailgate(group, tail.inner);
+      if (!plated) plated = fitPlateLamps(group, small.plateLamps);
     }
 
     // The preset only changes when a reviewer asks for it; 20 frames of lag is
@@ -309,6 +322,52 @@ function attachToTailgate(group: THREE.Object3D, inner: THREE.Object3D): boolean
   root.updateMatrixWorld(true);
   panel.attach(inner);
   return true;
+}
+
+const _box = new THREE.Box3();
+const _at = new THREE.Vector3();
+
+/**
+ * Set the plate lamps onto whatever the trim stream actually built, rather
+ * than onto `HP.rear.plateCenter`.
+ *
+ * Two reasons. The obvious one is that a lamp whose whole job is to light the
+ * plate has to be above *that* plate, 19 mm clear of its top edge, wherever the
+ * recess ended up. The less obvious one is that on this car the plate is in the
+ * tailgate, not the bumper — so the lamps open with it, and hard-coding a
+ * position in car space would leave them hanging in the aperture the moment the
+ * tailgate moved. Reading the plate's own parent settles both at once.
+ */
+function fitPlateLamps(group: THREE.Object3D, lamps: THREE.Object3D): boolean {
+  const root = rootOf(group);
+  const plate = root.getObjectByName('plateRear');
+  if (!plate?.parent) return false;
+  root.updateMatrixWorld(true);
+  _box.setFromObject(plate);
+  if (_box.isEmpty() || !Number.isFinite(_box.min.x)) return false;
+
+  // Whichever panel carries the plate carries the lamps. Anything else and an
+  // opening tailgate takes the plate away from its own lighting.
+  const host = panelOf(plate) ?? group;
+  if (lamps.parent !== host) host.add(lamps);
+
+  _box.getCenter(_at);
+  _at.y = _box.max.y + 0.019;
+  // The tail faces −Z, so `min.z` is the plate's outermost face.
+  _at.z = _box.min.z - 0.014;
+  host.updateWorldMatrix(true, false);
+  host.worldToLocal(_at);
+  lamps.position.copy(_at);
+  lamps.quaternion.identity();
+  return true;
+}
+
+/** The nearest articulated panel above `o`, if it is on one. */
+function panelOf(o: THREE.Object3D): THREE.Object3D | null {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+    if (p.name === 'tailgatePanel') return p;
+  }
+  return null;
 }
 
 const _dir = new THREE.Vector3();
