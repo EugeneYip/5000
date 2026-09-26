@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { CABIN, TONE, innerHalfW } from './layout';
-import { clamp, cyl, lerp, merge, mesh, roundedBox, smoothstep, surface, TAU } from './util';
+import { clamp, cyl, fbm, lerp, merge, mesh, roundedBox, smoothstep, surface, TAU } from './util';
 
 interface DoorSpec {
   /** +1 right, -1 left. */
@@ -55,7 +55,10 @@ function cardSurface(d: DoorSpec): THREE.BufferGeometry {
     const off = lerp(SECTION[i][0] * (w > 0 ? 0.30 : 1), off0, w > 0 ? arm * w + (1 - w) : 1);
     // Ends of the card pull back to the shutline.
     const end = 1 - smoothstep(0.92, 1.0, Math.abs(v * 2 - 1));
-    out.set(d.side * (innerHalfW(y) - off * end - 0.002), y, z);
+    // The driver's card has been kicked, leaned on and climbed over; the
+    // others have not. Scuffing is strongest low down, where feet reach.
+    const scuff = d.wear * (1 - smoothstep(0.42, 0.72, y)) * fbm(y * 34, d.side * 3.1, z * 7, 2) * 0.0018;
+    out.set(d.side * (innerHalfW(y) - off * end - 0.002 + scuff), y, z);
   });
 }
 
@@ -83,7 +86,6 @@ function door(d: DoorSpec, out: DoorGeo): void {
   const brights: THREE.BufferGeometry[] = [];
   const darks: THREE.BufferGeometry[] = [];
 
-  const len = d.zFront - d.zRear;
   const zAt = (f: number): number => lerp(d.zFront, d.zRear, f);
   const xAt = (y: number, off: number): number => d.side * (innerHalfW(y) - off);
 
@@ -169,7 +171,6 @@ function door(d: DoorSpec, out: DoorGeo): void {
   pin.translate(xAt(0.9855, 0.026), 1.000, zAt(0.055));
   brights.push(pin);
 
-  void len;
   out.trim.push(...darks);
   out.switches.push(...parts);
   out.bright.push(...brights);

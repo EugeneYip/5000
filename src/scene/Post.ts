@@ -145,12 +145,14 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   // then sat on that average until something unrelated moved. So the test
   // walks the car's nodes.
   //
-  // It compares against a threshold rather than hashing. A parked car is still
-  // being integrated by the physics every frame and its transforms drift in
-  // the low bits; an exact comparison would reset the accumulator forever and
-  // leave every still at one sample. The thresholds are set just under what a
-  // pixel can show — a fifth of a millimetre of travel, and a rotation that
-  // moves the far corner of the body by about the same.
+  // The threshold it applies is in *pixels*, not metres or radians, and that
+  // turns out to matter. A world-space threshold either misses a slow
+  // articulation or — much worse — trips on the instrument needles, which are
+  // integrated every frame by the physics and never settle. A needle is three
+  // centimetres long and eight degrees of quaternion a second; from outside
+  // the car that is a fifth of a pixel and must be ignored, and from the dash
+  // close-up it is a pixel and a half and must not be. One rule, expressed
+  // where the eye actually judges it, gets both right.
   //
   // The reference state is only updated when a move is *accepted*, so a drift
   // too slow to trip the test on any single frame still trips it once it has
@@ -161,17 +163,24 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   let carNodes: THREE.Object3D[] = [];
   let lookups = 0;
 
-  /** Metres. */
-  const POS_EPS = 2e-4;
-  /** Quaternion components; ×2 rad, so ~0.2 mm at a 2.5 m radius. */
-  const ROT_EPS = 4e-5;
+  /** How far anything may move between frames and still count as still. */
+  const MOTION_PX = 0.4;
 
   /** 16 matrix elements plus the two projection terms a pose can animate. */
   const CAM = 18;
   const PER_NODE = 7;
   let prev = new Float64Array(CAM);
+  /** Radius of each node's own geometry about its origin: a rotation's lever. */
+  let arm = new Float64Array(0);
   let prevValid = false;
 
+  const _c = new THREE.Vector3();
+  const _cam = new THREE.Vector3();
+
+  /**
+   * Collect the car's nodes and, for each, how far its geometry reaches from
+   * its own origin — which is what turns a rotation into a distance.
+   */
   const collectCarNodes = (): void => {
     carNodes.length = 0;
     if (carRoot) carRoot.traverse((o) => carNodes.push(o));
@@ -179,6 +188,35 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
     if (prev.length !== want) {
       prev = new Float64Array(want);
       prevValid = false;
+    }
+    if (arm.length !== carNodes.length) arm = new Float64Array(carNodes.length);
+    else arm.fill(0);
+
+    const index = new Map<THREE.Object3D, number>();
+    for (let i = 0; i < carNodes.length; i++) index.set(carNodes[i], i);
+
+    for (const o of carNodes) {
+      const geo = (o as THREE.Mesh).geometry;
+      if (!geo) continue;
+      if (!geo.boundingSphere) geo.computeBoundingSphere();
+      const bs = geo.boundingSphere;
+      if (!bs) continue;
+      _c.copy(bs.center).applyMatrix4(o.matrixWorld);
+      const e = o.matrixWorld.elements;
+      const scale = Math.sqrt(Math.max(
+        e[0] * e[0] + e[1] * e[1] + e[2] * e[2],
+        e[4] * e[4] + e[5] * e[5] + e[6] * e[6],
+        e[8] * e[8] + e[9] * e[9] + e[10] * e[10],
+      ));
+      const r = bs.radius * scale;
+      // A parent's lever is the furthest its subtree's geometry gets from it.
+      for (let a: THREE.Object3D | null = o; a; a = a.parent) {
+        const i = index.get(a);
+        if (i === undefined) break;
+        const ae = a.matrixWorld.elements;
+        const d = Math.hypot(_c.x - ae[12], _c.y - ae[13], _c.z - ae[14]) + r;
+        if (d > arm[i]) arm[i] = d;
+      }
     }
   };
 
@@ -196,30 +234,40 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       collectCarNodes();
     }
 
+    // Pixels per radian at the frame centre, and per metre at one metre.
+    const kPx = (height * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
+    camera.getWorldPosition(_cam);
+
     let dirty = !prevValid;
     const e = camera.matrixWorld.elements;
-    // 0–11 are the basis, so an epsilon on them is an angle; 12–15 are the
-    // translation, so it is a distance.
-    for (let i = 0; i < 16; i++) {
-      if (Math.abs(e[i] - prev[i]) > (i < 12 ? ROT_EPS : POS_EPS)) dirty = true;
-    }
+    // 0–11 are the basis, so a delta there is an angle and converts straight
+    // to pixels; 12–15 are the translation, which has to be divided by how
+    // far away the subject is.
+    const camLimit = (MOTION_PX * 0.5) / kPx;
+    for (let i = 0; i < 12; i++) if (Math.abs(e[i] - prev[i]) > camLimit) dirty = true;
+    for (let i = 12; i < 16; i++) if (Math.abs(e[i] - prev[i]) > camLimit * 4) dirty = true;
     if (Math.abs(camera.fov - prev[16]) > 1e-3 || Math.abs(camera.aspect - prev[17]) > 1e-4) dirty = true;
 
-    for (let n = 0, k = CAM; n < carNodes.length; n++, k += PER_NODE) {
-      const p = carNodes[n].position;
-      const q = carNodes[n].quaternion;
-      if (
-        Math.abs(p.x - prev[k]) > POS_EPS ||
-        Math.abs(p.y - prev[k + 1]) > POS_EPS ||
-        Math.abs(p.z - prev[k + 2]) > POS_EPS ||
-        Math.abs(q.x - prev[k + 3]) > ROT_EPS ||
-        Math.abs(q.y - prev[k + 4]) > ROT_EPS ||
-        Math.abs(q.z - prev[k + 5]) > ROT_EPS ||
-        Math.abs(q.w - prev[k + 6]) > ROT_EPS
-      ) {
-        dirty = true;
-        break;
-      }
+    for (let n = 0, k = CAM; !dirty && n < carNodes.length; n++, k += PER_NODE) {
+      const o = carNodes[n];
+      const p = o.position;
+      const q = o.quaternion;
+      const dPos = Math.max(
+        Math.abs(p.x - prev[k]),
+        Math.abs(p.y - prev[k + 1]),
+        Math.abs(p.z - prev[k + 2]),
+      );
+      const dRot = Math.max(
+        Math.abs(q.x - prev[k + 3]),
+        Math.abs(q.y - prev[k + 4]),
+        Math.abs(q.z - prev[k + 5]),
+        Math.abs(q.w - prev[k + 6]),
+      );
+      if (dPos === 0 && dRot === 0) continue;
+      const we = o.matrixWorld.elements;
+      const dist = Math.max(Math.hypot(we[12] - _cam.x, we[13] - _cam.y, we[14] - _cam.z), 0.05);
+      // A quaternion component moves at half the angle, so the arc is 2·dq·r.
+      if (((dPos + 2 * dRot * arm[n]) * kPx) / dist > MOTION_PX) dirty = true;
     }
 
     if (!dirty) return false;

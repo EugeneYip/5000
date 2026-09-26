@@ -73,15 +73,20 @@ export class Car {
       ctx.progress(done / total, name);
     }
 
-    car.root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) {
-        o.castShadow = true;
+    // Shadow casting is opt-out, not blanket. Forcing it on everything
+    // overrode meshes that had deliberately turned it off, and pushed the
+    // whole cabin into the exterior shadow map — ~45 meshes rendering into
+    // 4096^2 to cast shadows that are inside a closed car and cannot be seen.
+    for (const [name, part] of car.parts) {
+      const interior = name === 'interior';
+      part.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        if (!o.userData.noShadow && !interior) o.castShadow = true;
         o.receiveShadow = true;
-        // Frustum culling off for body panels: they are one logical object and
-        // popping a door panel at the frame edge looks broken.
         o.frustumCulled = true;
-      }
-    });
+      });
+    }
 
     return car;
   }

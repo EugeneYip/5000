@@ -317,11 +317,38 @@ function attachToTailgate(group: THREE.Object3D, inner: THREE.Object3D): boolean
  * it degrades to "daylight" if the environment stream ever renames it.
  */
 const _dir = new THREE.Vector3();
+/**
+ * How lit the world is, used only to decide whether to switch the lamps on
+ * while input and physics are still stubs.
+ *
+ * The obvious test — sun intensity scaled by its elevation — gets golden hour
+ * exactly wrong. A low sun has a small `dir.y`, so a bright, warm, entirely
+ * daylit scene scored below the threshold and the car drove around with its
+ * headlamps on, pooling light on the road in front of the bumper. Elevation
+ * says where the sun is, not how much light there is.
+ *
+ * So: keep most of the sun's intensity regardless of how low it sits, and add
+ * the ambient and hemisphere terms, which are what actually carry a scene once
+ * the sun is near the horizon — and are near zero at night, which is the case
+ * this test exists to catch.
+ */
 function keyLight(group: THREE.Object3D): number {
-  const sun = rootOf(group).getObjectByName('env:sun') as THREE.DirectionalLight | null;
-  if (!sun) return 1;
+  const root = rootOf(group);
+  const sun = root.getObjectByName('env:sun') as THREE.DirectionalLight | null;
+
+  let ambient = 0;
+  root.traverse((o) => {
+    const l = o as THREE.Light;
+    if (!l.isLight || l === sun) return;
+    if ((l as THREE.HemisphereLight).isHemisphereLight || (l as THREE.AmbientLight).isAmbientLight) {
+      ambient += l.intensity;
+    }
+  });
+
+  if (!sun) return ambient > 0 ? ambient : 1;
   _dir.copy(sun.position).sub(sun.target.position).normalize();
-  return sun.intensity * Math.max(_dir.y, 0);
+  const elevation = Math.max(_dir.y, 0);
+  return sun.intensity * (0.4 + 0.6 * elevation) + ambient;
 }
 
 export type { Glow };

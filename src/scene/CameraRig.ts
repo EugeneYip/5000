@@ -65,7 +65,15 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
 
   // Cabin.
   interior:  { target: [0.1, 0.95, -0.85], position: [-1.55, 1.18, -0.35], focalMm: 24 },
-  dash:      { target: [-0.38, 1.02, -0.42], position: [-0.38, 1.12, -1.35], focalMm: 40, aperture: 2.8 },
+  /**
+   * A seated driver's eye, not a camera resting on the dash top. The old pose
+   * sat at y=1.12 looking at a cluster centred at 1.032 with a 1.055 dash top
+   * between them, so the sightline grazed the dash at ~5 deg and occluded the
+   * instruments — which no interior geometry could fix, because a cluster
+   * 105 mm tall centred at 1.032 has to stand proud of the dash in a pod, as
+   * it does in the real car. With a 0.612 H-point the driver's eye is ~1.24.
+   */
+  dash:      { target: [-0.38, 1.03, -0.58], position: [-0.38, 1.25, -1.3], focalMm: 40, aperture: 2.8 },
 
   /**
    * Reproduces the original photograph's viewpoint.
