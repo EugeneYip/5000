@@ -34,7 +34,18 @@ export interface MaterialLibrary {
   /** Grained bumper/cladding plastic. */
   bumperPlastic(): THREE.Material;
   /** Tyre sidewall and seals. */
-  rubber(opts?: { roughness?: number }): THREE.Material;
+  rubber(opts?: {
+    roughness?: number;
+    /** Road-film coverage, 0..1. A seal collects ~0.3; a sidewall wipes itself, ~0.1. */
+    dust?: number;
+    /** Blotch frequency of that film, cells/m. 120 suits a door seal; a 130 mm sidewall wants ~320. */
+    dustCells?: number;
+    /** Extra gloss on moulded relief — sidewall lettering comes out of a polished cavity. */
+    mouldGloss?: number;
+    /** Curvature, 1/m, at which a crease starts to count as moulded relief. */
+    mouldCurve?: number;
+    vertexColors?: boolean;
+  }): THREE.Material;
   /** Headlamp/taillamp lens, with prism refraction. */
   lens(color: number, opts?: { prismatic?: boolean; opacity?: number }): THREE.Material;
   /** Reflector bowl behind a lamp. */
@@ -48,7 +59,41 @@ export interface MaterialLibrary {
   /** Carpet, with fuzz. */
   carpet(): THREE.Material;
   /** Machined/cast alloy for wheels. */
-  alloy(opts?: { polished?: boolean }): THREE.Material;
+  alloy(opts?: { polished?: boolean; vertexColors?: boolean }): THREE.Material;
+  /**
+   * A surface carrying drawn artwork: plate face, sticker, dial face, switch
+   * legend. Keyed on the texture, so two callers sharing one share a material
+   * and batch, and a caller with its own canvas can never repaint another's.
+   */
+  printed(map: THREE.Texture, opts?: {
+    roughness?: number;
+    clearcoat?: number;
+    clearcoatRoughness?: number;
+    emissiveMap?: THREE.Texture | null;
+    emissive?: number;
+    emissiveIntensity?: number;
+    envMapIntensity?: number;
+    /** Cast the shadow from the back faces — for a flat embossed panel. */
+    backfaceShadow?: boolean;
+  }): THREE.Material;
+  /** Castings, heat shields, oxidised iron — anything under the floor line. */
+  dirtyMetal(opts?: {
+    color?: number; roughness?: number; metalness?: number;
+    /** 0 = washed casting, 1 = a decade under a car. */
+    grime?: number;
+    vertexColors?: boolean;
+  }): THREE.Material;
+  /** Oxidised grey iron: disc hats and vanes, dust shields, pad backing plates. */
+  castIron(opts?: {
+    color?: number;
+    /** 0 = phosphated casting, 1 = a month of weather. */
+    oxide?: number;
+    grime?: number; roughness?: number; vertexColors?: boolean;
+  }): THREE.Material;
+  /** The phosphated/painted caliper casting. */
+  caliperPaint(opts?: { color?: number; vertexColors?: boolean }): THREE.Material;
+  /** Sintered brake friction material. */
+  padFriction(opts?: { vertexColors?: boolean }): THREE.Material;
   /** Brake disc iron, with a wear ring. */
   brakeDisc(): THREE.Material;
   /** Update any time-varying uniforms (flake shimmer, etc). */

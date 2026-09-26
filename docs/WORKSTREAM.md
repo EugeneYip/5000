@@ -87,8 +87,28 @@ integrates and commits. Committing concurrently will conflict.
   asking — Three.js and its `examples/jsm` addons are already available and
   are almost always enough.
 - Performance budget: the whole car ≤ 1.2 M triangles, ≤ 220 draw calls,
-  60 fps at 1080p on an M-series laptop. Merge static geometry. Instance
-  repeated parts (slats, bolts, tread blocks).
+  60 fps at 1080p. Merge static geometry. Instance repeated parts (slats,
+  bolts, tread blocks).
+
+  **Read `renderer.info` carefully — it does not mean what it looks like.**
+  The scene is rendered **three times every frame**: the transmission pass
+  (three re-renders the opaque scene because the glazing and lamp lenses are
+  transmissive), the colour pass, and GTAO's normal/depth override. So both
+  counters come back at about **2.92×** the geometry actually present.
+
+  Measured at `front3q`: `renderer.info` reports 2,368,765 triangles, but the
+  visible geometry counted once is **811,714 — of which the car is 770,934,
+  comfortably inside the 1.2 M budget.** Likewise a reported 931 draws is
+  32 for the scene plus 308 car meshes at 2.92 each.
+
+  Also: an occasional 1237 in the readout is the one-frame-in-fifteen
+  shadow-map refresh, not the steady state.
+
+  So before optimising anything, check whether the number you are chasing is
+  real. Hide the car root and re-measure to get the delta, or count geometry
+  directly. `__AUDI_MAT.audit()` lists meshes wearing materials the registry
+  never issued, and `__AUDI_MAT.raw()` records every option set the library
+  was handed before quantisation.
 - Nothing in a real car is a perfectly sharp edge. Every visible edge gets a
   radius (`QUALITY.edgeRadius`). This single habit does more for realism than
   any texture.

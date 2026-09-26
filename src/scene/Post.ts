@@ -117,6 +117,15 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   composer.addPass(accum);
   composer.addPass(grade);
 
+  // The accumulator only drops its converged buffer when something MOVES.
+  // A repaint moves nothing, so a colour change was being averaged at 1/n
+  // against up to fifteen frames of the previous colour — and discarded
+  // outright once the buffer was full. The paint picker looked broken:
+  // clicking red left the car graphite, then clicking white left it red.
+  // Anything that changes what a pixel should be without moving a vertex
+  // belongs on this event.
+  globalThis.addEventListener('audi:materials-dirty', () => accum.reset());
+
   // The GTAO pass re-renders the scene for its normal buffer, and every
   // `renderer.render` re-runs the shadow maps while `autoUpdate` is on. At
   // 4096² VSM that is a second full blur of a 16 M-texel map for nothing.
