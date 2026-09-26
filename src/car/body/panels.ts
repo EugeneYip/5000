@@ -55,7 +55,7 @@ export const Z = {
   lampBack: 0.782,                        //  rear wall of the lamp aperture
   hoodFront: HP.front.hoodFrontZ,         //  0.782
   hoodRear: -0.345,
-  cowlRear: -0.372,
+  cowlRear: -0.440,
   doorF: HP.side.doorFrontZ,              // −0.455
   doorM: HP.side.doorMidZ,                // −1.585
   doorR: HP.side.doorRearZ,               // −2.585
@@ -85,10 +85,20 @@ const tScreenEdge = (z: number): number => T.roofEdge - dtFor(z, T.roofEdge, 0.0
  * Lower edge of the A-pillar. At the scuttle the pillar is as deep as the
  * whole cowl side; by the time the front door starts it has narrowed to a slim
  * flush-glazed pillar, which is what lets the DLO read as one clean band.
+ *
+ * Slim means *slim*: the pillar's outboard edge lands on `tRoofOuter`, the
+ * same line the roof skin's edge runs along, so the daylight opening's top
+ * line is continuous from the screen corner to the tailgate. It used to sit
+ * 78 mm of skin below the roof edge, which put a 49 mm step in the middle of
+ * the front door that the glazing had to hide under an oversized moulding.
+ *
+ * The transition to the beltline runs −0.700 … −0.560 rather than
+ * −0.620 … −0.400: the elevation puts the DLO's front corner at z ≈ −0.58,
+ * essentially at the front door's shutline, not 180 mm ahead of it.
  */
 const aPillarLower = (z: number): number => {
-  const slim = T.roofEdge + dtFor(z, T.roofEdge, 0.078);
-  return lerp(slim, T.belt, smoothstep(-0.620, -0.400, z));
+  const slim = tRoofOuter(z);
+  return lerp(slim, T.belt, smoothstep(-0.700, -0.560, z));
 };
 
 /** Top edge of the front wing: the bonnet shutline, turning up at the cowl. */
@@ -315,8 +325,13 @@ export function wheelHouse(axleZ: number, sign: 1 | -1): THREE.BufferGeometry {
     const ang = lerp(-1, 1, a);
     const zz = axleZ + ang * HP.side.archRadius * 0.995;
     const topY = archTopY(zz, axleZ) ?? HP.wheelRadius;
+    // The lip has to ride on the body's own arch edge. `archLipX` is the body
+    // half-width at the CROWN of the arch; towards its ends the flank has
+    // tucked in by over 100 mm, so a lip held at that fixed x walked straight
+    // out through the rocker and showed as dark wedges under the sill.
+    const lipX = halfWidthAt(zz, tAtY(zz, topY)) - 0.012;
     const depth = lerp(0, 1, b);
-    const x = lerp(HP.side.archLipX - 0.012, inner, depth);
+    const x = lerp(lipX, Math.min(inner, lipX - 0.02), depth);
     // The liner drops away from the lip and closes over the top of the tyre.
     const y = lerp(topY - 0.012, HP.wheelRadius + HP.side.archRadius * 0.62, depth * depth);
     _p.set(sign * x, y, zz);

@@ -54,41 +54,56 @@ const LEVEL_T = [T.top, T.roofEdge, T.dloMid, T.belt, T.crown, T.wide, T.lowerA,
 // 1. Centreline top profile — bonnet, windscreen, roof, tailgate.
 // ---------------------------------------------------------------------------
 //
-// The roof crown peaks at BODY.height and is carried flat aft to z ≈ −2.95,
-// then the tailgate falls away at roughly 24° from horizontal. The C3 Avant is
-// a fastback estate, not a square-backed one; both the orthographic elevation
-// and every period photograph agree, and getting this wrong is the fastest way
-// to make the model read as some other car.
-
+// Every value aft of the bonnet was read off the 1986 100 Avant elevation, one
+// station at a time, and scaled by BODY.height / 1427 mm (the drawing's own
+// roof-skin crown) so the crown still lands exactly on the spec figure. Three
+// things that drawing insists on and the previous table did not do:
+//
+//   · The screen climbs at a steady ~60° from vertical and is *finished* by
+//     z ≈ −1.20, where it flattens hard into the roof. The old table ramped up
+//     at a lazy 67–74° and did not reach roof height until −1.40, which put
+//     200 mm of extra glass over the cabin and is what made the car read
+//     cab-forward.
+//   · The bonnet/screen break sits at HP.cowlZ. Aft of it there is a short
+//     near-level scuttle before the glass starts, not an immediate climb.
+//   · The tail stops falling at ≈ 1.14 m and runs level over the last 150 mm:
+//     the roof extension above the tailgate glass. The old table kept falling
+//     to 1.09, which rounded the tail off and lost the square shoulder.
 const yTop = spline(
-  [Z_NOSE_FACE, 0.872],
-  [0.840, 0.876],
+  [Z_NOSE_FACE, 0.869],
+  [0.840, 0.874],
   [HP.front.hoodFrontZ, HP.front.hoodFrontY],   // 0.782 / 0.878
-  [0.600, 0.897],
-  [0.400, 0.917],
-  [0.150, 0.945],
-  [-0.100, 0.978],
-  [-0.240, 1.006],
-  [-0.345, 1.036],
+  [0.600, 0.893],
+  [0.400, 0.915],
+  [0.150, 0.943],
+  [-0.100, 0.976],
+  [-0.240, 1.003],
+  [-0.345, 1.034],
   [HP.cowlZ, HP.cowlY],                          // −0.370 / 1.045
-  [-0.560, 1.130],
-  [-0.800, 1.235],
-  [-1.050, 1.332],
-  [-1.190, 1.375],
+  [-0.450, 1.084],
+  [-0.560, 1.146],
+  [-0.680, 1.208],
+  [-0.800, 1.264],
+  [-0.920, 1.315],
+  [-1.040, 1.360],
+  [-1.140, 1.386],
+  [-1.210, 1.395],
   [HP.headerZ, HP.headerY],                      // −1.280 / 1.398
-  [-1.360, 1.407],
-  [-1.600, 1.413],
+  [-1.420, 1.405],
+  [-1.700, 1.412],
   [-1.900, BODY.height],                         // 1.415, the highest point
   [-2.300, 1.413],
-  [-2.650, 1.409],
-  [-2.860, 1.402],
-  [-2.968, 1.392],                               // HP.roof.dPillarZ: roof turns down
-  [-3.040, 1.379],
-  [-3.108, 1.359],                               // HP.rear.tailgateHingeZ
-  [-3.300, 1.290],
-  [-3.500, 1.203],
-  [-3.600, 1.148],
-  [Z_TAIL_END, 1.092],
+  [-2.650, 1.408],
+  [-2.860, 1.399],
+  [-2.968, 1.386],                               // HP.roof.dPillarZ: roof turns down
+  [-3.040, 1.366],
+  [-3.108, 1.338],                               // HP.rear.tailgateHingeZ
+  [-3.200, 1.278],
+  [-3.300, 1.238],
+  [-3.400, 1.200],
+  [-3.500, 1.160],
+  [-3.600, 1.141],
+  [Z_TAIL_END, 1.138],
 );
 
 // ---------------------------------------------------------------------------
@@ -109,38 +124,62 @@ const xRoofEdge = spline(
   [0.000, 0.742],
   [-0.240, 0.744],
   [-0.345, HP.front.hoodHalfW + 0.003],          // 0.745
-  [-0.430, 0.792],
-  [-0.560, 0.801],
-  [-0.800, 0.780],
-  [-1.050, 0.740],
+  [-0.430, 0.764],
+  [-0.520, 0.786],
+  [-0.620, 0.797],
+  [-0.720, 0.798],
+  [-0.850, 0.776],
+  [-1.000, 0.748],
+  [-1.150, 0.722],
   [HP.headerZ, 0.708],
   [-1.480, 0.700],
   [-2.000, 0.700],
   [-2.400, 0.697],
-  [-2.700, 0.688],
-  [-2.968, 0.664],
-  [-3.108, 0.630],
-  [-3.300, 0.592],
-  [-3.500, 0.580],
-  [Z_TAIL_END, 0.588],
+  [-2.700, 0.690],
+  [-2.968, 0.674],
+  [-3.108, 0.654],
+  [-3.300, 0.628],
+  [-3.500, 0.611],
+  [Z_TAIL_END, 0.604],
 );
 
-/** How far the roof-side edge sits below the centreline: the roof's crown. */
+/**
+ * How far the roof-side edge sits below the centreline.
+ *
+ * Over the roof this is just the transverse crown, ~52 mm, which is what the
+ * elevation shows between the roof rail feet and the DLO top. Across the
+ * windscreen it is doing something quite different and much larger: the screen
+ * is raked ~60° and strongly swept in plan, so at any given station the
+ * A-pillar is far lower than the glass on the centreline. The elevation puts
+ * the A-pillar's outer edge 45 mm below the centreline at the header and
+ * ~150 mm below it at the pillar's base — and it is that sweep, not the
+ * centreline rake, which the eye reads as the windscreen's angle. The previous
+ * 21–31 mm here left the pillar line running at 70° from vertical against the
+ * drawing's 57°, and pushed the DLO's front corner 380 mm too far forward.
+ */
 const crownDrop = spline(
   [Z_NOSE_FACE, 0.006],
   [HP.front.hoodFrontZ, 0.010],
-  [0.000, 0.013],
-  [-0.345, 0.015],
-  [-0.430, 0.021],
-  [-0.800, 0.031],
-  [HP.headerZ, 0.042],
+  [0.000, 0.014],
+  [-0.150, 0.018],
+  [-0.260, 0.025],
+  [-0.345, 0.034],
+  [-0.430, 0.058],
+  [-0.520, 0.092],
+  [-0.620, 0.126],
+  [-0.720, 0.148],
+  [-0.800, 0.132],
+  [-0.950, 0.092],
+  [-1.100, 0.058],
+  [HP.headerZ, 0.037],
+  [-1.400, 0.046],
   [-1.480, 0.050],
   [-2.400, 0.052],
-  [-2.968, 0.060],
-  [-3.108, 0.056],
-  [-3.300, 0.036],
+  [-2.968, 0.058],
+  [-3.108, 0.050],
+  [-3.300, 0.034],
   [-3.500, 0.022],
-  [Z_TAIL_END, 0.014],
+  [Z_TAIL_END, 0.016],
 );
 
 // ---------------------------------------------------------------------------
@@ -186,10 +225,11 @@ const xBelt = spline(
 const dloFullY = spline(
   [Z_NOSE_FACE, 0.42],
   [-2.700, 0.42],
-  [-3.108, 0.50],
-  [-3.300, 0.72],
-  [-3.500, 0.82],
-  [Z_TAIL_END, 0.86],
+  [-3.000, 0.46],
+  [-3.108, 0.56],
+  [-3.300, 0.78],
+  [-3.500, 0.88],
+  [Z_TAIL_END, 0.90],
 );
 
 // ---------------------------------------------------------------------------

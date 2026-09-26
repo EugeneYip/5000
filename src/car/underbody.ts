@@ -39,7 +39,10 @@ export function buildUnderbody(ctx: BuildContext): PartResult {
   // bare metal, and giving it metalness is the usual mistake.
   const steel = ctx.materials.interiorPlastic({ color: 0x191b1e, roughness: 0.58 });
   // Clean cast alloy, for what the bonnet exposes.
-  const cast = ctx.materials.alloy();
+  // NOT alloy(): that is authored near-white and fully metallic for the
+  // wheels, and a sump or bellhousing wearing it blazes like a lamp when a low
+  // sun gets under the car. Under-floor castings are dull, dark and oxidised.
+  const cast = ctx.materials.interiorPlastic({ color: 0x3a3c3d, roughness: 0.72 });
   // Everything under the floor line. `alloy()` is authored for wheels —
   // near-white, fully metallic — and an engine sump wearing it glows like a
   // lamp when a low sun gets under the car. Real under-car castings are dark,
@@ -49,7 +52,9 @@ export function buildUnderbody(ctx: BuildContext): PartResult {
   // Aluminised foil, not chrome: `chrome()` bottoms out at roughness 0.09
   // whatever it is asked for, and a mirror-finish heat shield throws sky-blue
   // light around under a car that should be in shadow.
-  const shield = ctx.materials.alloy();
+  // Aluminised heat shields dull and discolour almost immediately in service;
+  // mirror-bright ones do not exist on a road car with miles on it.
+  const shield = ctx.materials.interiorPlastic({ color: 0x4a4b4c, roughness: 0.55 });
   const rubber = ctx.materials.rubber({ roughness: 0.94 });
   const black = ctx.materials.blackTrim();
 

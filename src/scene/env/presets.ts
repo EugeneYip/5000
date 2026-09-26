@@ -142,7 +142,12 @@ export const PRESETS: Record<string, EnvPreset> = {
     sunShadowRadius: 2.2,
     sky: {
       zenith: 0x5c8ac8,
-      horizon: 0xb3c4d2,
+      // Pulled a little bluer. This colour is doing two jobs: it is the sky
+      // the horizon washes out to, and — through the IBL road's grazing
+      // Fresnel — it is what the lower half of every vertical panel's
+      // reflection is made of. A grey-green horizon put a grey-green cast on
+      // the flanks that no amount of extra light was going to remove.
+      horizon: 0xaec6dc,
       ground: 0x6b5c4c,
       sun: 0xffb066,
       sunIntensity: 120,
@@ -153,7 +158,13 @@ export const PRESETS: Record<string, EnvPreset> = {
       haze: 0.26,
       hazeColor: 0xf2d2ac,
       hazeHeight: 0.034,
-      exposure: 0.5,
+      // Was 0.5, which put the sky's irradiance at 0.7× the direct sun's on a
+      // horizontal surface. Measured golden hour under a hazy summer sky —
+      // which is what the photograph shows — runs 0.8 to 1.3, and this is the
+      // energy the flanks are actually standing in: a vertical panel sees
+      // almost no sun and almost nothing but sky and what the sky lights.
+      // Underrating it by half is why they were reading two stops dark.
+      exposure: 0.95,
     },
     hemi: { sky: 0x93b8e8, ground: 0x6d5a45, intensity: 0.12 },
     bounce: { color: 0xd4a173, intensity: 0.42, dir: [0.35, -0.62, 0.7] },

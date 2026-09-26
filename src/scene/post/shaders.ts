@@ -63,6 +63,15 @@ varying vec2 vUv;
 #define TAPS 28
 const float GOLDEN = 2.39996323;
 
+// One tap per pixel of blur diameter, floored at four so even a marginal
+// circle of confusion still reads as a disc rather than a cross. A 38 mm
+// f/5.6 frame has a maximum CoC of about 2.5 px, so most of it now costs six
+// taps instead of twenty-eight; the 105 mm f/2 close-ups still get the full
+// count where the bokeh is actually large enough to see the sample pattern.
+int tapsFor(float radiusPx) {
+  return int(clamp(radiusPx * 2.0, 4.0, float(TAPS)));
+}
+
 float viewDistance(vec2 uv) {
   float d = texture2D(tDepth, uv).x;
   // perspectiveDepthToViewZ, inlined; returns a negative view-space z.
@@ -106,11 +115,13 @@ void main() {
 
   float rot = hash12(gl_FragCoord.xy) * 6.2831853;
   float searchRadius = 0.5 * (sharp ? uMaxCoC : cocC);
+  int taps = tapsFor(searchRadius);
 
   vec4 sum = centre;
   float wsum = 1.0;
   for (int i = 1; i <= TAPS; i++) {
-    float t = float(i) / float(TAPS);
+    if (i > taps) break;
+    float t = float(i) / float(taps);
     float ang = float(i) * GOLDEN + rot;
     // sqrt(t) keeps the taps area-uniform, so the bokeh disc is flat rather
     // than centre-weighted — which is what a real aperture does.

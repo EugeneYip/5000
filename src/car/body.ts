@@ -28,7 +28,26 @@ import {
 } from './body/panels';
 
 const REAR_Y_TOP = heightAt(Z_TAIL_END, 0.0);
-const TAILGATE_BOTTOM_Y = 0.988;
+
+/**
+ * Half-width of the tailgate at height `y`.
+ *
+ * Above the taillamps the tailgate is the full width of the tail; below them it
+ * necks in to the lamps' inner edge and runs down to its bottom shutline, which
+ * is `HP.rear.tailgateBottomY` — the hatch's painted lower section. The 20 mm
+ * blend keeps the corner a radius rather than a step.
+ *
+ * The local constant this replaced put the tailgate's bottom at 0.988, i.e.
+ * essentially at `HP.glass.tailgateGlassBottomY` (0.962). Those are two
+ * different things: 0.962 is where the GLASS stops, and it is right; the
+ * tailgate itself carries on down to 0.652, and a fixed panel was standing in
+ * for it with a shutline across the tail that the real car does not have.
+ */
+function tailgateHalfWidth(y: number): number {
+  const full = rearHalfWidth(y);
+  const k = clamp((y - HP.rear.lampTopY) / 0.020, 0, 1);
+  return lerp(Math.min(HP.rear.lampInnerX, full), full, k * k * (3 - 2 * k));
+}
 
 export function buildBody(ctx: BuildContext): PartResult {
   const group = new THREE.Group();
@@ -110,11 +129,11 @@ export function buildBody(ctx: BuildContext): PartResult {
     front: BUTT, rear: BUTT, lo: OPEN, hi: SHUT_DEEP,
   });
   const tgFace = facePatch({
-    yLo: TAILGATE_BOTTOM_Y, yHi: REAR_Y_TOP,
-    xLo: (y) => -rearHalfWidth(y), xHi: (y) => rearHalfWidth(y),
+    yLo: HP.rear.tailgateBottomY, yHi: REAR_Y_TOP,
+    xLo: (y) => -tailgateHalfWidth(y), xHi: tailgateHalfWidth,
     zAt: rearFaceZ, facing: -1,
-    bottom: SHUT_DEEP, top: BUTT, inner: BUTT, outer: BUTT,
-    ny: 10,
+    bottom: SHUT_DEEP, top: BUTT, inner: OPEN, outer: OPEN,
+    ny: 22,
   });
   const tailgateGeo = mergeGeometries([tgHeader, tgSideR, mirrorGeometry(tgSideR), tgFace]);
   const tgHinge = new THREE.Vector3(0, topAt(Z.tgHinge), Z.tgHinge);
@@ -217,18 +236,20 @@ export function buildBody(ctx: BuildContext): PartResult {
   // Rear structure — taillamp apertures and the panel between them
   // =========================================================================
   const rearLower = facePatch({
-    yLo: 0.338, yHi: HP.rear.lampBottomY,
+    yLo: 0.338, yHi: HP.rear.tailgateBottomY,
     xLo: (y) => -rearHalfWidth(y), xHi: (y) => rearHalfWidth(y),
     zAt: rearFaceZ, facing: -1,
-    bottom: BUTT, top: OPEN, inner: BUTT, outer: BUTT,
+    bottom: BUTT, top: SHUT, inner: BUTT, outer: BUTT,
     ny: 8,
   });
-  const rearCentre = facePatch({
-    yLo: HP.rear.lampBottomY, yHi: TAILGATE_BOTTOM_Y,
-    xLo: () => -HP.rear.lampInnerX, xHi: () => HP.rear.lampInnerX,
+  // Sliver of fixed panel outboard of the tailgate's lower corners: between its
+  // bottom shutline and the foot of the taillamp aperture.
+  const lampBaseR = facePatch({
+    yLo: HP.rear.tailgateBottomY, yHi: HP.rear.lampBottomY,
+    xLo: () => HP.rear.lampInnerX, xHi: rearHalfWidth,
     zAt: rearFaceZ, facing: -1,
-    bottom: BUTT, top: SHUT_DEEP, inner: OPEN, outer: OPEN,
-    ny: 8,
+    bottom: BUTT, top: OPEN, inner: SHUT, outer: BUTT,
+    ny: 4,
   });
 
   // =========================================================================
@@ -249,7 +270,8 @@ export function buildBody(ctx: BuildContext): PartResult {
   rearStructure.name = 'rearStructure';
   group.add(rearStructure);
   addPainted('rearLower', rearLower, rearStructure);
-  addPainted('rearCentre', rearCentre, rearStructure);
+  addPainted('lampBaseR', lampBaseR, rearStructure);
+  addPainted('lampBaseL', mirrorGeometry(lampBaseR), rearStructure);
   addPainted('quarterR', quarterR, rearStructure);
   addPainted('quarterL', mirrorGeometry(quarterR), rearStructure);
   addPainted('dPillarR', dPillarR, rearStructure);

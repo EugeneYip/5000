@@ -99,9 +99,17 @@ vec3 evalSky(vec3 dir) {
   float cosT = dot(dir, uSunDir);
   col += uSunColor * uMieStrength * pow(max(cosT, 0.0), uMiePower);
 
-  // Haze slab straddling the horizon line.
+  // Haze slab straddling the horizon line. Its *thickness* is the same all
+  // the way round, but its colour is not: the warm cast is forward-scattered
+  // sunlight and so belongs in the sun's quadrant. Away from the sun the same
+  // slab is the pale blue-grey of the horizon it sits on. Painting the warm
+  // version right round the compass is what makes a synthetic golden hour go
+  // sepia — and because a vertical body panel reflects exactly this band, it
+  // was landing straight on the flanks.
   float haze = exp(-abs(up) / max(uHazeHeight, 1e-4));
-  col = mix(col, uHazeColor, clamp(haze * uHaze, 0.0, 1.0));
+  float forward = pow(max(cosT, 0.0), 2.0);
+  vec3 hazeCol = mix(uHorizon, uHazeColor, clamp(0.18 + 0.82 * forward, 0.0, 1.0));
+  col = mix(col, hazeCol, clamp(haze * uHaze, 0.0, 1.0));
 
   // The disc. Kept in the IBL as well as the background, because the tiny
   // sharp glint it leaves in a clearcoat is half the reason a car photograph

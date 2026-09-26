@@ -46,9 +46,9 @@ export const HP = {
 
   /** Cowl: base of the windscreen, where it meets the bonnet. */
   cowlZ: -0.37,
-  cowlY: 1.045,
+  cowlY: 1.014,
   /** Windscreen header: top of the glass at the roof. */
-  headerZ: -1.28,
+  headerZ: -1.17,
   headerY: 1.398,
   /** Roof skin runs flat-ish from header to the D-pillar break. */
   roofRearZ: TAIL + 0.773,
@@ -64,8 +64,8 @@ export const HP = {
   front: {
     /** Grille aperture. Spans ±grilleHalfW, so 0.700 m overall. */
     grilleHalfW: 0.35,
-    grilleTopY: 0.845,
-    grilleBottomY: 0.688,
+    grilleTopY: 0.812,
+    grilleBottomY: 0.671,
     grilleZ: 0.862,
     /** How far the slats sit behind the surrounding surface. */
     grilleRecess: 0.035,
@@ -73,7 +73,7 @@ export const HP = {
     grilleSlats: 7,
 
     /** The four rings, centred in the grille. */
-    ringsCenter: [0, 0.7665, 0.872] as [number, number, number],
+    ringsCenter: [0, 0.7415, 0.872] as [number, number, number],
     /** Outer diameter of one ring, and the centre-to-centre spacing. */
     ringDiameter: 0.093,
     ringSpacing: 0.0715,
@@ -82,8 +82,8 @@ export const HP = {
     /** Headlamp aperture, right-hand side. Inner edge meets the grille. */
     lampInnerX: 0.35,
     lampOuterX: 0.85,
-    lampTopY: 0.858,
-    lampBottomY: 0.695,
+    lampTopY: 0.820,
+    lampBottomY: 0.681,
     lampZ: 0.858,
     /** The outboard portion of the lamp is the amber indicator. */
     indicatorInnerX: 0.712,
@@ -107,7 +107,7 @@ export const HP = {
 
     /** Bonnet leading edge and its shutline to the front wings. */
     hoodFrontZ: 0.782,
-    hoodFrontY: 0.878,
+    hoodFrontY: 0.843,
     hoodRearZ: -0.355,
     hoodRearY: 1.038,
     hoodHalfW: 0.742,
@@ -132,7 +132,7 @@ export const HP = {
     /** Door shutlines, measured at the beltline. */
     doorFrontZ: -0.455,
     doorMidZ: -1.585,
-    doorRearZ: -2.585,
+    doorRearZ: -2.463,
 
     /** Door handle: the C3's flush pull-up type. */
     handleFrontCenter: [HW - 0.038, 0.905, -1.115] as [number, number, number],
@@ -183,7 +183,7 @@ export const HP = {
     sideThickness: 0.0042,
 
     /** Daylight-opening corners at the beltline, right-hand side. */
-    dloFrontZ: -0.415,
+    dloFrontZ: -0.585,
     dloRearZ: TAIL + 0.838,
     dloBottomY: 0.998,
 
@@ -206,7 +206,7 @@ export const HP = {
   rear: {
     /** Tailgate shutline: it wraps up into the roof. */
     tailgateHingeZ: TAIL + 0.708,
-    tailgateHingeY: 1.408,
+    tailgateHingeY: 1.34,
     tailgateBottomY: 0.652,
 
     /** Taillamp cluster, right-hand side. Tall on the Avant. */

@@ -195,6 +195,9 @@ export async function buildEnvironment(
 
   const tmpColor = new THREE.Color();
   const hideForCapture: THREE.Object3D[] = [dome, ground.group, contact.mesh, backdrop.group];
+  /** Last car pose the occlusion pool was captured for; NaN forces a capture. */
+  let poolSig = NaN;
+  let poolAge = 0;
 
   const applyPreset = (p: EnvPreset): void => {
     preset = p;
@@ -285,6 +288,9 @@ export async function buildEnvironment(
   applyPreset(preset);
   progress(1);
 
+  // TEMP-PROBE (removed before hand-off)
+  (globalThis as any).__ENV_PROBE = { PRESETS, applyPreset, skyUniforms, sun, hemi, bounce, rim, ibl, get preset() { return preset; } };
+
   /**
    * Bounds of everything that is not ours, so the shadow frustum and the
    * contact pool follow whatever the car stream has actually built — and keep
@@ -316,6 +322,22 @@ export async function buildEnvironment(
   };
 
   const centre = new THREE.Vector3();
+
+  /**
+   * Where the subject is standing, to a tenth of a millimetre. The occlusion
+   * pool is a function of that and of the subject's shape, so this is what
+   * decides whether it needs re-rendering — not the frame counter.
+   */
+  const poolSignature = (): number => {
+    let s = 0;
+    for (const child of scene.children) {
+      if (child === root || !child.visible) continue;
+      if ((child as THREE.Light).isLight || (child as THREE.Camera).isCamera) continue;
+      const e = child.matrixWorld.elements;
+      for (let i = 0; i < 16; i++) s = s * 1.000211 + ((e[i] * 8192) | 0) * (i + 3);
+    }
+    return s;
+  };
 
   return {
     envMap: ibl.texture,
@@ -354,10 +376,19 @@ export async function buildEnvironment(
         }
       }
 
-      // The pool only has to keep up with the car, not with the frame rate.
-      // Every third frame is 20 Hz, which is imperceptible on something this
-      // soft and saves a whole extra geometry pass two frames out of three.
-      if (frame < 4 || frame % 3 === 0) contact.capture(scene, hideForCapture);
+      // The capture is a whole extra geometry pass over the scene, so it is
+      // driven by the subject rather than by the clock: the pool is a function
+      // of where the car is standing and nothing else. Parked, that is one
+      // capture every 16 frames to absorb anything the signature cannot see;
+      // driving, it is every other frame, which at this softness is already
+      // past the point where the lag is visible.
+      const sig = poolSignature();
+      const settled = sig === poolSig;
+      poolSig = sig;
+      if (frame < 4 || (!settled && frame % 2 === 0) || poolAge++ > 15) {
+        poolAge = 0;
+        contact.capture(scene, hideForCapture);
+      }
     },
   };
 }
