@@ -63,25 +63,8 @@ export class LampChannels {
   ];
   private high = 0;
 
-  /**
-   * True until something actually drives `state.lights`. The input and physics
-   * modules are still stubs that leave every flag false for ever, so without a
-   * fallback the car would be unlit in every dusk render. See `lights.ts`.
-   */
-  private driven = false;
-
-  /** Did the vehicle state ever ask for a lamp? Latches on the first `true`. */
-  observe(l: VehicleState['lights']): boolean {
-    if (!this.driven && (l.low || l.high || l.brake || l.reverse || l.hazard || l.indicator !== 0 || l.fog)) {
-      this.driven = true;
-    }
-    return this.driven;
-  }
-
-  step(dt: number, elapsed: number, l: VehicleState['lights'], darkFallback: boolean): LampState {
-    const auto = !this.observe(l) && darkFallback;
-
-    const low = l.low || l.high || auto;
+  step(dt: number, elapsed: number, l: VehicleState['lights']): LampState {
+    const low = l.low || l.high;
     const park = low || l.fog;
     const wantHigh = l.high;
 

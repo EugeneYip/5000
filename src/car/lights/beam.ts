@@ -16,7 +16,9 @@
  * own group — they ride the car's body through the suspension like everything
  * else — and `sync()` copies their world transform onto the scene-level lights
  * each frame. `light.target` is parented to the light itself so it inherits
- * that orientation and never has to be registered separately.
+ * that orientation and never has to be registered separately — and so does the
+ * volumetric shaft, which is part of the beam rather than part of the car and
+ * must not be allowed to set the car's bounds.
  */
 
 import * as THREE from 'three';
@@ -48,6 +50,17 @@ const CUTOFF_BELOW_HORIZON = (4.2 * Math.PI) / 180;
 /** How far the axis of each cone is tipped below the horizon. */
 const WIDE_PITCH = (11 * Math.PI) / 180;
 const CORE_PITCH = (6.5 * Math.PI) / 180;
+
+/** How far the shaft is worth drawing before the air has swallowed it. */
+const SHAFT_LENGTH = 16;
+/** Lateral half-angle the shader shades, as a tangent — see `uSpread`. */
+const SHAFT_SPREAD = Math.tan(WIDE_HALF_ANGLE) * 0.92;
+/**
+ * Highest the shaft is ever shaded, relative to `SHAFT_SPREAD`: the cutoff,
+ * plus the kerb-side kick, plus the softness of the lid's own edge.
+ */
+const SHAFT_LID = (Math.tan(WIDE_PITCH - CUTOFF_BELOW_HORIZON)
+  + Math.tan((15 * Math.PI) / 180) * Math.tan(0.33) + 0.055) / SHAFT_SPREAD;
 
 const SHAFT_VERT = /* glsl */ `
 varying vec3 vLocal;
@@ -160,13 +173,13 @@ export class HeadlampBeams {
       const uniforms: Record<string, THREE.IUniform> = {
         uColor: { value: color.clone() },
         uIntensity: { value: 0 },
-        uLength: { value: 16 },
-        uSpread: { value: Math.tan(WIDE_HALF_ANGLE) * 0.92 },
+        uLength: { value: SHAFT_LENGTH },
+        uSpread: { value: SHAFT_SPREAD },
         uCutTan: { value: Math.tan(WIDE_PITCH - CUTOFF_BELOW_HORIZON) },
         uKick: { value: Math.tan((15 * Math.PI) / 180) },
         uKickSpan: { value: Math.tan(0.33) },
       };
-      const shaft = new THREE.Mesh(shaftCone(16, Math.tan(WIDE_HALF_ANGLE) * 16), new THREE.ShaderMaterial({
+      const shaft = new THREE.Mesh(shaftCone(SHAFT_LENGTH), new THREE.ShaderMaterial({
         uniforms,
         vertexShader: SHAFT_VERT,
         fragmentShader: SHAFT_FRAG,
@@ -182,7 +195,15 @@ export class HeadlampBeams {
       shaft.visible = false;
       shaft.castShadow = false;
       shaft.receiveShadow = false;
-      wideAnchor.add(shaft);
+      // Hung off the scene-level spotlight rather than off the car-space
+      // anchor. A 16 m cone of scattered air is not part of the car: parented
+      // into the car it set the bounds of the whole vehicle root, which
+      // defeated frustum culling for every other node and tripped
+      // `Environment.measureBounds`' sanity guard every frame, pinning the sun
+      // shadow to the world origin. The light is already pose-synced each
+      // frame and `measureBounds` skips lights, so this costs nothing and the
+      // shaft keeps riding the lamp exactly as before.
+      wide.add(shaft);
 
       this.sides.push({ wide, core, wideAnchor, coreAnchor, shaft, shaftUniforms: uniforms });
       this.lights.push(wide, core);
@@ -290,10 +311,21 @@ function copyPose(from: THREE.Object3D, to: THREE.Object3D): void {
   to.updateMatrixWorld(true);
 }
 
-/** Cone with its apex at the origin, opening along +Z. */
-function shaftCone(length: number, radius: number): THREE.BufferGeometry {
+/**
+ * Cone with its apex at the origin, opening along +Z, trimmed to the volume
+ * the shader actually shades.
+ *
+ * Every fragment outside that volume still costs a transparent, double-sided,
+ * additively blended draw and then writes zero, so the envelope is cut to the
+ * shader's own limits: `SHAFT_SPREAD` laterally (past it `cone` is zero), and
+ * above the axis only as far as the beam's cutoff plus its kerb-side kick can
+ * reach (past that `lid` is zero). Below the axis the beam really does fill
+ * the cone, so that half keeps its height.
+ */
+function shaftCone(length: number): THREE.BufferGeometry {
   const seg = 28;
   const rings = 10;
+  const radius = SHAFT_SPREAD * length;
   const pos: number[] = [];
   const idx: number[] = [];
   for (let j = 0; j <= rings; j++) {
@@ -301,8 +333,10 @@ function shaftCone(length: number, radius: number): THREE.BufferGeometry {
     const z = v * length;
     for (let i = 0; i < seg; i++) {
       const a = (i / seg) * Math.PI * 2;
-      // Flattened: a headlamp's shaft is far wider than it is tall.
-      pos.push(Math.cos(a) * radius * v, Math.sin(a) * radius * 0.62 * v, z);
+      const sy = Math.sin(a);
+      // Flattened: a headlamp's shaft is far wider than it is tall, and it is
+      // cut off hard above the beam's own horizon.
+      pos.push(Math.cos(a) * radius * v, sy * radius * (sy > 0 ? SHAFT_LID : 0.62) * v, z);
     }
   }
   for (let j = 0; j < rings; j++) {

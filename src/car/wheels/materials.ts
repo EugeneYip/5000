@@ -21,12 +21,25 @@ type Phys = THREE.MeshPhysicalMaterial;
 
 /**
  * Clone a library material so it can be modified without touching the shared
- * instance. The clone keeps the library's `onBeforeCompile`, so it keeps the
- * library's shading; it loses registry membership, so its IBL has to be kept
- * in step by hand — see `syncEnvMaps`.
+ * instance — the shared one is also on the weatherstrips and the other
+ * streams' parts, so a tyre cannot simply patch it.
+ *
+ * `Material.copy()` does **not** carry `onBeforeCompile` or
+ * `customProgramCacheKey`: three copies a fixed list of properties and those
+ * two are not on it. A plain `clone()` therefore silently drops the entire
+ * library shader — the cast/machined split on the alloy, and every bit of
+ * `createRubber`: the road film, the micro-grain and the mould gloss that is
+ * supposed to make the sidewall lettering shine. That is why the tyre rendered
+ * as featureless black. Carrying both hooks across is what makes this a clone
+ * of the library material rather than a fork of it.
+ *
+ * The clone does lose registry membership, so its IBL has to be kept in step
+ * by hand — see `syncEnvMaps`.
  */
 export function privateClone(src: THREE.Material): Phys {
   const m = src.clone() as Phys;
+  m.onBeforeCompile = src.onBeforeCompile;
+  m.customProgramCacheKey = src.customProgramCacheKey;
   return m;
 }
 

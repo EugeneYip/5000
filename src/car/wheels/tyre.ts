@@ -1,49 +1,88 @@
 /**
  * 185/70 HR14.
  *
- * Three things make or break a rendered tyre, and none of them is the tread:
+ * Three things make or break a rendered tyre.
  *
  *  1. **The sidewall is not a torus.** It leaves the bead, flares over the
  *     flange into the rim protector rib, is *concave* above it, and only then
- *     swells out to the widest point at about 68 % of section height before
- *     turning into the shoulder. A circular arc from bead to tread reads as a
- *     doughnut and no amount of shading rescues it.
+ *     swells out to the widest point at 69 % of section height before turning
+ *     into the shoulder. A circular arc from bead to tread reads as a
+ *     doughnut and no amount of shading rescues it. The section lives in
+ *     `dims.sidewallProfile()` and every radius in it is a fraction of
+ *     `TYRE.sectionH`, so the whole shape follows `tyreRadius()`.
  *  2. **It is flat where it meets the road.** A perfectly round tyre resting
- *     on a plane is the single most damning error in CG car work. The carcass
- *     here is cut by the ground plane in the vertex stage and the sidewall
- *     bulges in proportion, which on a 129 mm sidewall is a lot of bulge.
- *  3. **It is built oversize.** `wheelPositions()` fixes the hub at
- *     `tyreRadius()`, so the free radius is that plus the static deflection
- *     and the loaded radius comes back to the spec figure exactly.
+ *     on a plane is the single most damning error in CG car work, and one
+ *     that clips through the plane is worse. See "Contact patch" below —
+ *     neither is possible here by construction.
+ *  3. **It is exactly 614.6 mm across.** Built from `tyreRadius()` and
+ *     nothing else. The previous build added the static sag to the free
+ *     radius so the hub could stay at `wheelPositions()`, which made the tyre
+ *     639 mm and — because the deformation shader never actually ran, see
+ *     `privateClone` — left it 12 mm inside the road as well.
  *
- * The deformation is done in the vertex shader rather than on the CPU so that
- * the geometry can be shared by all four corners and the flat spot can stay at
- * the bottom while the tread rotates through it.
+ * ## Contact patch
+ *
+ * `wheelPositions()` puts the hub at exactly one free radius above the road,
+ * so the free circle is *tangent* to it: there is nothing to cut away. The
+ * patch is therefore made by growing a foot rather than slicing a chord. For
+ * every vertex the shader works out `rGround`, the radius at which that vertex
+ * would sit exactly on the road, and then
+ *
+ *   * pulls the carcass **out** to `rGround` inside the patch window, which
+ *     makes the tread dead flat along the road, and
+ *   * clamps every vertex to `rGround`, which makes penetration impossible
+ *     for any load, camber or steering angle.
+ *
+ * Outside the window nothing moves, so the free diameter is untouched: the
+ * tyre measures 614.6 mm loaded or not, and its lowest point is the road
+ * plane to the last decimal. The window is `acos((R − sag)/R)` wide, i.e. the
+ * chord a real tyre of that sag would cut, so the patch is the right *length*
+ * even though it is arrived at from the other direction.
+ *
+ * `uSpin` rotates the carcass *inside* the shader, so the flat spot stays at
+ * the bottom while the tread pattern turns through it, and all four corners
+ * can share one geometry and one material.
  */
 
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
-import { DEFLECT_MAX, DEFLECT_MIN, DEFLECT_STATIC, RIM, TYRE } from './dims';
-import { fbm3, smoothstep, type P2 } from './util';
+import {
+  DEFLECT_MAX, DEFLECT_MIN, DEFLECT_STATIC, LEGEND, RIM, TYRE, sidewallProfile,
+} from './dims';
+import { fbm3, smoothstep } from './util';
 import { buildTyreNormalMap } from './textures';
+import { buildLegend } from './sidewall';
 import { layerVertex, privateClone, type EnvLink } from './materials';
 
 const PITCHES = TYRE.pitches;
-/** land, land, land, slot floor, slot floor — see `ringPhases`. */
-const RING_PHASES = [0.0, 0.4, 0.8, 0.86, 0.96];
+
+/**
+ * Where each angular ring sits inside one tread pitch, and whether the
+ * lateral grooves are open there. Five rings per pitch is the minimum that
+ * gives a groove two walls and a floor; the pattern's stagger is bought for
+ * nothing by reading the flag from a *shifted* ring for each band, so the two
+ * shoulders and the two intermediate ribs never slot in lockstep.
+ */
+const RING_PHASES = [0.00, 0.54, 0.60, 0.76, 0.82];
+const CUT_AT = [false, false, true, true, false];
 const RINGS = PITCHES * RING_PHASES.length;
 
-/** Pitch-length sequence. Real tyres vary it to spread the tread noise over a
- *  band instead of putting it all on one screaming harmonic. */
+/** Real tyres vary the pitch length so the tread noise spreads over a band
+ *  instead of putting it all on one screaming harmonic. */
 const PITCH_SEQUENCE = [1.0, 0.88, 1.12, 0.94, 1.06];
 
-type Band = 'shoulder' | 'inner' | 'groove' | 'sidewall';
+/** How far the flag is read ahead for each band, in rings. */
+const STAGGER = { shoulderOut: 0, shoulderIn: 2, interOut: 1, interIn: 3 };
+
+type Band = 'sidewall' | 'shoulderOut' | 'shoulderIn' | 'interOut' | 'interIn' | 'centre' | 'groove';
 
 interface Lateral {
   axial: number;
   rBase: number;
   band: Band;
+  /** How much of the contact-patch deflection this station follows. */
   flex: number;
+  /** How much it swells outboard beside the patch. */
   bulge: number;
   v: number;
   /** 0 = land, 1 = full groove depth. */
@@ -54,90 +93,87 @@ interface Lateral {
 // Cross-section
 // ---------------------------------------------------------------------------
 
-/** s = axial / treadHalfWidth. Rib tops, groove walls and groove floors. */
+/**
+ * Tread stations as `s = axial / (treadW/2)`.
+ *
+ * Four circumferential grooves, five ribs: a continuous centre rib, two
+ * intermediate ribs notched laterally, and two shoulder ribs broken into
+ * blocks. That is the period all-season layout — an asymmetric or
+ * directional pattern would be forty years early.
+ */
 const TREAD_S: Array<[number, Band, number]> = [
-  [-1.000, 'shoulder', 0],
-  [-0.930, 'shoulder', 0],
-  [-0.820, 'shoulder', 0],
-  [-0.700, 'shoulder', 0],
-  [-0.620, 'shoulder', 0],
-  [-0.570, 'groove', 1],
-  [-0.480, 'groove', 1],
-  [-0.430, 'inner', 0],
-  [-0.340, 'inner', 0],
-  [-0.200, 'inner', 0],
-  [-0.075, 'inner', 0],
-  [-0.028, 'groove', 0.78],
-  [0.028, 'groove', 0.78],
-  [0.075, 'inner', 0],
-  [0.200, 'inner', 0],
-  [0.340, 'inner', 0],
-  [0.430, 'inner', 0],
-  [0.480, 'groove', 1],
-  [0.570, 'groove', 1],
-  [0.620, 'shoulder', 0],
-  [0.700, 'shoulder', 0],
-  [0.820, 'shoulder', 0],
-  [0.930, 'shoulder', 0],
-  [1.000, 'shoulder', 0],
+  [-1.000, 'shoulderIn', 0],
+  [-0.880, 'shoulderIn', 0],
+  [-0.730, 'shoulderIn', 0],
+  [-0.690, 'groove', 1],
+  [-0.640, 'groove', 1],
+  [-0.600, 'interIn', 0],
+  [-0.270, 'interIn', 0],
+  [-0.230, 'groove', 1],
+  [-0.170, 'groove', 1],
+  [-0.130, 'centre', 0],
+  [0.000, 'centre', 0],
+  [0.130, 'centre', 0],
+  [0.170, 'groove', 1],
+  [0.230, 'groove', 1],
+  [0.270, 'interOut', 0],
+  [0.600, 'interOut', 0],
+  [0.640, 'groove', 1],
+  [0.690, 'groove', 1],
+  [0.730, 'shoulderOut', 0],
+  [0.880, 'shoulderOut', 0],
+  [1.000, 'shoulderOut', 0],
 ];
 
-/** Outboard sidewall, tread edge down to where the bead tucks under the
- *  flange. Measured off a 185/70 section drawing rather than eyeballed. */
-function sidewallControls(): P2[] {
-  const Rt = TYRE.freeR;
-  return [
-    [0.0800, Rt - 0.0048],
-    [0.0842, Rt - 0.0103],
-    [0.0888, Rt - 0.0183],
-    [0.0916, Rt - 0.0313],
-    [0.0925, Rt - 0.0433],   // widest point, ~68 % of section height
-    [0.0912, Rt - 0.0573],
-    [0.0891, Rt - 0.0743],
-    [0.0879, Rt - 0.0908],
-    [0.0888, Rt - 0.1058],
-    [0.0919, Rt - 0.1153],   // rim protector rib crest
-    [0.0910, Rt - 0.1233],
-    [0.0880, Rt - 0.1298],   // tucks in behind the flange tip
-  ];
+/** The inboard sidewall is never on camera: same section, every other point. */
+const INBOARD_KEEP = [0, 1, 2, 4, 6, 8, 10, 12];
+
+export interface CrossSection {
+  lat: Lateral[];
+  /** Radius (as a fraction of section height) to texture v. */
+  vAtT(t: number, outboard: boolean): number;
 }
 
-function buildCrossSection(): { lat: Lateral[]; vAtT: (t: number, outboard: boolean) => number } {
+function buildCrossSection(): CrossSection {
   const Rt = TYRE.freeR;
   const Rb = RIM.beadR;
-  const sec = Rt - Rb;
+  const sec = TYRE.sectionH;
   const half = TYRE.treadW / 2;
+  const side = sidewallProfile();
 
-  const flexOf = (r: number): number => smoothstep(Rb + 0.014, Rb + 0.082, r);
-  const bulgeOf = (r: number): number => {
-    const t = Math.max(0, Math.min(1, (r - Rb) / sec));
-    return Math.pow(Math.sin(Math.PI * Math.pow(t, 0.85)), 1.1);
-  };
-
-  const lat: Lateral[] = [];
-
-  // Inboard sidewall, bead up to the tread edge.
-  const side = sidewallControls();
+  // Arc length up the section, so the legend and the serration ring keep their
+  // proportions in the texture instead of bunching where the section turns.
   const arc: number[] = [0];
   for (let i = 1; i < side.length; i++) {
     arc.push(arc[i - 1] + Math.hypot(side[i][0] - side[i - 1][0], side[i][1] - side[i - 1][1]));
   }
   const arcTotal = arc[arc.length - 1];
 
-  for (let i = side.length - 1; i >= 0; i--) {
+  const flexOf = (r: number): number => smoothstep(Rb + 0.010, Rb + 0.105, r);
+  const bulgeOf = (r: number): number => {
+    const t = Math.max(0, Math.min(1, (r - Rb) / sec));
+    return Math.sin(Math.PI * Math.pow(t, 1.45));
+  };
+
+  const lat: Lateral[] = [];
+
+  const pushSide = (i: number, outboard: boolean): void => {
     const [ax, r] = side[i];
     lat.push({
-      axial: -ax,
+      axial: outboard ? ax : -ax,
       rBase: r,
       band: 'sidewall',
       flex: flexOf(r),
       bulge: bulgeOf(r),
-      v: 0.28 - 0.28 * (arc[i] / arcTotal),
+      v: outboard ? 0.72 + 0.28 * (arc[i] / arcTotal) : 0.28 - 0.28 * (arc[i] / arcTotal),
       baseDepth: 0,
     });
-  }
+  };
+
+  for (let k = INBOARD_KEEP.length - 1; k >= 0; k--) pushSide(INBOARD_KEEP[k], false);
 
   for (const [s, band, depth] of TREAD_S) {
+    // Barrelled, not cylindrical: the crown stands proud of the shoulders.
     const rBase = Rt - TYRE.crownDrop * s * s;
     lat.push({
       axial: s * half,
@@ -150,32 +186,20 @@ function buildCrossSection(): { lat: Lateral[]; vAtT: (t: number, outboard: bool
     });
   }
 
-  for (let i = 0; i < side.length; i++) {
-    const [ax, r] = side[i];
-    lat.push({
-      axial: ax,
-      rBase: r,
-      band: 'sidewall',
-      flex: flexOf(r),
-      bulge: bulgeOf(r),
-      v: 0.72 + 0.28 * (arc[i] / arcTotal),
-      baseDepth: 0,
-    });
-  }
+  for (let i = 0; i < side.length; i++) pushSide(i, true);
 
-  // Radius -> v on the sidewall, so the texture knows where to put the legend.
   const vAtT = (t: number, outboard: boolean): number => {
     const target = Rb + t * sec;
     for (let i = 1; i < side.length; i++) {
       const r0 = side[i - 1][1];
       const r1 = side[i][1];
-      if (target <= r0 && target >= r1) {
-        const k = (r0 - target) / (r0 - r1 || 1e-9);
+      if (target >= r0 && target <= r1) {
+        const k = (target - r0) / (r1 - r0 || 1e-9);
         const a = (arc[i - 1] + (arc[i] - arc[i - 1]) * k) / arcTotal;
         return outboard ? 0.72 + 0.28 * a : 0.28 - 0.28 * a;
       }
     }
-    return outboard ? 0.72 : 0.28;
+    return outboard ? 1 : 0;
   };
 
   return { lat, vAtT };
@@ -187,8 +211,7 @@ function buildCrossSection(): { lat: Lateral[]; vAtT: (t: number, outboard: bool
 
 interface Ring {
   angle: number;
-  /** Inside a lateral shoulder slot. */
-  slot: boolean;
+  cut: boolean;
 }
 
 function ringPhases(): Ring[] {
@@ -201,17 +224,39 @@ function ringPhases(): Ring[] {
     const span = (weights[p] / total) * Math.PI * 2;
     acc += weights[p];
     for (let k = 0; k < RING_PHASES.length; k++) {
-      rings.push({ angle: start + span * RING_PHASES[k], slot: k >= 3 });
+      rings.push({ angle: start + span * RING_PHASES[k], cut: CUT_AT[k] });
     }
   }
   return rings;
+}
+
+/** Lateral cut depth, 0..1, for one band at one angular ring. */
+function cutDepth(band: Band, rings: readonly Ring[], c: number): number {
+  const at = (shift: number): boolean => rings[(c + shift) % rings.length].cut;
+  switch (band) {
+    // Shoulder blocks are cut right through, and the cut runs on into the
+    // outer circumferential groove so the block really is a block.
+    case 'shoulderOut': return at(STAGGER.shoulderOut) ? 1 : 0;
+    case 'shoulderIn': return at(STAGGER.shoulderIn) ? 1 : 0;
+    // The intermediate ribs are only notched — half depth, so the rib still
+    // runs continuously round the tyre and carries the steering.
+    case 'interOut': return at(STAGGER.interOut) ? 0.55 : 0;
+    case 'interIn': return at(STAGGER.interIn) ? 0.55 : 0;
+    default: return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------
 
-function buildTyreGeometry(lat: Lateral[], rings: Ring[]): THREE.BufferGeometry {
+interface Built {
+  geom: THREE.BufferGeometry;
+  /** Widest radius actually present, for the measured-OD report. */
+  maxR: number;
+}
+
+function buildCarcass(lat: Lateral[], rings: Ring[]): Built {
   const n = lat.length;
   const cols = rings.length;
   const count = n * (cols + 1);
@@ -223,25 +268,20 @@ function buildTyreGeometry(lat: Lateral[], rings: Ring[]): THREE.BufferGeometry 
   const idx: number[] = [];
 
   const depth = TYRE.treadDepth;
+  let maxR = 0;
 
   for (let c = 0; c <= cols; c++) {
-    const ring = rings[c % cols];
-    const ang = c === cols ? Math.PI * 2 : ring.angle;
+    const wrapped = c % cols;
+    const ang = c === cols ? Math.PI * 2 : rings[wrapped].angle;
     const ca = Math.cos(ang);
     const sa = Math.sin(ang);
-    // Half the shoulder slots are phase-shifted to the other side of the
-    // tyre, so the two shoulders do not slot in lockstep.
-    const slotIn = ring.slot;
-    const slotOut = rings[(c + 2) % cols].slot;
 
     for (let i = 0; i < n; i++) {
       const L = lat[i];
-      let d = L.baseDepth;
-      if (L.band === 'shoulder') {
-        const cut = L.axial > 0 ? slotOut : slotIn;
-        if (cut) d = Math.max(d, 1);
-      }
+      const d = Math.max(L.baseDepth, cutDepth(L.band, rings, wrapped));
       const r = L.rBase - d * depth;
+      if (r > maxR) maxR = r;
+
       const o = (c * n + i) * 3;
       pos[o] = L.axial;
       pos[o + 1] = r * ca;
@@ -255,10 +295,10 @@ function buildTyreGeometry(lat: Lateral[], rings: Ring[]): THREE.BufferGeometry 
 
       // Baked occlusion. Smooth normals cannot tell a groove from a dimple;
       // darkening the floors is what makes the channels read as channels.
-      const ao = 1 - 0.55 * d;
+      const ao = 1 - 0.58 * d;
       // Road film collects low on the sidewall and in the tread.
       const film =
-        0.12 * smoothstep(0.30, 0.10, (L.rBase - RIM.beadR) / (TYRE.freeR - RIM.beadR)) +
+        0.13 * smoothstep(0.30, 0.08, (L.rBase - RIM.beadR) / TYRE.sectionH) +
         (fbm3(L.axial * 60, r * 30 * ca, r * 30 * sa, 2) - 0.5) * 0.10;
       const g = Math.max(0.35, Math.min(1.1, ao * (1 - film)));
       const k = (c * n + i) * 3;
@@ -283,9 +323,47 @@ function buildTyreGeometry(lat: Lateral[], rings: Ring[]): THREE.BufferGeometry 
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
-  // The shader moves vertices well outside the rest pose; give the culler room.
-  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), TYRE.freeR * 1.12);
-  return g;
+  return { geom: g, maxR };
+}
+
+/**
+ * Give the legend the carcass's own attribute set so the two can be merged
+ * into one draw: the letters have to flex, dust and deform with the rubber
+ * they are moulded into, not sit on it as a separate object.
+ */
+function dressLegend(legend: THREE.BufferGeometry, xs: CrossSection): THREE.BufferGeometry {
+  const Rb = RIM.beadR;
+  const pos = legend.getAttribute('position');
+  const n = pos.count;
+  const uv = new Float32Array(n * 2);
+  const flex = new Float32Array(n * 2);
+  const col = new Float32Array(n * 3);
+
+  const flexOf = (r: number): number => smoothstep(Rb + 0.010, Rb + 0.105, r);
+
+  for (let i = 0; i < n; i++) {
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const r = Math.hypot(y, z);
+    const t = (r - Rb) / TYRE.sectionH;
+
+    uv[i * 2] = ((Math.atan2(z, y) / (Math.PI * 2) + 1) % 1) * 2;
+    uv[i * 2 + 1] = xs.vAtT(Math.max(0, Math.min(1, t)), true);
+
+    flex[i * 2] = flexOf(r);
+    flex[i * 2 + 1] = Math.sin(Math.PI * Math.pow(Math.max(0, Math.min(1, t)), 1.45));
+
+    // A polished mould cavity leaves the characters cleaner than the
+    // sand-blasted carcass around them.
+    col[i * 3] = 1.08;
+    col[i * 3 + 1] = 1.06;
+    col[i * 3 + 2] = 1.03;
+  }
+
+  legend.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  legend.setAttribute('aFlex', new THREE.BufferAttribute(flex, 2));
+  legend.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return legend;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,32 +375,44 @@ uniform float uSpin;
 uniform float uFreeRadius;
 uniform float uDeflect;
 uniform float uBulgeGain;
+uniform float uGroundY;
 attribute vec2 aFlex;
 vec3 audiTyreDeformed;
 float audiTyreFlat;
 vec2 audiTyreRot;
+vec3 audiTyreUp;
 `;
 
-/** Cut the carcass with the ground plane and bulge the sidewall to match. */
 const DEFORM = /* glsl */ `
 {
   float phi = atan(position.z, position.y);
   float r   = length(position.yz);
   float p2  = phi + uSpin;
-  float cd  = -cos(p2);                       // 1 when this vertex points down
-  float pen = max(0.0, uDeflect - uFreeRadius * (1.0 - cd));
-  // Feather the edges of the patch. A bare chord cut is too flat for too long
-  // and reads as a flat tyre rather than a loaded one.
-  float shape = smoothstep(0.0, 0.45, pen / max(uDeflect, 1e-4));
-  float rmax  = (uFreeRadius - uDeflect) / max(cd, 1e-3);
-  float rn    = (cd > 0.0 && r > rmax) ? mix(r, rmax, aFlex.x * shape) : r;
-  audiTyreFlat = (r - rn) / max(uDeflect, 1e-4);
-  audiTyreRot  = vec2(cos(p2), sin(p2));
-  float bulge  = aFlex.y * pen * uBulgeGain;
+  vec2  rot = vec2(cos(p2), sin(p2));
+
+  // World "up" written in the wheel's own frame. Doing it this way rather
+  // than assuming local -Y is what lets camber put the patch on the inner
+  // shoulder, and what keeps the flat spot on the road when the wheel steers.
+  audiTyreUp = normalize(vec3(modelMatrix[0].y, modelMatrix[1].y, modelMatrix[2].y));
+  float H = modelMatrix[3].y - uGroundY;
+
+  float cd = -(rot.x * audiTyreUp.y + rot.y * audiTyreUp.z);   // 1 = pointing down
+  float rGround = cd > 1e-3 ? (H + position.x * audiTyreUp.x) / cd : 1.0e6;
+
+  float cosA = (uFreeRadius - uDeflect) / uFreeRadius;
+  float win  = smoothstep(cosA - 0.026, cosA + 0.004, cd);
+  float push = max(0.0, rGround - uFreeRadius) * win * aFlex.x;
+  // The min() is the no-penetration guarantee: nothing can end up at a radius
+  // that would put it below the road, whatever the load or the camber.
+  float rn   = min(r + push, rGround);
+
+  audiTyreFlat = win * aFlex.x * aFlex.x;
+  audiTyreRot  = rot;
+  float bulge  = aFlex.y * uDeflect * win * uBulgeGain;
   audiTyreDeformed = vec3(
     position.x + sign(position.x) * bulge,
-    rn * audiTyreRot.x,
-    rn * audiTyreRot.y
+    rn * rot.x,
+    rn * rot.y
   );
 }
 `;
@@ -331,11 +421,13 @@ const DEFORM_NORMAL = /* glsl */ `
 {
   float cs = cos(uSpin);
   float sn = sin(uSpin);
-  vec3 nRot = vec3(objectNormal.x, objectNormal.y * cs - objectNormal.z * sn, objectNormal.y * sn + objectNormal.z * cs);
+  vec3 nRot = vec3(objectNormal.x,
+                   objectNormal.y * cs - objectNormal.z * sn,
+                   objectNormal.y * sn + objectNormal.z * cs);
   // Inside the contact patch the surface normal is the road's, not the tyre's.
   vec3 radial = normalize(vec3(0.0, audiTyreRot.x, audiTyreRot.y));
   float facing = max(0.0, dot(radial, nRot));
-  objectNormal = normalize(mix(nRot, vec3(0.0, -1.0, 0.0), clamp(audiTyreFlat, 0.0, 1.0) * facing * 0.92));
+  objectNormal = normalize(mix(nRot, -audiTyreUp, clamp(audiTyreFlat, 0.0, 1.0) * facing * 0.9));
 }
 `;
 
@@ -347,32 +439,56 @@ export interface TyreResult {
     uFreeRadius: THREE.IUniform<number>;
     uDeflect: THREE.IUniform<number>;
     uBulgeGain: THREE.IUniform<number>;
+    uGroundY: THREE.IUniform<number>;
   };
   triangles: number;
+  /** Measured off the built vertices, not off the parameters. */
+  measured: { outerDiameter: number; sectionWidth: number; legendTriangles: number };
 }
 
 export function buildTyre(ctx: BuildContext): TyreResult {
-  const { lat, vAtT } = buildCrossSection();
-  const geom = buildTyreGeometry(lat, ringPhases());
+  const xs = buildCrossSection();
+  const built = buildCarcass(xs.lat, ringPhases());
 
-  const normalMap = buildTyreNormalMap({ vAtT, uRepeat: 2, sectionHeight: TYRE.freeR - RIM.beadR }, TYRE.freeR);
+  let geom = built.geom;
+  let legendTris = 0;
+  const legend = buildLegend(sidewallProfile());
+  if (legend) {
+    legendTris = (legend.getIndex()?.count ?? legend.getAttribute('position').count) / 3;
+    const merged = mergeIntoCarcass(geom, dressLegend(legend, xs));
+    if (merged) {
+      geom.dispose();
+      geom = merged;
+    }
+  }
+
+  // The shader moves vertices outside the rest pose; give the culler room.
+  geom.computeBoundingBox();
+  const bb = geom.boundingBox!;
+  geom.boundingSphere = new THREE.Sphere(new THREE.Vector3(), TYRE.freeR * 1.09);
+
+  const normalMap = buildTyreNormalMap(
+    { vAtT: xs.vAtT, uRepeat: 2, sectionHeight: TYRE.sectionH },
+    TYRE.freeR,
+  );
 
   const source = ctx.materials.rubber({ roughness: 0.93 });
   const material = privateClone(source);
   material.vertexColors = true;
   material.normalMap = normalMap;
-  material.normalScale = new THREE.Vector2(0.9, 0.9);
+  material.normalScale = new THREE.Vector2(0.85, 0.85);
   material.envMap = ctx.envMap;
 
   const uniforms = {
     uSpin: { value: 0 },
     uFreeRadius: { value: TYRE.freeR },
     uDeflect: { value: DEFLECT_STATIC },
-    uBulgeGain: { value: 1.35 },
+    uBulgeGain: { value: 1.0 },
+    uGroundY: { value: 0 },
   };
 
   layerVertex(material, {
-    key: 'wheels-tyre-deform-v1',
+    key: 'wheels-tyre-deform-v2',
     uniforms,
     declarations: DECLS,
     afterBeginNormal: `${DEFORM}\n${DEFORM_NORMAL}`,
@@ -389,7 +505,7 @@ export function buildTyre(ctx: BuildContext): TyreResult {
   // perfectly round shadow while its tyres are visibly flat.
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   layerVertex(depth, {
-    key: 'wheels-tyre-deform-depth-v1',
+    key: 'wheels-tyre-deform-depth-v2',
     uniforms,
     declarations: DECLS,
     afterBeginVertex: `${DEFORM}\ntransformed = audiTyreDeformed;`,
@@ -397,13 +513,61 @@ export function buildTyre(ctx: BuildContext): TyreResult {
   mesh.customDepthMaterial = depth;
 
   const tri = geom.index!.count / 3;
-  return { mesh, envLinks: [{ clone: material, source }], uniforms, triangles: tri };
+  return {
+    mesh,
+    envLinks: [{ clone: material, source }],
+    uniforms,
+    triangles: tri,
+    measured: {
+      outerDiameter: 2 * built.maxR,
+      sectionWidth: bb.max.x - bb.min.x,
+      legendTriangles: legendTris,
+    },
+  };
 }
 
-/** Map suspension compression to tyre deflection. 0.5 is the static ride. */
+/** Concatenate two geometries that already share an attribute set. */
+function mergeIntoCarcass(a: THREE.BufferGeometry, b: THREE.BufferGeometry): THREE.BufferGeometry | null {
+  const names = ['position', 'normal', 'uv', 'aFlex', 'color'];
+  for (const n of names) {
+    if (!a.getAttribute(n) || !b.getAttribute(n)) return null;
+  }
+  const out = new THREE.BufferGeometry();
+  const baseCount = a.getAttribute('position').count;
+
+  for (const n of names) {
+    const aa = a.getAttribute(n);
+    const ba = b.getAttribute(n);
+    const size = aa.itemSize;
+    const arr = new Float32Array((aa.count + ba.count) * size);
+    for (let i = 0; i < aa.count * size; i++) arr[i] = aa.array[i] as number;
+    for (let i = 0; i < ba.count * size; i++) arr[aa.count * size + i] = ba.array[i] as number;
+    out.setAttribute(n, new THREE.BufferAttribute(arr, size));
+  }
+
+  const ai = a.getIndex()!;
+  const bi = b.getIndex()!;
+  const idx = new Uint32Array(ai.count + bi.count);
+  for (let i = 0; i < ai.count; i++) idx[i] = ai.getX(i);
+  for (let i = 0; i < bi.count; i++) idx[ai.count + i] = bi.getX(i) + baseCount;
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+
+/**
+ * Suspension compression to contact-patch sag. 0.5 is the static ride.
+ *
+ * Deliberately not linear about the static point: a tyre is a progressive
+ * spring, so a corner that is unloading gives up much less radius than a
+ * corner taking a kerb gains.
+ */
 export function deflectionFor(compression: number): number {
   const c = Math.max(0, Math.min(1, compression));
   return c < 0.5
     ? DEFLECT_MIN + (DEFLECT_STATIC - DEFLECT_MIN) * (c / 0.5)
-    : DEFLECT_STATIC + (DEFLECT_MAX - DEFLECT_STATIC) * ((c - 0.5) / 0.5);
+    : DEFLECT_STATIC + (DEFLECT_MAX - DEFLECT_STATIC) * Math.pow((c - 0.5) / 0.5, 1.35);
 }
+
+/** Radial band of the sidewall each legend row occupies — the texture needs
+ *  it to keep the serration ring clear of the lettering. */
+export const LEGEND_BANDS = LEGEND;

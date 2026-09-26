@@ -19,12 +19,12 @@
  * built as separate assemblies and the inner pair is re-parented onto the body
  * stream's `tailgatePanel` on the first frame, once the scene graph exists.
  *
- * **Nothing currently drives `state.lights`.** The input and physics modules
- * are still stubs that leave every flag false for ever, which would leave the
- * car unlit in every dusk render. Until they land, the lamps fall back to
- * switching themselves on when the scene has no sun left in it — and that
- * fallback latches off permanently the first time anything actually asks for a
- * lamp, so it will disappear on its own rather than fight the real switchgear.
+ * **`state.lights` is real now.** Physics and input drive every flag, so the
+ * lamps do exactly what the driver asks and nothing else; the auto-on fallback
+ * that used to light them whenever the scene went dark has been removed. What
+ * survives of that machinery is `keyLight()`, which now only gates the
+ * volumetric beam shafts — air scatter you can see is a night phenomenon, and
+ * drawing it into a sunlit frame is the single loudest CG tell there is.
  */
 
 import * as THREE from 'three';
@@ -50,7 +50,7 @@ const PARK_IN_AMBER = 0.30;
 /** Minimum spill intensity worth spending a light on. */
 const SPILL_FLOOR = 0.18;
 
-/** Below this much downward sun the scene counts as night for the lamps. */
+/** Below this much light on the scene the beams may draw their shafts. */
 const DARK_THRESHOLD = 0.25;
 
 export function buildLights(ctx: BuildContext): PartResult {
@@ -90,9 +90,9 @@ export function buildLights(ctx: BuildContext): PartResult {
   const tmp = new THREE.Color();
 
   /**
-   * Manual switchgear, for as long as the input module is a stub. Anything set
-   * here wins over `state.lights`, so a reviewer (or the screenshot harness)
-   * can put the car on brakes, on indicators or in reverse without a driver:
+   * Reviewer override. Anything set here wins over `state.lights`, so a
+   * reviewer (or the screenshot harness) can put the car on brakes, on
+   * indicators or in reverse without driving it:
    *
    *   __AUDI_LIGHTS.set({ low: true, brake: true })
    *   __AUDI_LIGHTS.clear()
@@ -149,7 +149,7 @@ export function buildLights(ctx: BuildContext): PartResult {
       Object.assign(merged, state.lights, override);
       want = merged;
     }
-    const s: LampState = channels.step(dt, elapsed, want, dark);
+    const s: LampState = channels.step(dt, elapsed, want);
 
     // --- front -------------------------------------------------------------
     head.main.set(s.head);
@@ -311,15 +311,13 @@ function attachToTailgate(group: THREE.Object3D, inner: THREE.Object3D): boolean
   return true;
 }
 
-/**
- * How much sun is falling on the scene. The environment names its key light,
- * so this reads the real thing rather than guessing from a preset name — and
- * it degrades to "daylight" if the environment stream ever renames it.
- */
 const _dir = new THREE.Vector3();
 /**
- * How lit the world is, used only to decide whether to switch the lamps on
- * while input and physics are still stubs.
+ * How lit the world is. The environment names its key light, so this reads the
+ * real thing rather than guessing from a preset name, and it degrades to
+ * "daylight" if the environment stream ever renames it.
+ *
+ * Used only to decide whether the beams may draw their volumetric shafts.
  *
  * The obvious test — sun intensity scaled by its elevation — gets golden hour
  * exactly wrong. A low sun has a small `dir.y`, so a bright, warm, entirely
