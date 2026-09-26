@@ -294,6 +294,8 @@ export async function buildEnvironment(
    * contact pool follow whatever the car stream has actually built — and keep
    * working if it has built nothing yet.
    */
+  const _carPos = new THREE.Vector3();
+
   const measureBounds = (): void => {
     const box = new THREE.Box3();
     let any = false;
@@ -309,10 +311,22 @@ export async function buildEnvironment(
       bounds = specBounds();
       return;
     }
-    // Guard against a stream mid-build parking geometry at the origin.
+    // Guard against a stream mid-build parking geometry at the origin, or a
+    // single rogue object with an enormous bounding box poisoning the union.
+    //
+    // This used to fall back to a box at the world origin, which quietly broke
+    // as soon as the car could drive: a lamp's volumetric shaft reported a
+    // 24 x 14 x 17 m bound, tripped this guard every frame, pinned the shadow
+    // frustum to the origin, and the car drove out of its own shadow. Centre
+    // the fallback on wherever the car actually is.
     const size = box.getSize(new THREE.Vector3());
     if (size.x > 24 || size.z > 24 || size.y > 12) {
       bounds = specBounds();
+      const car = scene.getObjectByName('Audi5000SWagon');
+      if (car) {
+        car.getWorldPosition(_carPos);
+        bounds.translate(_carPos);
+      }
       return;
     }
     box.min.y = Math.min(box.min.y, 0);

@@ -8,7 +8,7 @@
  */
 
 import type * as THREE from 'three';
-import { gain, ramp } from './dsp';
+import { biquad, gain, ramp } from './dsp';
 
 /** Where a sound sits in vehicle-local metres. */
 export type Anchor = [number, number, number];
@@ -26,6 +26,8 @@ export class AudioHub {
   bus: GainNode | null = null;
   private master: GainNode | null = null;
   private comp: DynamicsCompressorNode | null = null;
+  private cabinLp: BiquadFilterNode | null = null;
+  private cabinShelf: BiquadFilterNode | null = null;
 
   private starting: Promise<void> | null = null;
   private listeners = new Set<(hub: AudioHub) => void>();
@@ -83,13 +85,23 @@ export class AudioHub {
     const master = gain(ctx, 0);
     const bus = gain(ctx, 1);
 
-    bus.connect(comp);
+    // Glass and trim between the listener and the world: a first-order-ish
+    // roll-off plus the low-frequency lift a sealed cabin gives. Inert until
+    // `setCabin` is called, so an exterior camera pays nothing for it.
+    const cabinLp = biquad(ctx, 'lowpass', 20_000, 0.5);
+    const cabinShelf = biquad(ctx, 'lowshelf', 110, 0.7, 0);
+
+    bus.connect(cabinLp);
+    cabinLp.connect(cabinShelf);
+    cabinShelf.connect(comp);
     comp.connect(master);
     master.connect(ctx.destination);
 
     this.comp = comp;
     this.master = master;
     this.bus = bus;
+    this.cabinLp = cabinLp;
+    this.cabinShelf = cabinShelf;
 
     if (ctx.state === 'suspended') {
       try { await ctx.resume(); } catch { /* the gesture will come round again */ }
@@ -118,6 +130,13 @@ export class AudioHub {
     if (this.master) ramp(this.master.gain, m ? 0 : this.volume, 0.08);
     if (m) this.ctx?.suspend().catch(() => {});
     else this.ctx?.resume().catch(() => {});
+  }
+
+  /** 0 = camera outside the car, 1 = camera in the cabin with the doors shut. */
+  setCabin(amount: number): void {
+    const a = Math.min(1, Math.max(0, amount));
+    if (this.cabinLp) ramp(this.cabinLp.frequency, 20_000 - a * 18_100, 0.18);
+    if (this.cabinShelf) ramp(this.cabinShelf.gain, a * 4.5, 0.18);
   }
 
   setVolume(v: number): void {

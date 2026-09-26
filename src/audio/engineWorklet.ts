@@ -23,8 +23,15 @@
  * 1.81, 1.60, 1.20, 0.99, 1.40 ms, a sequence that is *not* monotonic. The
  * crank spacing is even; the spacing at the collector is not, and because the
  * transit time is a constant in seconds while the firing interval shrinks with
- * rpm, the unevenness grows as the engine is revved. The warble is subtle at
- * idle and obvious at 4000 rpm, which is exactly how the real car behaves.
+ * rpm, the unevenness grows as the engine is revved.
+ *
+ * Those two mechanisms peak at opposite ends, and that is why the car sounds
+ * like two different things. Measured through the shipping filter chain, the
+ * firing tone's envelope wobbles about **10 % at idle** — slow enough (6.8 Hz)
+ * to be heard as a lope — and under 2 % at 4000 rpm, where the same asymmetry
+ * has become *timing* rather than amplitude and shows up as sidebands 14-17 dB
+ * down at the 2.0 and 3.0 orders. At 33 Hz that is not a rhythm any more, it
+ * is roughness in the timbre. Both are the half-order, heard differently.
  *
  * Three outputs — exhaust, intake, mechanical — share one phase integrator so
  * they stay coherent. Resonators, saturation and spatialisation are native
@@ -94,7 +101,11 @@ class InlineFive extends AudioWorkletProcessor {
     super();
     const o = (options && options.processorOptions) || {};
     const order = o.firingOrder || [1, 2, 4, 5, 3];
-    const interval = (o.firingIntervalDeg || 144) / 720; // revolutions of the 720 deg cycle
+    // \`phase\` is measured in REVOLUTIONS and wraps at 2, so the firing
+    // interval converts through 360, not 720. Dividing by 720 packs all five
+    // firings into the first revolution and leaves the second silent, which
+    // reads as a violent once-per-two-revolutions burst rather than a warble.
+    const interval = (o.firingIntervalDeg || 144) / 360; // 144 deg = 0.4 rev
     this.limiterRpm = o.limiterRpm || 6800;
     this.idleRpm = o.idleRpm || 820;
 
@@ -111,7 +122,7 @@ class InlineFive extends AudioWorkletProcessor {
     // sound in hot exhaust gas (~480 m/s, not the 343 of cold air).
     const lengths = [0.87, 0.77, 0.67, 0.58, 0.48];
     const jitterDeg = [0.0, -0.34, 0.22, -0.17, 0.31];
-    const ampTrim = [1.0, 0.962, 1.028, 0.977, 1.014];
+    const ampTrim = [1.006, 0.938, 1.058, 0.966, 1.032];
     const tilt = [0.0, -0.035, 0.04, -0.02, 0.025];
 
     for (let k = 0; k < n; k++) {
@@ -232,10 +243,10 @@ class InlineFive extends AudioWorkletProcessor {
             // its whole life, so no parameter can modulate a sounding pulse
             // and produce a step.
             const period = 1 / (2.5 * rps);
-            this.vdur[c] = clamp(period * 0.62, 0.0045, 0.026);
+            this.vdur[c] = clamp(period * 0.62, 0.0022, 0.026);
             this.vt[c] = d1 / rps - this.runner[c];
 
-            const variance = (this.cylAmp[c] - 1) * (1 + 2.3 * idleness);
+            const variance = (this.cylAmp[c] - 1) * (1 + 5.0 * idleness);
             let amp = (1 + variance) * (0.42 + 0.58 * th) * run;
             amp += 0.16 * crank * (1 + variance);
             // Trailing throttle: fuel is cut, so the pulse is air only.

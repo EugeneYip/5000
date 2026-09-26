@@ -103,25 +103,37 @@ const FZ_REF = (BODY.massKerb * 9.81) / 4;
 /**
  * Road-surface friction, applied on top of the tyre's own peak.
  *
- * `TYRE_MODEL.*.D` describes the tyre; this describes what it is rolling on.
- * Calibrated against the skidpad target in `PERFORMANCE.skidpadGEstimate`
- * (0.72 g) — see `selftest.ts`, which measures it.
+ * `TYRE_MODEL.*.D` describes the tyre; this describes what it is rolling on,
+ * and `GroundSample.friction` then scales *this* — 1.0 there means the dry
+ * asphalt the model is calibrated against, and a wet or gravel surface is a
+ * fraction of it.
+ *
+ * Calibrated against `PERFORMANCE.skidpadGEstimate` (0.72 g), which
+ * `selftest.ts` measures on a 30 m circle. Without it the tyre's bare `D` of
+ * 0.98 lateral and 1.05 longitudinal is a modern performance radial, not a
+ * 185/70 HR from 1988.
  */
-export const SURFACE_GRIP = 0.845;
+export const SURFACE_GRIP = 0.828;
 
 /**
- * Load sensitivity. The linear form implied by `TYRE_MODEL.loadSensitivity`
- * is only valid near the reference load, so the multiplier is clamped: without
- * the clamp a lightly loaded inside wheel would be handed a friction
- * coefficient well over 1, which is not a thing.
+ * Load sensitivity. The linear form implied by `TYRE_MODEL.loadSensitivity` is
+ * only valid near the reference load, so the multiplier is clamped.
+ *
+ * The upper clamp is the one that matters. `LONG.D` is 1.05, so a ceiling of
+ * 1.22 would hand a nearly unloaded inside wheel a longitudinal μ of 1.08 on
+ * dry asphalt — a slick racing tyre's figure, not a 1988 touring radial's.
+ * 1.12 caps it just under 1.0, which is as far as a period tyre gets however
+ * little you ask of it.
  */
+const LOAD_FACTOR_MAX = 1.12;
+
 function loadFactor(fz: number): number {
-  return clamp(1 - TYRE_MODEL.loadSensitivity * (fz - FZ_REF), 0.55, 1.22);
+  return clamp(1 - TYRE_MODEL.loadSensitivity * (fz - FZ_REF), 0.55, LOAD_FACTOR_MAX);
 }
 
 /** Peak longitudinal friction available at this load, for the brake limiter. */
 export function peakMuLong(fz: number, surface: number): number {
-  return LONG.D * loadFactor(fz) * surface;
+  return LONG.D * loadFactor(fz) * surface * SURFACE_GRIP;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,11 +147,18 @@ const V_RELAX_FLOOR = 1.2;
 /**
  * Tread damping. A real carcass dissipates energy as it shears, and without a
  * term like this the wheel-spin/tyre-force pair is a very lightly damped ~20 Hz
- * oscillator at low speed that rings visibly in `wheelSpin`. Faded out with
- * speed so it never contributes meaningfully to steady-state force.
+ * oscillator at low speed that rings visibly in `wheelSpin` and lets a parked
+ * car inch about.
+ *
+ * The fade is deliberately **quadratic** in speed. A first-order fade
+ * (`k/(k+v)`) still leaves a quarter of the coefficient at 15 m/s, and that
+ * quarter is worth ~0.16 g of pure invention on a skidpad — the self-test
+ * measured 0.90 g from a tyre whose peak is 0.83. Falling off as `k²/(k²+v²)`
+ * keeps all of it where it is needed, at walking pace, and essentially none of
+ * it where it would be a lie.
  */
 const TREAD_DAMPING = 2600;
-const TREAD_DAMPING_FADE = 4.0;
+const TREAD_DAMPING_FADE = 3.2;
 
 export interface TyreInput {
   /** Vertical load at the contact patch, N. Zero or less means airborne. */
@@ -238,7 +257,7 @@ export class Tyre {
     const an = tanAlpha / Math.tan(LAT.peak);
     const rho = Math.hypot(kn, an);
 
-    const mu = loadFactor(inp.fz) * inp.surface;
+    const mu = loadFactor(inp.fz) * inp.surface * SURFACE_GRIP;
     const scale = inp.fz * mu;
 
     let fx: number;
@@ -252,13 +271,15 @@ export class Tyre {
     }
 
     // --- tread damping -------------------------------------------------------
-    const damp = (TREAD_DAMPING * TREAD_DAMPING_FADE) / (TREAD_DAMPING_FADE + absVx);
+    const fade = TREAD_DAMPING_FADE * TREAD_DAMPING_FADE;
+    const damp = (TREAD_DAMPING * fade) / (fade + absVx * absVx);
     fx += clamp(damp * slipVel, -0.3 * scale, 0.3 * scale);
     fy += clamp(damp * -vy * 0.35, -0.3 * scale, 0.3 * scale);
 
-    // Safety net: nothing may leave the friction circle by more than the
-    // formula's own overshoot allowance.
-    const ceiling = scale * Math.max(LONG.D, LAT.D) * 1.05;
+    // Safety net. The magic formula itself never exceeds `D`, so this only
+    // ever catches the damping term above — and it is kept tight, because a
+    // loose ceiling is a licence for that term to invent grip.
+    const ceiling = scale * Math.max(LONG.D, LAT.D) * 1.02;
     const mag = Math.hypot(fx, fy);
     if (mag > ceiling && mag > 1e-6) {
       const k = ceiling / mag;

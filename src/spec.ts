@@ -253,6 +253,18 @@ export const TRANSMISSION = {
   clutchTorqueCapacity: 320,
   shiftTimeUp: 0.42,
   shiftTimeDown: 0.35,
+  /**
+   * The three-speed automatic, VAG type 087. Genuine fluid coupling with no
+   * lock-up clutch — a 1983-88 087 has none — which is why it creeps away at
+   * idle, is 1.6 s slower to 60 and gives up 2.7 mph at the top end while
+   * still slipping 3-4 %.
+   */
+  automatic: {
+    gearRatios: [2.71, 1.5, 1.0],
+    reverseRatio: 2.43,
+    finalDrive: 3.25,
+  },
+
   /** FWD on the 5000 S; the quattro was a separate model. */
   driveType: 'fwd' as const,
   /** If driveType were 'awd', fraction of torque to the front axle. */
@@ -288,10 +300,18 @@ export const BRAKES = {
 } as const;
 
 export const TYRE_MODEL = {
-  /** Pacejka-style magic-formula coefficients, longitudinal. */
-  longitudinal: { B: 11.0, C: 1.62, D: 1.05, E: 0.95 },
+  /**
+   * Pacejka magic-formula coefficients.
+   *
+   * `E` controls the shape past the peak and must be negative for a road
+   * tyre — a positive E makes force keep climbing past the slip angle where a
+   * real tyre has already started to give up. These were positive and
+   * `tyre.ts` had to clamp them to keep the curves peaking at sane slip;
+   * with the correct signs those clamps go inert.
+   */
+  longitudinal: { B: 11.0, C: 1.62, D: 1.05, E: -0.5 },
   /** Lateral — a period 185/70 HR14: tall sidewall, modest grip, lots of squirm. */
-  lateral: { B: 9.2, C: 1.4, D: 0.98, E: 0.97 },
+  lateral: { B: 9.2, C: 1.4, D: 0.98, E: -1.6 },
   /** Load sensitivity: grip falls off as vertical load rises. */
   loadSensitivity: 0.00008,
   rollingResistance: 0.014,

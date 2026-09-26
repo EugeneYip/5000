@@ -88,7 +88,20 @@ export interface PartResult {
 
 export type PartBuilder = (ctx: BuildContext) => Promise<PartResult> | PartResult;
 
-/** Live vehicle state, produced by the physics module, read by everything else. */
+/**
+ * Live vehicle state, produced by the physics module, read by everything else.
+ *
+ * SIGN CONVENTIONS — these were undefined until the simulation needed them, so
+ * they are fixed here rather than in any one consumer:
+ *   gForce.x   lateral, positive to the car's RIGHT (matches the chase cam's lean)
+ *   gForce.y   longitudinal, positive under acceleration
+ *   pitch      positive = nose UP
+ *   roll       positive = RIGHT side down
+ *   yawRate    positive = LEFT, matching steerAngle
+ *   speed      signed; negative in reverse
+ *   odometer   metres
+ *   gear       -1 reverse, 0 neutral, 1..n forward
+ */
 export interface VehicleState {
   /** Metres per second along the vehicle's forward axis. */
   speed: number;

@@ -79,7 +79,7 @@ export function noiseSource(ctx: BaseAudioContext, buf: AudioBuffer, rate = 1): 
  * blowdown half compresses harder than the negative reflection, which is part
  * of why a loaded engine sounds brassy rather than just louder.
  */
-export function saturationCurve(drive = 2.2, samples = 2048): Float32Array {
+export function saturationCurve(drive = 2.2, samples = 2048) {
   const c = new Float32Array(samples);
   for (let i = 0; i < samples; i++) {
     const x = (i / (samples - 1)) * 2 - 1;

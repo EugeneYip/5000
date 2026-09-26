@@ -26,7 +26,11 @@ const CSS = `
 }
 .audi-ui[hidden] { display: none !important; }
 .audi-ui * { box-sizing: border-box; }
-.audi-ui button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+/* \`:where\` keeps this reset at zero specificity for the element part, so the
+   component rules below — which are all single class selectors — still win.
+   Written as \`.audi-ui button\` it out-specifies every one of them and the
+   whole UI loses its borders and backgrounds. */
+.audi-ui :where(button) { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .audi-ui .pe { pointer-events: auto; }
 
 .audi-label {
@@ -87,7 +91,7 @@ const CSS = `
   display: grid; place-content: center; gap: 4px;
   background: var(--u-face); border: 1px solid var(--u-hair); border-radius: var(--u-radius);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  transition: border-color 0.18s ease, background 0.18s ease;
+  transition: border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease;
 }
 .audi-trigger:hover { border-color: rgba(255,255,255,0.2); }
 .audi-trigger i { display: block; width: 14px; height: 1px; background: var(--ui-fg); opacity: 0.8; }
@@ -127,6 +131,10 @@ const CSS = `
 
 .audi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .audi-grid.two { grid-template-columns: repeat(2, 1fr); }
+.audi-grid.four { grid-template-columns: repeat(4, 1fr); }
+/* A sub-heading inside a section — doors, windows — needs air above it. */
+.audi-sect > .audi-label.sub { display: block; margin: 0 0 7px; opacity: 0.72; }
+.audi-sect > .audi-grid + .audi-label.sub { margin-top: 13px; }
 .audi-chip {
   padding: 7px 4px; text-align: center;
   font-size: 10px; letter-spacing: 0.07em;
@@ -142,7 +150,12 @@ const CSS = `
 }
 
 /* Paint swatches: the colour is the control, so nothing else competes. */
-.audi-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.audi-swatches {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  /* Capped so eight colours make two balanced rows rather than a ragged
+     six-plus-two, and so a swatch never grows into a dinner plate. */
+  max-width: 216px;
+}
 .audi-swatch {
   position: relative; aspect-ratio: 1; border-radius: 50%;
   border: 1px solid rgba(255,255,255,0.18);
@@ -200,6 +213,7 @@ const CSS = `
   border: 1px solid rgba(255,255,255,0.18); border-radius: 3px;
   background: rgba(255,255,255,0.05);
 }
+.audi-hint .sep { font-style: normal; color: var(--ui-dim); font-size: 10px; margin: 0 1px; }
 .audi-hint .x { margin-left: 2px; color: var(--ui-dim); font-size: 14px; line-height: 1; padding: 0 4px; }
 .audi-hint .x:hover { color: var(--ui-fg); }
 
