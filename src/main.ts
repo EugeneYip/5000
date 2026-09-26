@@ -17,6 +17,7 @@ import { VehicleSim } from '@/physics/VehicleSim';
 import { InputController } from '@/ui/input';
 import { createHud, type Hud } from '@/ui/hud';
 import { EngineAudio } from '@/audio/EngineAudio';
+import { rigFrame } from '@/ui/rigLink';
 import type { ViewName, VehicleState } from '@/types';
 
 declare global {
@@ -33,6 +34,7 @@ interface AudiDebugApi {
   setUiVisible(v: boolean): void;
   settle(frames?: number): void;
   measureFps(frames?: number): Promise<{ fps: number; ms: number; drawCalls: number; triangles: number }>;
+  elapsed(): number;
   state(): VehicleState | null;
   stats(): Record<string, unknown>;
   three: typeof THREE;
@@ -133,6 +135,20 @@ async function main(): Promise<void> {
     env.update(dt, elapsed);
     rig.update(dt, car.root, state);
     post.setPose(rig.currentPose());
+
+    // Publish the frame here rather than leaving the audio and HUD modules to
+    // monkey-patch CameraRig.prototype to get at it. `time` is the app's own
+    // `elapsed`, which matters: the lamp flasher runs off it, so a HUD
+    // tell-tale or a relay tick keyed to `performance.now()` instead can sit
+    // up to a third of a second out of phase with the lamp it represents.
+    // `RigFrame.rig` is structurally typed and reads `camera`, which is
+    // private on CameraRig. Same object either way.
+    rigFrame.rig = rig as unknown as typeof rigFrame.rig;
+    rigFrame.camera = stage.camera;
+    rigFrame.carRoot = car.root;
+    rigFrame.state = state;
+    rigFrame.time = elapsed;
+
     hud.update(state, stage.stats());
     audio.update(state);
 
@@ -172,6 +188,7 @@ async function main(): Promise<void> {
       const s = stage.stats();
       return { fps: s.fps, ms: s.ms, drawCalls: s.drawCalls, triangles: s.triangles };
     },
+    elapsed: () => elapsed,
     state: () => lastState,
     stats: () => ({ ...stage.stats(), carTriangles: car.triangleCount(), parts: [...car.parts.keys()], articulations: [...car.articulations.keys()] }),
   };

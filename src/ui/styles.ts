@@ -273,7 +273,8 @@ const CSS = `
   .audi-speed b { font-size: 28px; }
   .audi-panel { top: auto; bottom: 0; right: 0; left: 0; width: auto; max-height: 72vh; border-radius: var(--u-radius) var(--u-radius) 0 0; transform-origin: bottom center; }
   .audi-panel.closing, .audi-panel.opening { transform: translateY(14px); }
-  .audi-hint { bottom: auto; top: 78px; font-size: 10px; }
+  /* Clear of the cluster, which moves to the top centre on a narrow screen. */
+  .audi-hint { bottom: auto; top: 98px; font-size: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

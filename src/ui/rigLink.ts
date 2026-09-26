@@ -48,6 +48,13 @@ export const rigFrame: RigFrame = { rig: null, camera: null, carRoot: null, stat
 
 let patched = false;
 
+/**
+ * Fallback only. `main.ts` publishes `rigFrame` directly every frame, which is
+ * the real path; this patch stays so that anything constructing a rig outside
+ * the app loop — a test, a scratch bench — still sees frames. If main is
+ * driving, this simply overwrites with the same values, except `time`, which
+ * main sets to the app's own clock rather than wall time.
+ */
 function patch(): void {
   if (patched) return;
   patched = true;
@@ -61,7 +68,7 @@ function patch(): void {
     rigFrame.camera = this.camera ?? null;
     rigFrame.carRoot = carRoot ?? null;
     rigFrame.state = state ?? null;
-    rigFrame.time = performance.now() / 1000;
+    if (rigFrame.time === 0) rigFrame.time = performance.now() / 1000;
   } as UpdateFn;
 }
 
