@@ -242,9 +242,20 @@ export const HP = {
      * photograph has it. The lamp's bottom stays just above the bumper, which
      * is what physically locates it.
      */
-    lampInnerX: 0.185,
-    lampOuterX: 0.86,
-    lampTopY: 0.893,
+    /**
+     * Re-measured off the dead-on 1988 rear. The lamp appears in the scan as
+     * TWO runs per side with a hairline between them — that is the tailgate
+     * shutline splitting the cluster, not two lamps. Read as one unit:
+     * ~685 mm wide with a ~330 mm gap between the pair.
+     *
+     * A parallel measurement giving a 930 mm gap and a 390 x 275 lamp came
+     * from the 1985 car, which is pre-facelift and has a different rear
+     * layout — its reverse window sits hard against the plate panel. Do not
+     * mix the two cars' rear measurements.
+     */
+    lampInnerX: 0.165,
+    lampOuterX: 0.85,
+    lampTopY: 0.92,
     lampBottomY: 0.688,
     lampZ: TAIL + 0.03,
     /** Internal division: reverse | tail/brake | indicator | fog. */
@@ -255,8 +266,8 @@ export const HP = {
     bumperZ: TAIL,
     rubStripY: 0.613,
 
-    /** Plate recess, in the bumper below the tailgate. */
-    plateCenter: [0, 0.518, TAIL + 0.002] as [number, number, number],
+    /** In the TAILGATE, set into the ribbed panel between the lamps. */
+    plateCenter: [0, 0.7905, TAIL + 0.028] as [number, number, number],
 
     /** Badges on the tailgate. */
     /**
@@ -264,9 +275,17 @@ export const HP = {
      * that is taillamp aperture, not sheet metal. Rings sit just right of
      * centre with the model text to their left.
      */
-    badgeRingsCenter: [0.062, 0.855, TAIL + 0.04] as [number, number, number],
-    badgeAudiCenter: [-0.138, 0.742, TAIL + 0.036] as [number, number, number],
-    badgeModelCenter: [0.118, 0.742, TAIL + 0.036] as [number, number, number],
+    /**
+     * Scripts sit on the painted band ABOVE the lamps, hard outboard. The
+     * span between the lamps is the ribbed panel and carries the plate, so
+     * nothing can be badged there.
+     *
+     * No rear rings: the four rings on the tailgate are a Euro 100/200
+     * feature, not a US 5000.
+     */
+    badgeY: 0.972,
+    badgeAudiCenter: [-0.42, 0.972, TAIL + 0.036] as [number, number, number],
+    badgeModelCenter: [0.42, 0.972, TAIL + 0.036] as [number, number, number],
 
     /** Exhaust tip, left of centre. */
     exhaustTip: [-0.412, 0.268, TAIL + 0.055] as [number, number, number],
@@ -281,7 +300,12 @@ export const HP = {
   // Roof — the Avant's rails
   // -------------------------------------------------------------------------
   roof: {
-    railInnerX: 0.615,
+    /**
+     * The roof-to-bodyside joint measures x ~0.700 over the rail's span. The
+     * 0.774 "roof half-width" quoted in review is the roof panel's bounding
+     * box, which includes the skin after it has turned down into the side.
+     */
+    railInnerX: 0.655,
     railTopY: 1.474,
     railBaseY: 1.408,
     railFrontZ: -1.402,
