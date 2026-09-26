@@ -57,6 +57,12 @@ export class Stage {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
 
+    // The transmission pass re-renders the whole opaque scene into its own
+    // target and rebuilds a mip chain every frame, so glazing costs roughly
+    // 2.7x. Nothing in the scene refracts finely enough to need that at full
+    // resolution — the backdrop seen through a windscreen is low-frequency.
+    this.renderer.transmissionResolutionScale = 0.6;
+
     // --- shadows ---
     // Take manual control of the stats counters: the composer issues many
     // render calls per frame and each one resets them, so the automatic reset

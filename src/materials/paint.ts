@@ -334,8 +334,11 @@ export function createPaint(): PaintMaterial {
       {
         // The basecoat sees a compressed image of the world. Swapping the view
         // direction here is the whole trick: same env map, different depth.
-        find: 'radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
-        replace: 'radiance += getIBLRadiance( audiRefractInto( geometryViewDir, geometryNormal, audiIor ), geometryNormal, material.roughness );',
+        // three r171+ assigns this to a local; earlier versions accumulated
+        // into `radiance` directly. Matching on the call itself rather than on
+        // the assignment survives both.
+        find: 'getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+        replace: 'getIBLRadiance( audiRefractInto( geometryViewDir, geometryNormal, audiIor ), geometryNormal, material.roughness );',
       },
       { find: '#include <lights_fragment_end>', replace: `$&\n${PAINT_FLAKE_APPLY}` },
     ],
