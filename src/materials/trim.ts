@@ -183,6 +183,45 @@ diffuseColor.rgb *= (1.0 + audiPlasticMottle * uPlasticGrain.w)
 // Rubber
 // ---------------------------------------------------------------------------
 
+export interface RubberOptions {
+  roughness?: number;
+  /**
+   * Road-film coverage, 0..1.
+   *
+   * A weatherstrip sits in a gutter and collects a lot; a tyre sidewall is
+   * wiped by its own rotation and carries a thin, even film. The default is
+   * the seal's.
+   */
+  dust?: number;
+  /**
+   * Blotch frequency of that film, cells/m.
+   *
+   * The default 120 is an 8 mm cell, which is invisible on a 15 mm door seal
+   * and reads as **camouflage** on a 130 mm sidewall filling half a close-up —
+   * the one number that made the tyre look like wet cardboard. A sidewall
+   * wants ~320 (a 3 mm cell), fine enough to read as dirt rather than as
+   * pattern.
+   */
+  dustCells?: number;
+  /**
+   * How much gloss a moulded character picks up over the carcass around it.
+   *
+   * Sidewall lettering comes out of a polished cavity in the tool. The default
+   * is tuned for a weatherstrip's bead.
+   */
+  mouldGloss?: number;
+  /**
+   * Curvature, in 1/m, at which a crease starts to count as moulded relief.
+   *
+   * A 1.3 mm letter on a surface as large as a sidewall curves hard enough to
+   * clear a much lower threshold than a seal's bead does, and letting more of
+   * the character's flank count is the difference between a legend you can
+   * read in a still and a smudge.
+   */
+  mouldCurve?: number;
+  vertexColors?: boolean;
+}
+
 /**
  * Tyre sidewall and weatherstrip.
  *
@@ -191,17 +230,35 @@ diffuseColor.rgb *= (1.0 + audiPlasticMottle * uPlasticGrain.w)
  * sidewall lettering comes out of a polished cavity in the mould and is
  * visibly glossier than the carcass around it. Curvature is measured per metre
  * rather than per pixel, so the lettering stays glossy from any distance.
+ *
+ * ## Why the film and the sheen are neutral
+ *
+ * Both used to be warm — a road-dust brown at 0.055/0.050/0.044 and a sheen
+ * lobe to match. Under a golden-hour sun that compounds: the light is already
+ * 1 : 0.8 : 0.6, and a surface that adds its own warmth on top of it lands the
+ * sunlit sidewall at a brown-grey rather than at black. Tyre rubber is carbon
+ * black with a silica/antiozonant bloom on it, which is neutral to faintly
+ * cool; the *light* is what should be warm. So the film is now a neutral grey
+ * and the sheen a faintly cool one, and the sidewall tracks whatever is
+ * shining on it instead of tinting it. This is also why it is fixed here
+ * rather than by taking a fraction out through vertex colour: a multiplier
+ * tuned against one lighting preset is wrong under the next one.
  */
-export function createRubber(opts: { roughness?: number; vertexColors?: boolean } = {}): THREE.MeshPhysicalMaterial {
+export function createRubber(opts: RubberOptions = {}): THREE.MeshPhysicalMaterial {
   const uniforms = {
     // x micro cells/m  y micro slope  z dust amount  w dust cells/m
-    uRubberParams: { value: new THREE.Vector4(2400.0, 0.30, 0.30, 120.0) },
+    uRubberParams: {
+      value: new THREE.Vector4(2400.0, 0.30, opts.dust ?? 0.30, opts.dustCells ?? 120.0),
+    },
     // x curvature threshold (1/m)  y curvature range  z lettering gloss gain  w unused
-    uRubberMould: { value: new THREE.Vector4(90.0, 420.0, 0.30, 0.0) },
+    uRubberMould: {
+      value: new THREE.Vector4(opts.mouldCurve ?? 90.0, 420.0, opts.mouldGloss ?? 0.30, 0.0),
+    },
     // Road film on a near-black carcass. Barely brighter than the rubber in
     // linear terms — a grey that looks right on paper is eight times the
-    // reflectance of tyre black and turns the sidewall into concrete.
-    uDustColor: { value: new THREE.Color(0.055, 0.050, 0.044) },
+    // reflectance of tyre black and turns the sidewall into concrete — and
+    // neutral, so it cannot warm the surface under a warm sun.
+    uDustColor: { value: new THREE.Color(0.043, 0.043, 0.045) },
   };
 
   const material = new THREE.MeshPhysicalMaterial({
@@ -210,7 +267,7 @@ export function createRubber(opts: { roughness?: number; vertexColors?: boolean 
     roughness: opts.roughness ?? 0.92,
     sheen: 0.1,
     sheenRoughness: 0.9,
-    sheenColor: new THREE.Color(0.14, 0.13, 0.12),
+    sheenColor: new THREE.Color(0.105, 0.110, 0.120),
     envMapIntensity: 0.6,
     // For a tyre carrying baked road film in its vertices.
     vertexColors: opts.vertexColors ?? false,

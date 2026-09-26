@@ -217,10 +217,18 @@ export const HP = {
     tailgateHingeY: 1.34,
     tailgateBottomY: 0.652,
 
-    /** Taillamp cluster, right-hand side. Tall on the Avant. */
-    lampInnerX: 0.238,
-    lampOuterX: 0.828,
-    lampTopY: 0.982,
+    /**
+     * Taillamp cluster, right-hand side.
+     *
+     * Measured off a dead-on rear frame of the 1988 Avant: ~675 x 205 mm, an
+     * aspect of 3.3:1. These were 590 x 294 (2.0:1), which read far too tall
+     * and too narrow, and put the inboard edge 53 mm outboard of where the
+     * photograph has it. The lamp's bottom stays just above the bumper, which
+     * is what physically locates it.
+     */
+    lampInnerX: 0.185,
+    lampOuterX: 0.86,
+    lampTopY: 0.893,
     lampBottomY: 0.688,
     lampZ: TAIL + 0.03,
     /** Internal division: reverse | tail/brake | indicator | fog. */

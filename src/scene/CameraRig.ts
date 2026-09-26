@@ -53,18 +53,22 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
   side:      { target: [0, 0.72, CZ], position: [26, 0.78, CZ], focalMm: 200 },
   front:     { target: [0, 0.7, BODY.overhangFront], position: [0, 0.78, 26], focalMm: 200 },
   rear:      { target: [0, 0.72, -(WB + BODY.overhangRear)], position: [0, 0.8, -26], focalMm: 200 },
-  top:       { target: [0, 0.6, CZ], position: [0, 24, CZ + 0.001], focalMm: 200 },
+  top:       { target: [0, 0.6, CZ], position: [0, 52, CZ + 0.001], focalMm: 200 },
 
   // Detail poses.
   wheel:     { target: [-BODY.trackFront / 2 + 0.05, R, 0], position: [-3.1, 0.62, 1.35], focalMm: 105, aperture: 2.0 },
   headlight: { target: [-0.56, 0.78, BODY.overhangFront - 0.02], position: [-2.0, 1.02, 3.3], focalMm: 105, aperture: 2.2 },
-  taillight: { target: [-0.66, 0.86, -(WB + BODY.overhangRear) + 0.02], position: [-2.2, 1.12, -3.5], focalMm: 105, aperture: 2.2 },
+  // Centred on the cluster and set back behind it, not beside the car.
+  taillight: { target: [-0.52, 0.79, -(WB + BODY.overhangRear) + 0.03], position: [-1.3, 0.95, -5.15], focalMm: 105, aperture: 2.2 },
   badge:     { target: [0.2, 0.78, -(WB + BODY.overhangRear) + 0.03], position: [0.62, 0.95, -5.05], focalMm: 135, aperture: 2.0 },
   platecam:  { target: [0, 0.52, BODY.overhangFront + 0.01], position: [0, 0.58, 2.05], focalMm: 135, aperture: 2.8 },
   roofrail:  { target: [-0.6, 1.42, -1.95], position: [-2.9, 2.35, -0.25], focalMm: 85, aperture: 2.8 },
 
   // Cabin.
-  interior:  { target: [0.1, 0.95, -0.85], position: [-1.55, 1.18, -0.35], focalMm: 24 },
+  // Over the rear seat looking forward across the cabin — inside the car,
+  // which the previous pose was not: it sat 1.55 m out, beyond the body side,
+  // framing a closed door.
+  interior:  { target: [-0.3, 0.95, -0.52], position: [0.42, 1.12, -2.12], focalMm: 22 },
   /**
    * A seated driver's eye, not a camera resting on the dash top. The old pose
    * sat at y=1.12 looking at a cluster centred at 1.032 with a 1.055 dash top

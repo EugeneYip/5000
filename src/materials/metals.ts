@@ -291,6 +291,105 @@ roughnessFactor = clamp(roughnessFactor + audiDirtAmt * 0.18
 }
 
 // ---------------------------------------------------------------------------
+// The cast-iron family
+// ---------------------------------------------------------------------------
+//
+// Three named finishes the wheel corner asked for by name and had been holding
+// locally in `src/car/wheels/materials.ts`. All three are `createDirtyMetal`
+// with authored constants rather than new shaders, which is deliberate: they
+// are the same *surface* — a rough casting with dirt in the bottom of its
+// grain — at three different points, so they share one program and one link,
+// and the brake corner costs the renderer nothing for having three of them.
+
+/** Phosphate grey, for a casting that has not been left to rust. */
+const IRON_PHOSPHATE = 0x54565a;
+/** Wet-brown iron oxide. Not orange: dry rust powder is orange, a wheel arch
+ *  is not dry, and an orange caliper reads as a toy. */
+const IRON_OXIDE = 0x6d4c33;
+
+export interface CastIronOptions {
+  /** Override the oxide/phosphate mix outright. */
+  color?: number;
+  /**
+   * 0 = a freshly machined or phosphated casting, 1 = a month of weather.
+   *
+   * Drives the colour and, with it, the metalness: oxide is a mineral, not a
+   * metal, and leaving metalness high is the mistake that makes a rusty part
+   * read as painted brown chrome.
+   */
+  oxide?: number;
+  /** 0 = washed, 1 = a decade under a car. */
+  grime?: number;
+  roughness?: number;
+  /** For a caller baking occlusion or brake dust into the mesh. */
+  vertexColors?: boolean;
+}
+
+/** Blend two sRGB hexes without going through a Color allocation. */
+function mixHex(a: number, b: number, t: number): number {
+  const m = (sh: number): number => {
+    const x = Math.round(THREE.MathUtils.lerp((a >> sh) & 255, (b >> sh) & 255, t));
+    return THREE.MathUtils.clamp(x, 0, 255);
+  };
+  return (m(16) << 16) | (m(8) << 8) | m(0);
+}
+
+/**
+ * Grey cast iron, oxidised: disc hats and vanes, dust shields, pad backing
+ * plates — every brake part the pads never touch, which on any car driven in
+ * the last month is orange-brown. The rust/bright contrast against
+ * `brakeDisc()`'s swept band is the single strongest cue that what is behind
+ * the spokes is a real part rather than a grey disc on a stick.
+ */
+export function createCastIron(opts: CastIronOptions = {}): THREE.MeshPhysicalMaterial {
+  const oxide = THREE.MathUtils.clamp(opts.oxide ?? 1, 0, 1);
+  return createDirtyMetal({
+    color: opts.color ?? mixHex(IRON_PHOSPHATE, IRON_OXIDE, oxide),
+    metalness: THREE.MathUtils.lerp(0.32, 0.12, oxide),
+    roughness: opts.roughness ?? THREE.MathUtils.lerp(0.74, 0.88, oxide),
+    grime: opts.grime ?? 0.7,
+    vertexColors: opts.vertexColors,
+  });
+}
+
+/**
+ * The caliper casting: phosphated or painted from new, so it is darker, flatter
+ * and far less oxidised than the iron around it. It is also the part a low sun
+ * gets under, which is why it must not be wearing `alloy()`.
+ */
+export function createCaliperPaint(opts: { color?: number; vertexColors?: boolean } = {}): THREE.MeshPhysicalMaterial {
+  return createDirtyMetal({
+    color: opts.color ?? 0x4a4540,
+    metalness: 0.3,
+    roughness: 0.74,
+    grime: 0.5,
+    vertexColors: opts.vertexColors,
+  });
+}
+
+/**
+ * Sintered friction material.
+ *
+ * Non-metallic by construction, and the roughest thing on the car: a pad's
+ * face is pressed powder. The only reason it is a `dirtyMetal` at all is that
+ * the grain and the dirt-in-the-grain are exactly right for it and it costs no
+ * extra program to say so.
+ */
+export function createPadFriction(opts: { vertexColors?: boolean } = {}): THREE.MeshPhysicalMaterial {
+  const m = createDirtyMetal({
+    color: 0x2e2a28,
+    metalness: 0,
+    roughness: 0.95,
+    grime: 0.75,
+    vertexColors: opts.vertexColors,
+  });
+  // A pad sits inside the caliper, in its own shadow, and should not be
+  // picking the sky up the way an exposed casting does.
+  m.envMapIntensity = 0.3;
+  return m;
+}
+
+// ---------------------------------------------------------------------------
 // Brake disc
 // ---------------------------------------------------------------------------
 

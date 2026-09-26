@@ -4,27 +4,37 @@
  * ## What the reference photographs show
  *
  * Measured off a dead-on rear frame of a US-market 5000 Avant, with a close-up
- * of the same car's left cluster to resolve the lens divisions the dead-on
- * frame compresses. Scaled on the cluster's own span, so the fractions below
- * are independent of the aperture's absolute size:
+ * of the same car's left cluster to confirm the readings. Divisions were found
+ * by taking the mean horizontal luminance gradient down each band and peaking
+ * it, rather than by eye — three of the four are a few grey levels apart from
+ * the lens texture around them and do not survive being squinted at. Scaled on
+ * the cluster's own span, so the fractions below are independent of the
+ * aperture's absolute size:
  *
  * ```
  *   inboard edge                                            outboard edge
- *   0.000        0.400        0.470   0.643      0.707            1.000
- *     |            |            |       |          |                |
- *     |   amber    ‖   amber    | clear |  amber   ‖     amber      |   upper
- *     |------------‖------------+-------+----------‖----------------|
- *     |    red     ‖          red                  ‖      red       |   lower
- *                  ↑                               ↑
- *              lens rib                    TAILGATE SHUTLINE
+ *   0.000        0.401        0.469   0.652      0.706      0.830     1.000
+ *     |            |            |       |          |          |         |
+ *     |   amber    ‖   amber    | clear |  amber   ‖  amber   ‖  amber  |  upper
+ *     |------------‖------------+-------+----------‖----------‖---------|
+ *     |    red     ‖          red                  ‖   red    ‖   red   |  lower
+ *                  ↑                               ↑          ↑
+ *              lens rib                    TAILGATE SHUTLINE   lens rib
  * ```
  *
  * So: **one reversing lamp per side**, a clear window inset into the amber
  * band — amber above it, below it and to either side — and it lives on the
  * *tailgate* half, which is the inboard 71 % of the band, not the outboard
- * half. The quarter-panel section is the short outboard piece, and it is the
- * only one that flashes: the ambers on the tailgate are lens, not filament.
- * The upper band is very slightly the taller of the two (50.5 : 49.5).
+ * half. The quarter-panel section carries two amber cells over red and is the
+ * only part that flashes: the ambers on the tailgate are lens, not filament,
+ * because a turn signal has to stay lit and stay outboard with the tailgate
+ * open. The upper band is slightly the taller of the two (52.8 : 47.2).
+ *
+ * The shutline was fixed independently of the lens: the same gradient scan run
+ * on the sheet metal *below* the lamps puts a panel gap at the same x on both
+ * sides, mirrored about the plate to within 3 px. That matters because the two
+ * inboard divisions are within 4 % of each other as fractions and it would
+ * otherwise be easy to hang the reversing lamp off the wrong half of the car.
  *
  * The inner section is built into its own group for `lights.ts` to re-parent
  * onto the body stream's `tailgatePanel`, so it opens with the tailgate.
@@ -79,20 +89,27 @@ const RISE = R.lampTopY - R.lampBottomY;
 const atX = (f: number): number => R.lampInnerX + SPAN * f;
 
 /** Where the tailgate shutline crosses the band. */
-const SPLIT = atX(0.707);
+const SPLIT = atX(0.706);
 /** Lens rib dividing the tailgate section into its two cells. */
-const RIB_X = atX(0.400);
+const RIB_X = atX(0.401);
+/**
+ * Lens rib dividing the quarter-panel section into its two cells. The outboard
+ * one is ~100 mm wide and most of that is the cluster's 46 mm corner radius
+ * turning onto the flank, which is why it reads as a separate face from dead
+ * astern and as the same moulding from three-quarters.
+ */
+const WRAP_X = atX(0.830);
 /**
  * The reversing window, inset into the outboard tailgate cell's amber. It sits
- * centred in that cell — 0.470 to 0.643 of the cluster against a cell of 0.400
- * to 0.707 — so it is given as a width and centred rather than as two absolute
+ * centred in that cell — 0.469 to 0.652 of the cluster against a cell of 0.401
+ * to 0.706 — so it is given as a width and centred rather than as two absolute
  * edges, which would drift off centre whenever the surround changed.
  */
-const REVERSE_WIDTH = 0.173;
+const REVERSE_WIDTH = 0.183;
 /** How much of the signal band's height the reversing window takes. */
-const REVERSE_RISE = 0.46;
+const REVERSE_RISE = 0.567;
 /** Division between the signal band and the red field. */
-const BAND = R.lampBottomY + RISE * 0.495;
+const BAND = R.lampBottomY + RISE * 0.472;
 
 const cluster: Outline = {
   yLo: R.lampBottomY,
@@ -133,12 +150,18 @@ export function buildTaillamps(ctx: BuildContext, glows: GlowFactory): TaillampS
   outerShape.radiusOuter = cluster.radiusOuter;
   innerShape.radiusInner = cluster.radiusInner;
 
-  // Quarter panel: one amber over one red field, and the only flashing amber
-  // on the car's rear.
+  // Quarter panel: two amber cells over red, and the only flashing amber on
+  // the car's rear. Both cells are one lamp function divided by a moulding
+  // rib, so both are driven — the rib runs through the red as well, which is
+  // what says "moulding" rather than "two lamps" at a glance.
   const outer = section(glows, {
     name: 'taillampOuter',
     shape: outerShape,
-    segments: [{ kind: 'indicator', x0: 0, x1: 10 }],
+    ribs: [WRAP_X],
+    segments: [
+      { kind: 'indicator', x0: WRAP_X, x1: 10 },
+      { kind: 'indicator', x0: 0, x1: WRAP_X },
+    ],
     ...mats,
   });
 
