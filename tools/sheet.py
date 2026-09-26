@@ -134,9 +134,14 @@ def compare_to_photo(render_path: Path):
     # Paint readout from the render: sample the brightest large neutral region
     # in the lower-middle of the frame, which is where bodywork lands in the
     # photomatch pose.
+    # Sample the front wing's VERTICAL face, which is what the target colour
+    # was measured from. A centre-of-frame patch lands on the grille, lamps and
+    # plate under the corrected photomatch pose and reports a meaningless
+    # number. These fractions were measured against the pose; past x~0.283 the
+    # panel curves into the sky and correctly gains blue.
     a = np.array(ren.convert("RGB")).astype(float)
     hgt, wid = a.shape[:2]
-    patch = a[int(hgt * 0.45):int(hgt * 0.65), int(wid * 0.40):int(wid * 0.60)].reshape(-1, 3)
+    patch = a[int(hgt * 0.420):int(hgt * 0.502), int(wid * 0.254):int(wid * 0.283)].reshape(-1, 3)
     med = np.median(patch, axis=0)
     dist = float(np.sqrt(((med - np.array(PAINT_TARGET)) ** 2).sum()))
 

@@ -270,7 +270,9 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
   }
   group.add(mesh('frontBumper', merge(frontExtras), plastic));
   group.add(mesh('frontRubStrip', f.bright, bright));
-  group.add(mesh('frontValance', f.valance, paint));
+  // Not `paint`: the photograph shows dark grey moulding through here, and a
+  // metallic clearcoat on a panel this close to horizontal mirrors the sky.
+  group.add(mesh('frontValance', f.valance, plastic));
 
   // Small amber marker low in the bumper's outboard face.
   const amber: THREE.BufferGeometry[] = [];

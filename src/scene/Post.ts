@@ -163,8 +163,17 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   let carNodes: THREE.Object3D[] = [];
   let lookups = 0;
 
-  /** How far anything may move between frames and still count as still. */
-  const MOTION_PX = 0.4;
+  /**
+   * How far anything may move between frames and still count as still.
+   *
+   * Three quarters of a pixel. Below that the displacement is smaller than the
+   * sub-pixel jitter the accumulation is deliberately applying, so rejecting
+   * the history would cost more than it saves. The number that sets it is the
+   * instrument needles: the rev counter is never quite still at idle, and from
+   * outside the car its tip travels four tenths of a pixel a frame. Left below
+   * that, every exterior still collapsed to a single sample.
+   */
+  const MOTION_PX = 0.75;
 
   /** 16 matrix elements plus the two projection terms a pose can animate. */
   const CAM = 18;
@@ -288,8 +297,6 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   let elapsed = 0;
   let frameCount = 0;
 
-  // TEMP-PROBE (removed before hand-off)
-  (globalThis as any).__POST_PROBE = { renderer, scene, camera, composer, renderPass, gtao, dof, bloom, accum, grade, env };
 
   return {
     render(dt: number): void {

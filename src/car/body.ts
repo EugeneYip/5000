@@ -53,12 +53,20 @@ export function buildBody(ctx: BuildContext): PartResult {
   const group = new THREE.Group();
   const paint = ctx.materials.paint();
   const dark = ctx.materials.blackTrim();
+  const bumperDark = ctx.materials.bumperPlastic();
 
   const nodes: Record<string, THREE.Object3D> = {};
   const articulations: Articulation[] = [];
 
   const addPainted = (name: string, g: THREE.BufferGeometry, parent: THREE.Object3D = group): THREE.Mesh => {
     const m = new THREE.Mesh(g, paint);
+    m.name = name;
+    parent.add(m);
+    return m;
+  };
+
+  const addDark = (name: string, g: THREE.BufferGeometry, parent: THREE.Object3D = group): THREE.Mesh => {
+    const m = new THREE.Mesh(g, bumperDark);
     m.name = name;
     parent.add(m);
     return m;
@@ -259,7 +267,10 @@ export function buildBody(ctx: BuildContext): PartResult {
   frontStructure.name = 'frontStructure';
   group.add(frontStructure);
   addPainted('noseUpper', noseUpper, frontStructure);
-  addPainted('noseLower', noseLower, frontStructure);
+  // The lower nose sits below the bumper's rub strip, where the reference
+  // photograph shows dark moulding rather than body colour. Left in `paint` it
+  // mirrors the sky at grazing angles and reads cream.
+  addDark('noseLower', noseLower, frontStructure);
   addPainted('frontWingR', wingR, frontStructure);
   addPainted('frontWingL', mirrorGeometry(wingR), frontStructure);
   nodes.frontStructure = frontStructure;

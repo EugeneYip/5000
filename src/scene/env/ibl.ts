@@ -189,16 +189,36 @@ function buildStreet(): Furniture {
   }
 
   // Building masses. Long and low rather than near and tall: at forty metres
-  // an eleven-metre cornice sits fifteen degrees up, so the whole sky above it
-  // stays in the reflection band. The two ahead are the Museum end of the
-  // boulevard, which is the one place the photograph shows real height.
+  // an eleven-metre cornice sits fifteen degrees up, so the sky above it stays
+  // in the reflection band.
+  //
+  // Broken into separate masses with varied heights and setbacks, because a
+  // single long slab reflects as a single long slab — it put a hard-edged tan
+  // rectangle across the bonnet with a dead straight top edge, which is the
+  // one thing in a reflection the eye reads instantly as artificial. A street
+  // of separate buildings gives a broken cornice line and reads as a street.
   const blockGeo = new THREE.BoxGeometry(1, 1, 1);
-  const blocks: Array<[number, number, number, number, number, number]> = [
-    [-41, 5.5, -16, 12, 11, 110],
-    [41, 5.5, -8, 12, 11, 104],
-    [-7, 8, 78, 46, 16, 12],
-    [52, 10, 34, 16, 20, 30],
-  ];
+  const blocks: Array<[number, number, number, number, number, number]> = [];
+  // Deterministic, so the boulevard is the same every run.
+  let seed = 0x5000c3;
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 7; i++) {
+      const h = 7 + rnd() * 9;
+      const depth = 15 + rnd() * 9;
+      const setback = 38 + rnd() * 9;
+      blocks.push([side * setback, h / 2, -72 + i * 19 + side * 7, 13, h, depth]);
+    }
+  }
+  // The Museum end of the boulevard, which is the one place the photograph
+  // shows real height, and a taller mass off to one side.
+  blocks.push([-7, 8, 86, 46, 16, 14]);
+  blocks.push([26, 11, 94, 22, 22, 16]);
+  blocks.push([58, 10, 40, 16, 20, 30]);
+
   const blockMeshes: THREE.Mesh[] = [];
   for (const [x, y, z, sx, sy, sz] of blocks) {
     const m = new THREE.Mesh(blockGeo, facadeMat);
@@ -274,7 +294,7 @@ function buildStreet(): Furniture {
       // what hits the far side comes through. That transmitted light is the
       // difference between a tree line and a hole in the world.
       canopyMat.color.copy(sky).multiply(tint.setRGB(0.42, 0.56, 0.33)).multiplyScalar(0.45);
-      addScaled(canopyMat.color, tint.setRGB(1.0, 0.82, 0.4).multiply(sun), (0.1 / Math.PI) * eWall);
+      addScaled(canopyMat.color, tint.setRGB(1.0, 0.82, 0.4).multiply(sun), (0.1 / Math.PI) * eWall * 0.4);
 
       trunkMat.color.copy(sky).multiplyScalar(BARK * 0.45);
       addScaled(trunkMat.color, sun, (BARK / Math.PI) * eGround * 0.12);
@@ -441,48 +461,7 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     renderer.shadowMap.enabled = prevShadow;
     renderer.setRenderTarget(prevTarget);
 
-
     pmrem.fromCubemap(cubeRT.texture, target!);
-
-    // TEMP-PROBE (removed before hand-off)
-    (globalThis as any).__IBL_PROBE = () => {
-      const half = (h: number): number => {
-        const s = (h & 0x8000) >> 15, e = (h & 0x7c00) >> 10, f = h & 0x03ff;
-        if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
-        if (e === 31) return f ? NaN : (s ? -Infinity : Infinity);
-        return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
-      };
-      const faceStats = [];
-      let total = 0;
-      for (let f = 0; f < 6; f++) {
-        const buf = new Uint16Array(512 * 512 * 4);
-        renderer.readRenderTargetPixels(cubeRT as any, 0, 0, 512, 512, buf, f);
-        let r = 0, g = 0, b = 0;
-        for (let i = 0; i < buf.length; i += 4) {
-          r += half(buf[i]); g += half(buf[i + 1]); b += half(buf[i + 2]);
-        }
-        const n = 512 * 512;
-        faceStats.push([r / n, g / n, b / n]);
-        total += (0.2126 * r + 0.7152 * g + 0.0722 * b) / n;
-      }
-      const pw = target!.width, ph = target!.height;
-      const pbuf = new Uint16Array(pw * ph * 4);
-      renderer.readRenderTargetPixels(target!, 0, 0, pw, ph, pbuf);
-      let pr = 0, pg = 0, pb = 0, pmax = 0, cnt = 0;
-      for (let i = 0; i < pbuf.length; i += 4) {
-        const R = half(pbuf[i]), G = half(pbuf[i + 1]), B = half(pbuf[i + 2]);
-        if (!Number.isFinite(R)) continue;
-        pr += R; pg += G; pb += B; cnt++;
-        pmax = Math.max(pmax, 0.2126 * R + 0.7152 * G + 0.0722 * B);
-      }
-      return {
-        cubeFaces: { px: faceStats[0], nx: faceStats[1], py: faceStats[2], ny: faceStats[3], pz: faceStats[4], nz: faceStats[5] },
-        cubeMeanLuminance: total / 6,
-        pmremSize: [pw, ph],
-        pmremMean: [pr / cnt, pg / cnt, pb / cnt],
-        pmremMaxLuminance: pmax,
-      };
-    };
   };
 
   return {

@@ -108,7 +108,13 @@ export class Stage {
 
   /** One frame. Returns the delta time actually used. */
   render(): number {
-    const dt = Math.min(this.clock.getDelta(), 0.1);
+    // Two different numbers. The simulation needs dt clamped or a long frame
+    // explodes the integrator; the fps readout needs the REAL elapsed time.
+    // Sharing one clamped value meant 1/dt could never fall below 10, so every
+    // "10.0 fps" reading actually meant "100 ms or worse" and the readout was
+    // useless exactly when it mattered.
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(rawDt, 0.1);
     this.renderer.info.reset();
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
@@ -116,8 +122,8 @@ export class Stage {
     this.lastCalls = this.renderer.info.render.calls;
     this.lastTriangles = this.renderer.info.render.triangles;
     this.frameCount++;
-    if (dt > 0) {
-      this.fpsSamples.push(1 / dt);
+    if (rawDt > 0) {
+      this.fpsSamples.push(1 / rawDt);
       if (this.fpsSamples.length > 180) this.fpsSamples.shift();
     }
     return dt;

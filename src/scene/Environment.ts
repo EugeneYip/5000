@@ -288,8 +288,6 @@ export async function buildEnvironment(
   applyPreset(preset);
   progress(1);
 
-  // TEMP-PROBE (removed before hand-off)
-  (globalThis as any).__ENV_PROBE = { PRESETS, applyPreset, skyUniforms, sun, hemi, bounce, rim, ibl, get preset() { return preset; } };
 
   /**
    * Bounds of everything that is not ours, so the shadow frustum and the
