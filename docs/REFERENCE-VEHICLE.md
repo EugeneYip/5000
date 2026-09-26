@@ -1515,3 +1515,68 @@ wheel bolt pattern 4 × 108 mm, wheel offset ET 45, gearbox type 016 code AAZ, a
 
 *Sections 3–8 compiled 2026-09-25. Primary source throughout: the factory US sales brochure "Audi for 1987",
 pages 16–17. Where a figure could not be sourced it says NOT FOUND rather than carrying an estimate.*
+
+---
+
+# Verified reference imagery (all confirmed WAGON, all HTTP 200)
+
+Most C3 photographs online are the saloon, whose roofline and rear differ
+completely. Every URL below was fetched and the body confirmed by eye.
+
+**Dating trap:** US 5000s used **quad rectangular sealed beams through 1985**;
+the one-piece composite "aero" lamp arrived for **1986**. Commons' *"1985 Audi
+5000S Wagon … front right"* is therefore useless for the front end, though its
+rear shot is fine.
+
+The richest single source is a Bring a Trailer auction of a **1988 Audi 5000CD
+Turbo quattro Avant** (US market, facelift front) with a ~104-shot
+professional gallery. Note it is a quattro and carries a grille badge our car
+should not have.
+
+| Need | URL |
+|---|---|
+| Dead-on front | `bringatrailer.com/wp-content/uploads/2024/10/1988_audi_5000-cs-quattro-wagon_1988_audi_5000-cs-quattro-wagon_ed24c857-97c0-423f-ac9a-ca4a5876e17f-8Hdcbe-21332-21333-scaled.jpg` |
+| Headlamp close-up | `…_8f8a01ab-627d-4849-ac33-2e582b34de5b-y6cJTR-21461-21462-scaled.jpg` |
+| Taillamp close-up, US-spec | `…_5974a0cd-c437-41c7-9604-dc627a3d6431-FnmdrM-21454-21455-scaled.jpg` |
+| Dead-on rear, whole car | `…_c90d758f-d303-4e7e-ab67-0b070f385988-pLDwq9-21360-21361-scaled.jpg` |
+| Square-on side profile | `…_a6e775b1-250a-4e2a-b94f-4fe47d3a8b81-BADpgy-21346-21347-scaled.jpg` |
+| Rear 3/4 | `…_5b416b3d-966d-4b27-b0ba-0f2dec6b63bc-qaI2RF-21368-21369-scaled.jpg` |
+| 1986 5000S Avant on bottlecaps | `bringatrailer.com/wp-content/uploads/2023/10/1986_audi_5000s-avant_dsc_0319-5-39778.jpg` |
+| US interior, MPH speedo | `bringatrailer.com/wp-content/uploads/2023/10/1986_audi_5000s-avant_DSC_0433-1-scaled.jpg` |
+| Bottlecap wheel, studio | `awrswheels.com/wp-content/uploads/2025/04/176452152.jpg` |
+
+Wikimedia works only via the `/thumb/.../1280px-…` form; the original paths
+rate-limit with HTTP 429.
+
+**Wheel trap:** C3s wear at least three similar flat disc wheels and captions
+never distinguish them. The **bottlecap** has ~12 elongated oval slots around a
+flat centre. The Euro **aero turbine cover** has many *fine radial* slots and
+looks similar at a glance. A third is a 6-spoke-style disc.
+
+## Headlamp dimensions — nothing is published
+
+About thirty sources were checked. Parts retail is bot-walled (eBay,
+partrequest, car-part, europaparts, blauparts, 7zap, autohausaz, carparts,
+tarostrade, walmart all return 403/404/410); the sites that do open list
+fitment, bulb type and OE cross-references but **no dimension rows at all**.
+
+Part numbers did come back solid: **443 941 029 H** (left) / **443 941 030**
+(right) for the 86–88 non-turbo 5000 and 89–91 100; **447 941 029 C** for the
+US turbo. So `029` = left, `030` = right, `443` = non-turbo, `447` = turbo.
+Bulb is **9004/HB1**. Do not confuse these with the European one-piece H4 unit
+(443 941 029 A/E/F). A "165 × 106 mm" figure floating on one page is for the
+European H4 lamp and is almost certainly an insert, not an assembly — do not
+use it.
+
+So every dimension we have is photogrammetric, and **aspect ratios are more
+trustworthy than absolute millimetres** because they are scale-free.
+
+| | Measurement | What it is |
+|---|---|---|
+| **409 × 168 mm, 2.40 : 1** | owner's car, dead-on | the **aperture**, bezel outer edge |
+| **355 × 126 mm, 2.85 : 1** | 1988 Avant, dead-on, pixel-classified | the **clear lens** inside it |
+
+These do not conflict. The bezel is a substantial piece of brightwork and takes
+up the difference. The amber sits outboard of the clear lens and **wraps the
+front corner**, so a dead-on photograph understates it badly — size it from a
+3/4 or a close-up.
