@@ -69,8 +69,8 @@ export const HP = {
     grilleZ: 0.862,
     /** How far the slats sit behind the surrounding surface. */
     grilleRecess: 0.035,
-    /** Number of horizontal slats in the aperture. */
-    grilleSlats: 6,
+    /** Seven bright slats, eight apertures — counted off 2048 px photography. */
+    grilleSlats: 7,
 
     /** The four rings, centred in the grille. */
     ringsCenter: [0, 0.7665, 0.872] as [number, number, number],

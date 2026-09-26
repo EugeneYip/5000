@@ -103,6 +103,16 @@ export const WHEEL = {
   get width(): number {
     return this.tyreSectionMm / 1000;
   },
+  /**
+   * FOUR bolts on a 108 mm circle, ET 45. Five-bolt 5x112 is the quattro
+   * only — getting this wrong is immediately visible.
+   */
+  boltCount: 4,
+  boltCircleMm: 108,
+  offsetMm: 45,
+  /** The "bottlecap" alloy: 12 slots at 30 degrees. */
+  bottlecapSlots: 12,
+
   /** Unsprung mass per corner: wheel + tyre + hub + brake. */
   massUnsprung: 38,
 
@@ -130,7 +140,12 @@ export const SUSPENSION = {
     /** Total suspension travel. */
     travelUp: 0.09,
     travelDown: 0.08,
-    /** Anti-roll bar rate, N·m/rad. */
+    /**
+     * Anti-roll bar rate, N·m/rad. Sources conflict on the bar itself:
+     * parts catalogues say 23 mm for the base C3 and call 26 mm the
+     * Sport/200/V8 bar, while Audi of America's MY1988 sheet says 26 mm for
+     * the 5000 S. Unresolved; this rate assumes the smaller bar.
+     */
     arbRate: 14_000,
     /** Suspension geometry that the raycast model needs. */
     antiDive: 0.25,
@@ -144,6 +159,11 @@ export const SUSPENSION = {
     damperRebound: 2_900,
     travelUp: 0.095,
     travelDown: 0.085,
+    /**
+     * No separate rear anti-roll bar exists — the torsion-crank beam IS the
+     * rear roll stiffness. This figure stands in for the beam's torsional
+     * rate rather than a bar.
+     */
     arbRate: 9_000,
     antiSquat: 0.15,
     rollCentreHeight: 0.11,
@@ -167,17 +187,25 @@ export const ENGINE = {
   firingIntervalDeg: 144,
 
   idleRpm: 820,
-  redlineRpm: 6_300,
-  limiterRpm: 6_500,
+  /** Red band starts here, measured off a MY1988 cluster photograph. */
+  redlineRpm: 6_500,
+  /** Low confidence — a single forum source. */
+  limiterRpm: 6_800,
 
-  peakPowerKw: 97,
-  peakPowerRpm: 5_500,
-  peakTorqueNm: 184,
+  /** 130 hp SAE net. Bore 82.5 x stroke 86.4, CR 10.0:1, Bosch CIS-E. */
+  peakPowerKw: 96.9,
+  peakPowerRpm: 5_600,
+  peakTorqueNm: 190,
   peakTorqueRpm: 4_000,
 
   /**
    * Normalised torque curve — [rpm, fraction of peak torque].
-   * Gentle, flat, mid-range-rich: very much a 1980s Bosch KE-Jetronic 5-pot.
+   *
+   * Only two points are sourced: 190 N·m at 4000 rpm (factory brochure) and
+   * 165.3 N·m at 5600 rpm, which falls out exactly from T = P/w at the stated
+   * power peak — that is 0.87 here. Everything between is modelled
+   * interpolation, not factory data. Gentle, flat and mid-range-rich, as a
+   * Bosch CIS-E 10-valve five should be.
    */
   torqueCurve: [
     [800, 0.52],
@@ -192,8 +220,9 @@ export const ENGINE = {
     [5000, 0.95],
     [5500, 0.89],
     [6000, 0.79],
-    [6300, 0.7],
-    [6500, 0.42],
+    [6300, 0.71],
+    [6500, 0.64],
+    [6800, 0.34],
   ] as ReadonlyArray<readonly [number, number]>,
 
   /** Rotational inertia of the crank + flywheel, kg·m². */
@@ -205,8 +234,17 @@ export const ENGINE = {
 
 export const TRANSMISSION = {
   type: 'manual-5' as const,
-  /** 1st … 5th. */
-  gearRatios: [3.6, 2.125, 1.36, 0.967, 0.744],
+  /**
+   * Audi 016 gearbox, ratio code AAZ (NF engine to 12/1987). Read off the
+   * factory brochure's Front-Wheel Drive (Sedan and Wagon) column.
+   *
+   * The earlier placeholders here — 1.36 / 0.967 / 0.744 — were the 5000CS
+   * TURBO's ratios, read across the wrong column. On those the car sits at
+   * ~2500 rpm at 100 km/h and can never reach its claimed top speed; on these
+   * it sits at ~2880 rpm and tops out just past the power peak, which is how
+   * the ratios were cross-validated.
+   */
+  gearRatios: [3.6, 2.125, 1.458, 1.071, 0.857],
   reverseRatio: 3.5,
   finalDrive: 3.889,
   /** Overall driveline efficiency. */
@@ -222,9 +260,10 @@ export const TRANSMISSION = {
 } as const;
 
 export const STEERING = {
-  /** Rack and pinion, engine-speed-sensitive power assist. */
+  /** Rack and pinion, power-assisted. Ratio 18.7:1. */
   maxSteerAngleDeg: 36,
-  turnsLockToLock: 3.3,
+  steeringRatio: 18.7,
+  turnsLockToLock: 3.5,
   turningCircle: 10.42,
   /** Caster, gives self-centring. */
   casterDeg: 2.0,
@@ -233,8 +272,12 @@ export const STEERING = {
 } as const;
 
 export const BRAKES = {
-  /** Vented discs front, solid rear. */
-  discDiameterFront: 0.276,
+  /**
+   * 256 x 22 vented front, 245 x 10 solid rear. The 276 mm disc previously
+   * here is the CS Turbo's. A 256 disc also shows a lot more gap inside a
+   * 14-inch wheel, so this is visible, not just a number.
+   */
+  discDiameterFront: 0.256,
   discDiameterRear: 0.245,
   /** Max brake torque per axle, N·m. */
   maxTorqueFront: 2_400,
@@ -254,6 +297,32 @@ export const TYRE_MODEL = {
   rollingResistance: 0.014,
   /** Relaxation length — tyre force lags slip, m. */
   relaxationLength: 0.42,
+} as const;
+
+/**
+ * Factory performance claims for the WAGON specifically — the brochure quotes
+ * it separately from the saloon, which almost no other source does. These are
+ * manufacturer figures, not instrumented tests.
+ *
+ * The one independent measurement found is Car and Driver's 1987 5000 S
+ * quattro saloon: 9.70 s to 60 and 17.00 s at 81.0 mph — same engine and
+ * ratios, about 350 lb heavier. So a real FWD wagon should land around
+ * 9.7-10.5 s, and the simulation is right if it does.
+ *
+ * No skidpad or braking figure exists for any C3. The lateral target below is
+ * an estimate for a soft, nose-heavy estate on period 185/70 HR rubber.
+ */
+export const PERFORMANCE = {
+  zeroToSixtyManual: 9.9,
+  zeroToSixtyAuto: 11.7,
+  zeroToFiftyManual: 7.3,
+  topSpeedMph: 124,
+  topSpeedKmh: 200,
+  /** Estimate, not a measurement. */
+  skidpadGEstimate: 0.72,
+  /** Sanity check: 200 km/h needs ~83 kW at the wheels and the engine gives
+   *  ~86 kW at the rpm this gearing puts it at, so the claim is honest. */
+  rpmAt100Kmh: 2880,
 } as const;
 
 // ---------------------------------------------------------------------------
