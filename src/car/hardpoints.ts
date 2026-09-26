@@ -19,10 +19,18 @@
  *  All values metres. Symmetric parts give the RIGHT-hand (+X) value only;
  *  mirror for the left.
  *
- *  Front-end proportions were derived from the reference photograph: the
- *  grille-to-single-headlamp width ratio measures 1.41 : 1 there, which with a
- *  1.70 m front-face width fixes the grille at ~0.70 m and each lamp at
- *  ~0.50 m. See docs/REFERENCE-PHOTO.md.
+ *  Front-end proportions come from two photographs measured independently —
+ *  the owner's car scaled on its licence plate, and a 1985 US wagon with the
+ *  yaw solved from its square amber lens. They agree: the headlamp is
+ *  ~409 x 168 mm, an aspect of 2.4 : 1, and the grille-to-single-lamp width
+ *  ratio is 1.81 : 1.
+ *
+ *  An earlier reading of the owner's photograph gave 1.41 : 1 and a 3.6 : 1
+ *  lamp. Both were wrong: that measurement was taken on a foreshortened frame
+ *  without solving for yaw, and the brightness threshold used to find the lamp
+ *  kept capturing the bumper's bright top strip as part of it. The strip sits
+ *  at y 771-778 while the lamp aperture is 670-759 — separable, but only once
+ *  you know to look. See docs/REFERENCE-PHOTO.md and docs/CRITIQUE.md.
  * ============================================================================
  */
 
@@ -63,30 +71,30 @@ export const HP = {
   // -------------------------------------------------------------------------
   front: {
     /** Grille aperture. Spans ±grilleHalfW, so 0.700 m overall. */
-    grilleHalfW: 0.35,
+    grilleHalfW: 0.37,
     grilleTopY: 0.812,
-    grilleBottomY: 0.671,
-    grilleZ: 0.862,
+    grilleBottomY: 0.660,
+    grilleZ: 0.942,
     /** How far the slats sit behind the surrounding surface. */
     grilleRecess: 0.035,
     /** Seven bright slats, eight apertures — counted off 2048 px photography. */
     grilleSlats: 7,
 
     /** The four rings, centred in the grille. */
-    ringsCenter: [0, 0.7415, 0.872] as [number, number, number],
+    ringsCenter: [0, 0.7415, 0.952] as [number, number, number],
     /** Outer diameter of one ring, and the centre-to-centre spacing. */
-    ringDiameter: 0.093,
-    ringSpacing: 0.0715,
+    ringDiameter: 0.080,
+    ringSpacing: 0.0615,
     ringTubeRadius: 0.0055,
 
     /** Headlamp aperture, right-hand side. Inner edge meets the grille. */
-    lampInnerX: 0.35,
-    lampOuterX: 0.85,
+    lampInnerX: 0.37,
+    lampOuterX: 0.779,
     lampTopY: 0.820,
-    lampBottomY: 0.681,
-    lampZ: 0.858,
+    lampBottomY: 0.652,
+    lampZ: 0.952,
     /** The outboard portion of the lamp is the amber indicator. */
-    indicatorInnerX: 0.712,
+    indicatorInnerX: 0.688,
 
     /** Bumper: a deep, soft, body-coloured-grey moulding. */
     bumperTopY: 0.648,

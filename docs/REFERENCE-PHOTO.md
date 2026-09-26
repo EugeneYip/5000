@@ -60,8 +60,19 @@ film grain and the shallow angle.
 
 - **Roof rails fitted** — visible above the windscreen header. Confirms Avant.
 - Large aero door mirror in black.
-- Quad-style composite headlamps with the amber indicator at the outboard end.
-- Horizontal-slat grille, four rings centred in it.
+- One wide composite headlamp per side with the amber indicator at the
+  outboard end. **Measured at ~409 x 168 mm, an aspect of 2.4 : 1**, agreed
+  independently from this photograph (scaled on the plate) and from a 1985 US
+  wagon (yaw solved from its square amber lens).
+- Horizontal-slat grille, four rings centred in it. **Grille-to-single-lamp
+  width ratio 1.81 : 1.**
+
+  > An earlier reading of this photograph gave 1.41 : 1 and a 3.6 : 1 lamp, and
+  > that error propagated into the hardpoints as a 700/500 mm front-face split.
+  > Two mistakes caused it: the frame was measured without solving for yaw, and
+  > the brightness threshold used to locate the lamp kept swallowing the
+  > bumper's bright top strip. The strip sits at y 771-778 and the lamp aperture
+  > at y 670-759 — separable, but only once you know to look.
 - Dark grey textured bumper with a rub strip, amber marker in the bumper end.
 - A Pennsylvania inspection sticker at the top of the windscreen, passenger side.
 - Flush glazing — the glass sits almost level with the body side.

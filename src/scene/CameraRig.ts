@@ -76,18 +76,21 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
   dash:      { target: [-0.38, 1.03, -0.58], position: [-0.38, 1.25, -1.3], focalMm: 40, aperture: 2.8 },
 
   /**
-   * Reproduces the original photograph's viewpoint.
+   * Reproduces the original photograph's viewpoint: dead-on front, low, ~3.7 m.
    *
-   * Derived from the photograph rather than guessed: the car's flank recedes
-   * towards the image LEFT while the near headlamp sits at the image RIGHT,
-   * which puts the camera off the car's LEFT front quarter (-X), not its
-   * right. The grille is only mildly foreshortened, so the offset is about
-   * 19 degrees off axis. Plate width (305 mm spanning ~175 px of a 1448 px
-   * frame) puts the camera a little under 4 m out, and the horizon sits just
-   * above the bonnet, so the lens is at roughly chest height. 38 mm is typical
-   * of the period compact this was shot on.
+   * This pose has now been wrong twice. My first guess put the camera off the
+   * car's right; I then "derived" it onto the left quarter at 20 degrees from
+   * which side the flank appeared to recede. Both were wrong, and the test
+   * that settles it is simple: in the photograph the licence plate's centre
+   * (x 982.5) and the four rings' centre (x 979) are within 3 px of each
+   * other. Any yaw at all separates them. The camera is on the car's plane of
+   * symmetry, and the apparent flank is perspective from a close, wide-ish
+   * lens, not rotation.
+   *
+   * This pose is the project's only acceptance test — `sheet.py --compare`
+   * measures paint against the photograph through it — so it has to be right.
    */
-  photomatch:{ target: [0, 0.78, BODY.overhangFront - 0.38], position: [-1.35, 1.14, 4.4], focalMm: 38, aperture: 5.6 },
+  photomatch:{ target: [0, 0.76, BODY.overhangFront], position: [0, 1.12, BODY.overhangFront + 3.7], focalMm: 40, aperture: 5.6 },
 };
 
 /** Where a pose actually focuses: its own subject unless told otherwise. */
