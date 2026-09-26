@@ -65,3 +65,46 @@ film grain and the shallow angle.
 - Dark grey textured bumper with a rub strip, amber marker in the bumper end.
 - A Pennsylvania inspection sticker at the top of the windscreen, passenger side.
 - Flush glazing — the glass sits almost level with the body side.
+
+---
+
+# Blueprint silhouette — measured station heights
+
+Source: <https://getoutlines.com/blueprints/car/audi/audi-100-avant-1986.gif>
+(1986 Audi 100 C3 Avant orthographic side elevation, 542 × 172 px)
+
+Calibration, re-verified independently of the body stream:
+
+| | |
+|---|---|
+| Front axle | x = 426.0 px |
+| Rear axle | x = 126.5 px |
+| Ground line | y = 168.0 px |
+| Scale | **8.972 mm/px** |
+| Wheelbase check | 2687 mm vs published 2687 — exact |
+| Length check | 4791 mm vs published 4792 (Euro) — 0.02 % |
+
+The drawing is a true orthographic elevation, not a 3/4: the tyre circles are
+round to 1 %. Silhouette heights above ground, at vehicle stations measured
+from the front axle (nose is +z; on the drawing the nose is at the RIGHT):
+
+| Station | z (m) | Height (mm) |
+|---|---|---|
+| Bonnet leading edge | +0.78 | **843** |
+| Cowl / screen base | −0.37 | **1014** |
+| Windscreen header | −1.17 | **1364** |
+| Mid-roof (over rails) | −2.00 | 1462 |
+| D-pillar | −3.05 | **1283** |
+| Tail | −3.70 | **1148** |
+| Max ink (roof rails) | — | 1480 |
+
+These are the numbers the hardpoints were corrected against: `cowlY` 1.045 →
+1.014, `headerZ` −1.280 → −1.170, and the whole front-end height family
+(bonnet, grille top, lamp top, rings) dropped ~35 mm, which had it sitting
+above a bonnet line the drawing puts at ~820 mm at the grille plane.
+
+**Caution when re-measuring:** the drawing is low-resolution line art and its
+outline has gaps. A naive "topmost ink in this column" scan returns a detail
+line instead of the silhouette at some stations — a scan at z = +0.20 returns
+655 mm, which is below the bonnet's leading edge and therefore obviously
+wrong. Read several adjacent columns and sanity-check monotonicity.
