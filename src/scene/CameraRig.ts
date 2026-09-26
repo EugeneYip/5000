@@ -67,9 +67,19 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
   interior:  { target: [0.1, 0.95, -0.85], position: [-1.55, 1.18, -0.35], focalMm: 24 },
   dash:      { target: [-0.38, 1.02, -0.42], position: [-0.38, 1.12, -1.35], focalMm: 40, aperture: 2.8 },
 
-  // Reproduces the original photograph's viewpoint: low, close, front-on with
-  // a slight offset to the car's right, warm low sun from camera-left.
-  photomatch:{ target: [0.05, 0.75, BODY.overhangFront - 0.4], position: [-0.55, 1.12, 4.55], focalMm: 44, aperture: 5.6 },
+  /**
+   * Reproduces the original photograph's viewpoint.
+   *
+   * Derived from the photograph rather than guessed: the car's flank recedes
+   * towards the image LEFT while the near headlamp sits at the image RIGHT,
+   * which puts the camera off the car's LEFT front quarter (-X), not its
+   * right. The grille is only mildly foreshortened, so the offset is about
+   * 19 degrees off axis. Plate width (305 mm spanning ~175 px of a 1448 px
+   * frame) puts the camera a little under 4 m out, and the horizon sits just
+   * above the bonnet, so the lens is at roughly chest height. 38 mm is typical
+   * of the period compact this was shot on.
+   */
+  photomatch:{ target: [0, 0.78, BODY.overhangFront - 0.38], position: [-1.35, 1.14, 4.4], focalMm: 38, aperture: 5.6 },
 };
 
 /** Where a pose actually focuses: its own subject unless told otherwise. */
