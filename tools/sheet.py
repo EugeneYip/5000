@@ -134,46 +134,55 @@ def compare_to_photo(render_path: Path):
     # Paint readout from the render: sample the brightest large neutral region
     # in the lower-middle of the frame, which is where bodywork lands in the
     # photomatch pose.
-    # Find the paint rather than assuming where it is.
+    # Find the paint rather than assuming where it is — but only ON THE CAR.
     #
-    # This used to be a fixed patch, and it broke every time the photomatch
-    # pose moved — reading the grille and reporting a meaningless 112 while the
-    # paint was actually within 6 of target. So: search for the patch that most
-    # looks like the surface the target was measured from, which is a
-    # near-neutral mid-value body panel. Saturation is the discriminator; the
-    # photograph's fender sits at 0.096, while the sky-mirroring bonnet is 0.31
-    # and the grille and bumper are far darker.
+    # This gate has now failed twice in opposite directions. First it sampled a
+    # fixed patch and read the grille, reporting 112 while the paint was within
+    # 6. Then it searched for a near-neutral mid-value patch and happily found
+    # EMPTY ROAD HAZE 250 px from the car, reporting "3.9, PASS" while shaded
+    # body panels were two stops too dark. A gate that can pass on background
+    # is worse than no gate: it actively hid that defect for two review rounds.
+    #
+    # So the search is now masked to the car. The background in every view is a
+    # smooth horizontal gradient — sky above, road below — so a pixel that
+    # differs markedly from its own row's median is car, and one that doesn't
+    # is not. A candidate patch must be almost entirely inside that mask.
     a = np.array(ren.convert("RGB")).astype(float)
     hgt, wid = a.shape[:2]
     tgt = np.array(PAINT_TARGET, dtype=float)
+
+    row_bg = np.median(a, axis=1, keepdims=True)
+    car_mask = np.abs(a - row_bg).mean(axis=2) > 12.0
 
     candidates = []
     for fy in np.arange(0.28, 0.72, 0.02):
         for fx in np.arange(0.10, 0.92, 0.02):
             y0, y1 = int(hgt * fy), int(hgt * (fy + 0.05))
             x0, x1 = int(wid * fx), int(wid * (fx + 0.03))
+            if car_mask[y0:y1, x0:x1].mean() < 0.92:
+                continue
             block = a[y0:y1, x0:x1].reshape(-1, 3)
             if block.size == 0:
                 continue
             m = np.median(block, axis=0)
             hi, lo = m.max(), m.min()
             sat = (hi - lo) / max(hi, 1.0)
-            # Body paint under this light: near-neutral, and neither the dark
-            # cladding nor a blown highlight.
-            if sat < 0.13 and 90.0 < hi < 200.0:
+            if sat < 0.13 and 40.0 < hi < 210.0:
                 candidates.append((float(np.sqrt(((m - tgt) ** 2).sum())), m, sat, fx, fy))
 
     if candidates:
         candidates.sort(key=lambda c: c[0])
         dist, med, sat, fx, fy = candidates[0]
-        where = f"x {fx:.2f} y {fy:.2f}, sat {sat:.3f}"
+        where = f"on car at x {fx:.2f} y {fy:.2f}, sat {sat:.3f}"
     else:
-        # Nothing on screen looks like paint at all — report that honestly
-        # rather than quietly measuring whatever is in the middle.
-        patch = a[int(hgt * 0.45):int(hgt * 0.65), int(wid * 0.40):int(wid * 0.60)].reshape(-1, 3)
-        med = np.median(patch, axis=0)
-        dist = float(np.sqrt(((med - tgt) ** 2).sum()))
-        where = "NO PAINT FOUND — centre patch"
+        med = np.array([0.0, 0.0, 0.0])
+        dist = float("nan")
+        where = "NO PAINT FOUND ON THE CAR — gate did not run"
+
+    # Brightness of the car overall, which is the thing a single patch hides.
+    car_px = a[car_mask]
+    car_median = float(np.median(car_px)) if car_px.size else float("nan")
+    crushed = float((car_px.mean(axis=1) < 40).mean() * 100) if car_px.size else float("nan")
 
     note = (
         f"paint target (white-balanced fender)  #{PAINT_TARGET[0]:02x}{PAINT_TARGET[1]:02x}{PAINT_TARGET[2]:02x}"
@@ -192,7 +201,9 @@ def compare_to_photo(render_path: Path):
     out_path = render_path.parent / f"_compare_{render_path.stem}.png"
     out.save(out_path)
     print(f"✓ {out_path}")
-    print(f"  paint distance from photograph target: {dist:.1f} (aim < 18)")
+    print(f"  paint distance from photograph target: {dist:.1f} (aim < 18)  [{where}]")
+    print(f"  car median level {car_median:.0f} (photograph 131)   "
+          f"pixels below 40: {crushed:.1f}% (photograph 3.2%)")
     return out_path
 
 
