@@ -282,11 +282,12 @@ export const HP = {
     rubStripY: 0.613,
 
     /** In the TAILGATE, set into the ribbed panel between the lamps. */
-    plateCenter: [0, 0.7905, TAIL + 0.028] as [number, number, number],
+    /** Centred in the tailgate aperture, which is what actually locates it. */
+    plateCenter: [0, 0.796, TAIL + 0.028] as [number, number, number],
 
     /** Badges on the tailgate. */
     /**
-     * Everything here must stay inboard of `lampInnerX` (0.238) — outboard of
+     * Everything here must stay inboard of `lampInnerX` — outboard of
      * that is taillamp aperture, not sheet metal. Rings sit just right of
      * centre with the model text to their left.
      */

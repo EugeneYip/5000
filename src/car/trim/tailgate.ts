@@ -99,7 +99,7 @@ const RIB_OUT = 0.0065;
 const RIB_BACK = 0.002;
 const RIB_PITCH = 0.026;
 /**
- * Where the backing slab's face sits, 1 mm behind the ribs' back plane.
+ * Where the backing slab's face sits, 2 mm behind the ribs' back plane.
  *
  * It cannot simply sit on the datum. `roundedBox` triangulates its flat face
  * from the outline alone — there are no interior vertices — so `conform` can
@@ -108,8 +108,13 @@ const RIB_PITCH = 0.026;
  * and a slab placed on the datum would surface 2 mm in FRONT of the very rib it
  * is supposed to back. Referencing it to the ribs keeps it behind them
  * everywhere, which is the only thing this slab has to do.
+ *
+ * 2 mm rather than 1 because each rib is laid on `rearFaceZ` at its own row's
+ * centre while the slab is conformed per vertex: over a 26 mm cell the two
+ * disagree by up to a millimetre, and 1 mm of nominal clearance measured out
+ * at 0.1 in the worst cell.
  */
-const FLOOR = PANEL_RECESS + RIB_BACK + 0.001;
+const FLOOR = PANEL_RECESS + RIB_BACK + 0.002;
 /** Plate mounting face, in from the skin — on pads, clear of the rib crests. */
 const PLATE_SET = 0.007;
 

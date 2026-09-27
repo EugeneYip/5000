@@ -298,7 +298,14 @@ export function buildBody(ctx: BuildContext): PartResult {
   // bottom shutline and the foot of the taillamp aperture.
   const lampBaseR = facePatch({
     yLo: HP.rear.tailgateBottomY, yHi: HP.rear.lampBottomY,
-    xLo: () => HP.rear.lampInnerX, xHi: rearHalfWidth,
+    // Start where the TAILGATE's face actually ends, not at a constant. Below
+    // the aperture the tailgate silhouette narrows inside `lampInnerX`, so a
+    // fixed inboard edge left a 16 x 4 mm hole per side at the shutline that
+    // you could see the rear seat through. The lamp base is fixed structure
+    // and the tailgate swings past it, so tucking it inboard is also what is
+    // behind a tailgate on the real car.
+    xLo: (y) => Math.min(HP.rear.lampInnerX, tailgateHalfWidth(y) - QUALITY.panelGap),
+    xHi: rearHalfWidth,
     zAt: rearFaceZ, facing: -1,
     bottom: BUTT, top: OPEN, inner: SHUT, outer: BUTT,
     ny: 4,

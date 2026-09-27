@@ -145,5 +145,14 @@ export function mirrorGeometry(src: THREE.BufferGeometry): THREE.BufferGeometry 
     idx.setX(i + 2, a);
   }
   idx.needsUpdate = true;
+
+  // `clone()` copies the source's bounding volumes, and mutating positions in
+  // place does not invalidate them — so every mirrored panel was carrying a
+  // bounding sphere still centred on the +x side, out by up to 1.6 m. The left
+  // wing, quarter, rockers and all four left pillars raycast as ABSENT and were
+  // frustum-culled against the wrong volume, so a close left-side or left
+  // three-quarter pose could pop the entire left flank.
+  g.boundingBox = null;
+  g.boundingSphere = null;
   return g;
 }
