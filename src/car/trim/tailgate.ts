@@ -23,7 +23,7 @@
  * those hardpoints does not agree with the photograph — see the stream report.
  *
  * The moulding is now genuinely recessed: the body stream has cut the aperture
- * this panel drops into. See `APERTURE` and `PANEL_RECESS` below.
+ * this panel drops into. See `APERTURE` and the depth constants below.
  */
 
 import * as THREE from 'three';
@@ -72,8 +72,15 @@ const HALF_H = Math.max((APERTURE.hiY - APERTURE.loY) / 2 + 0.012, PLATE.heightM
 /**
  * Depths, all measured IN from the painted skin — at the tail, +z is into the
  * car. The moulding is recessed, which is what the real one does and what the
- * aperture now allows: floor 18 mm in, rib crests 11.5 mm in, the plate on
- * pads 7 mm in so its embossed characters still clear the skin by 1.5 mm.
+ * aperture now allows: rib crests 11.5 mm in, the dark band between them 20 mm
+ * in, the slab that closes the hole behind that, and the plate on pads 7 mm in
+ * so its embossed characters still clear the skin by 1.5 mm. Raycast against
+ * the built scene: crest 12.4, plate field 5.0, characters 1.5.
+ *
+ * The rib field out-covers the aperture on its own (±173.5 mm against the
+ * hole's ±165; y 0.6665…0.9265 against 0.672…0.920), so it is the RIBS the eye
+ * reads as the floor of the recess. The slab behind them is a backstop for
+ * oblique angles, and is never seen head-on.
  *
  * Before the aperture existed this panel was applied *on top of* a solid
  * tailgate, and these numbers were the other way round — a pocket cut relative
@@ -83,9 +90,26 @@ const HALF_H = Math.max((APERTURE.hiY - APERTURE.loY) / 2 + 0.012, PLATE.heightM
 const PANEL_RECESS = 0.018;
 /** Thickness of the slab that closes the aperture behind the ribs. */
 const PANEL_THICK = 0.009;
-/** How far a rib stands out of the panel floor, and the pitch between ribs. */
+/** How far a rib stands out of the recess datum, and the pitch between ribs. */
 const RIB_OUT = 0.0065;
+/**
+ * How far a rib's own back plane sits behind the datum. This is the shadowed
+ * band between crests — the surface that reads as the bottom of the relief.
+ */
+const RIB_BACK = 0.002;
 const RIB_PITCH = 0.026;
+/**
+ * Where the backing slab's face sits, 1 mm behind the ribs' back plane.
+ *
+ * It cannot simply sit on the datum. `roundedBox` triangulates its flat face
+ * from the outline alone — there are no interior vertices — so `conform` can
+ * only move that face's perimeter, and the middle of it ends up a chord across
+ * a curved surface, bowing ~6 mm deeper. At the perimeter the bow goes to zero,
+ * and a slab placed on the datum would surface 2 mm in FRONT of the very rib it
+ * is supposed to back. Referencing it to the ribs keeps it behind them
+ * everywhere, which is the only thing this slab has to do.
+ */
+const FLOOR = PANEL_RECESS + RIB_BACK + 0.001;
 /** Plate mounting face, in from the skin — on pads, clear of the rib crests. */
 const PLATE_SET = 0.007;
 
@@ -119,15 +143,16 @@ export function rearPlateMount(): { centre: [number, number, number]; tiltDeg: n
  */
 function ribGeometry(halfW: number): THREE.BufferGeometry {
   const h = RIB_PITCH / 2;
-  // (out from the panel floor, y about the cell centre). The back sits 2 mm
-  // *inside* the floor so the two surfaces never co-plane and z-fight.
+  // (out from the recess datum, y about the cell centre). The back sits
+  // `RIB_BACK` *inside* the datum, and the slab is referenced to that rather
+  // than to the datum, so the two can never co-plane and z-fight.
   const section: Pt[] = [
-    [-0.002, -h],
-    [-0.002, -h + 0.0110],
+    [-RIB_BACK, -h],
+    [-RIB_BACK, -h + 0.0110],
     [RIB_OUT * 0.94, -h + 0.0122],
     [RIB_OUT, -h + 0.0175],
     [RIB_OUT * 0.35, -h + 0.0245],
-    [-0.002, h],
+    [-RIB_BACK, h],
   ];
   const frames: Frame[] = [];
   for (let i = 0; i <= 3; i++) {
@@ -156,21 +181,21 @@ export function buildTailgatePanel(ctx: BuildContext): TailgatePanelResult {
   const dark = ctx.materials.blackTrim();
 
   // --- the moulding itself -------------------------------------------------
-  // The floor of the recess: a soft-edged slab sitting `PANEL_RECESS` behind
-  // the skin and lapping the aperture on all four sides, so the hole closes on
-  // the moulding rather than on daylight. Conformed vertex by vertex, because
-  // the rear surface creases near this station.
+  // The back of the recess: a soft-edged slab sitting `FLOOR` behind the skin
+  // and lapping the aperture on all four sides, so the hole closes on the
+  // moulding rather than on daylight. Conformed vertex by vertex, because the
+  // rear surface creases near this station — though only its perimeter has
+  // vertices to conform, which is why `FLOOR` is referenced to the ribs.
   //
   // `roundedBox` adds its bevel outside the extrusion, so the solid it returns
-  // is NOT centred in depth — it runs [−(d/2 + r), d/2 − r]. Placing it from
-  // its own bounds rather than assuming is the difference between a floor at
-  // 18 mm and a floor at 14; the previous code assumed, which is why the ribs
-  // read as a flat black slab: they stood 6.5 mm out of a floor buried 4 mm
-  // inside the face they were supposed to stand on.
+  // is NOT centred in depth — it runs [−(d/2 + r), d/2 − r], and its frontmost
+  // plane is the flat face, inset by r, with the full-size rim r behind it.
+  // Placing it from its own bounds rather than assuming is the difference
+  // between a slab that backs the ribs and one buried 4 mm further in.
   const slab = roundedBox(HALF_W * 2, HALF_H * 2, PANEL_THICK, 0.004, 3);
   slab.computeBoundingBox();
   const front = slab.boundingBox!.min.z;
-  slab.translate(0, CENTER_Y, PANEL_RECESS - front);
+  slab.translate(0, CENTER_Y, FLOOR - front);
   conform(slab);
   group.add(mesh('tailgateRibPanel', slab, dark));
 
@@ -201,7 +226,7 @@ export function buildTailgatePanel(ctx: BuildContext): TailgatePanelResult {
   // Four small bosses under the plate's bolt holes, so the plate stands off the
   // ribs on something rather than floating over them.
   const pads: THREE.BufferGeometry[] = [];
-  const padH = PANEL_RECESS - PLATE_SET;
+  const padH = FLOOR - PLATE_SET;
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
       const y = CENTER_Y + sy * PLATE.heightM * 0.395;

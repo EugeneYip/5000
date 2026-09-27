@@ -30,8 +30,8 @@
  *
  * | | y | z | half-width |
  * |---|---|---|---|
- * | top edge, centre | 1.284 | −3.190 | 0.619 |
- * | roll-over, centre | 1.138 | −3.700 | 0.761 |
+ * | top edge, centre | 1.284 | −3.190 | 0.622 |
+ * | roll-over, centre | 1.138 | −3.700 | 0.712 |
  * | bottom edge | 1.010 | −3.759 | 0.712 |
  *
  * 274 mm of rise in 569 mm of run overall, but the *lower* 128 mm of it stands
@@ -43,7 +43,7 @@
  * `HP.rear.badgeY`. The body's `tgFaceUpper` rail now runs 0.920 → 1.010, so
  * the band is 90 mm and the scripts sit on sheet metal.
  *
- * The width is `HP.glass.tailgateGlassHalfW` — see `X_BOTTOM`.
+ * The width is `HP.glass.tailgateGlassHalfW` — see `HALF_W`.
  *
  * `HP.glass.tailgateGlassTopY` (1.285) is the top of the aperture the body
  * leaves, which is what is built: the tailgate's hinge line is
@@ -54,7 +54,7 @@
 import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import { surfacePoint, halfWidthAt, Z_TAIL_END } from '@/car/body/surface';
-import { rearFaceZ, rearHalfWidth, tTailgate } from '@/car/body/panels';
+import { rearFaceZ, tTailgate } from '@/car/body/panels';
 import { Z, tailgateEdgeT } from './aperture';
 import { clamp, lerp, type Sample } from './geom';
 import type { Patch } from './pane';
@@ -65,24 +65,63 @@ export const TG_TOP_Z = Z.tgGlassTop - 0.004;
 export const TG_BOTTOM_Y = HP.glass.tailgateGlassBottomY;
 
 /**
- * Painted margin between the glass and the tailgate's outer edge, on the rear
- * face. The body's own side frame above the roll-over is 82 mm, so matching it
- * keeps the reveal an even width all the way round.
+ * Widest half-width of the aperture: `HP.glass.tailgateGlassHalfW`, 0.712.
  *
- * This lands the glass half-width at 0.745 rather than
- * `HP.glass.tailgateGlassHalfW` (0.712). The hardpoint is the narrower of the
- * two because the body's tail section is wider at this height than the
- * photograph's — see the report; 0.712 would leave a 118 mm painted reveal,
- * which reads as a frame the real car does not have.
+ * This was built at 0.745 by taking a fixed 85 mm painted margin off the tail's
+ * own half-width at the sill, on the reasoning that either the hardpoint was
+ * 33 mm narrow or the tail was too wide. It was the tail. Measured in ratios
+ * between features in the same plane of the rear photograph — backlight
+ * aperture against a taillamp band whose ends coincide with the body silhouette
+ * — the true half-width is 0.710–0.717, and the body has since narrowed the
+ * tail to match. The two no longer fight: `rearHalfWidth(1.010)` is 0.789, so
+ * the hardpoint leaves a 77 mm painted reveal at the sill against the 82 mm
+ * frame the body carries above the roll-over. Deriving the margin is therefore
+ * pointless as well as fragile — the hardpoint *is* the margin, and it is the
+ * number the photograph was measured for.
  */
-const FACE_MARGIN = 0.085;
+const HALF_W: number = HP.glass.tailgateGlassHalfW;
+
+/** Blend either side of `HALF_W` over which the cap below takes effect. */
+const CAP_SOFT = 0.030;
+
+/**
+ * `x`, held at or below `HALF_W`, with a tangent-continuous knee.
+ *
+ * A plain `Math.min` puts a 35° kink in the aperture's edge where it engages,
+ * and the bond seal and the frit band both run along that edge. The quadratic
+ * arrives at `HALF_W` with zero slope, which is what the backlight's rounded
+ * lower corner is.
+ */
+function capped(x: number): number {
+  if (x <= HALF_W - CAP_SOFT) return x;
+  if (x >= HALF_W + CAP_SOFT) return HALF_W;
+  const u = (x - HALF_W + CAP_SOFT) / (2 * CAP_SOFT);
+  return HALF_W - CAP_SOFT + 2 * CAP_SOFT * (u - 0.5 * u * u);
+}
 
 const _p = new THREE.Vector3();
 
-/** Half-width of the glass where it crosses the roll-over. */
+/**
+ * Half-width of the pane at loft station `z`.
+ *
+ * Down the D-pillars this is the aperture the body leaves — 74 mm of arc
+ * inboard of the tailgate's side shutline, so the glass laps 8 mm under the
+ * 82 mm side frame. Near the tail end that inset stops meaning anything:
+ * `tTailgate` has dived to the beltline by z −3.606, so 74 mm of arc taken from
+ * it climbs back up over the shoulder and lands at x 0.760, wider than the sill
+ * and within a millimetre of the body's own silhouette — a backlight with no
+ * painted frame at all at the height where the photograph shows the most. The
+ * aperture's widest point is its bottom corners, so the cap holds it there.
+ *
+ * The body's tailgate frame is still a constant 82 mm of arc off the same
+ * shutline, so aft of z ≈ −3.40 it stops short of this edge — up to 61 mm on
+ * the ramp, and 77 mm on the rear face above y 1.010, where `tgFaceUpper` ends
+ * on a straight line at full width. That wedge is reported, not papered over:
+ * widening the pane to cover it is what put the bulge there in the first place.
+ */
 function apertureHalfX(z: number): number {
   surfacePoint(z, tailgateEdgeT(z), _p);
-  return _p.x;
+  return capped(_p.x);
 }
 
 /** Section parameter at which the loft station `z` is `x` metres wide. */
@@ -98,7 +137,7 @@ function tAtX(z: number, x: number): number {
 }
 
 const X_END = apertureHalfX(Z_TAIL_END);
-const X_BOTTOM = Math.max(rearHalfWidth(TG_BOTTOM_Y) - FACE_MARGIN, 0.3);
+const X_BOTTOM = HALF_W;
 
 /** Height of the loft's last section at half-width `x`. */
 function rollOverY(x: number): number {

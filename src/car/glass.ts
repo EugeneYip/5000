@@ -19,9 +19,10 @@
  *     element lines and busbars, travelling with `tailgatePanel`. It is the one
  *     pane that is not a rectangle of the body's (z, t) loft: see
  *     `glass/tailgate.ts`;
- *   · the surround: a slim black roof-joint moulding in place of the drip rail
- *     the C3 deleted, blacked-out B- and C-pillars so the daylight opening
- *     reads as one dark band, and a belt moulding along the door tops.
+ *   · the surround: a blackout under the roof joint — the bead that sits *on*
+ *     the joint has a section and is the trim stream's, see `buildGlass` —
+ *     blacked-out B- and C-pillars so the daylight opening reads as one dark
+ *     band, and a belt moulding along the door tops.
  *
  * Nothing here is chrome. Chunky bright window frames are a different car.
  */
@@ -184,16 +185,34 @@ export function buildGlass(ctx: BuildContext): PartResult {
     })), 12, 10, edgeRoll(0.16, -0.0010, 0.0018));
 
     // --- the surround ------------------------------------------------------
-    // Roof-joint moulding: the C3 deleted the drip rail, and this slim black
-    // finisher is what replaced it. One constant width from the A-pillar to the
-    // D-pillar — it no longer has a step to swallow, see `mouldBotT`.
+    // Roof joint: a blackout, not an applique.
+    //
+    // The joint is a pressed feature — the roof skin's face stops short of
+    // `tRoofOuter`, rolls through a radius and returns a flange, and the pillar
+    // panels start again at `tRoofOuter` tangent-continuous — so there is a
+    // convex radius carrying a highlight along the whole greenhouse. A flat
+    // band standing 1.1 mm proud of that radius, which is what used to be here,
+    // can only z-fight it or float over it. The part that belongs on a convex
+    // radius is one with a section, and the trim stream sweeps it:
+    // `roofMoulding`, 22 mm across and 4.4 mm proud, straddling the joint.
+    //
+    // What is left here is the band *underneath* — a hair inside the skin the
+    // whole way, so it can never fight anything, keeping the joint dark through
+    // the stretch of the roll where the roof's face has curled away and the
+    // pillar panel has not yet begun, and covering the side glass's top edge
+    // where it laps under. It ends where the joint does: the bead and the
+    // body's continuous DLO top line both run −0.700 → `Z.tgHinge`. This ran on
+    // to −3.400, 292 mm past the hinge and onto the tailgate, where `tRoofOuter`
+    // is no longer a joint at all — `tTailgate` has left it and is raking down
+    // across the D-pillar, so the band was laid proud across the middle of the
+    // tailgate's own side frame.
     fixed.trim.push(buildApplique(loftPatch(wrap((a, b) => {
-      const z = lerp(PILLAR_SLIM_Z, DLO.rearZ + 0.02, a);
+      const z = lerp(PILLAR_SLIM_Z, Z.tgHinge, a);
       return {
         z,
         t: lerp(mouldTopT(z), mouldBotT(z), b),
       };
-    })), 110, 7, (_a, b) => (b < 0.10 ? -0.0005 : b > 0.74 ? lerp(-0.0011, 0.0014, (b - 0.74) / 0.26) : -0.0011)));
+    })), 96, 7, edgeRoll(0.06, 0.0009, 0.0016)));
 
     // Blacked-out B and C pillars, so the greenhouse reads as one band.
     for (const p of [B_PILLAR, C_PILLAR]) {
