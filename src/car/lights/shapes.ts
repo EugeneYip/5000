@@ -351,6 +351,20 @@ export interface FrameOpts {
   ns?: number;
   /** Close the strip back onto itself so it reads as solid from behind. */
   closed?: boolean;
+  /**
+   * Scale the whole section, 0..1, as a function of position round the
+   * perimeter (0 at the inboard-bottom corner, 0.25 outboard-bottom, 0.5
+   * outboard-top, 0.75 inboard-top — see `perimeter`).
+   *
+   * A bezel is not always a closed ring. On the C3's headlamp the brightwork
+   * is a strip above the glass and a strip below it and nothing at the
+   * outboard end, where the amber lens runs straight out to the body corner;
+   * framing the cluster all the way round is what makes a nose read as
+   * jewellery instead of as a car. At 0 the section collapses onto the
+   * outline at skin depth, so the ring stays one closed strip with no free
+   * edge to catch light — it simply has no width there.
+   */
+  fade?: (t: number) => number;
 }
 
 /** Walk the (u, v) rectangle's perimeter once. */
@@ -390,9 +404,18 @@ export function frame(o: FrameOpts): THREE.BufferGeometry {
       spanAt(b.outline, pv, s);
       const bx = s.xLo + (s.xHi - s.xLo) * pu;
       const by = s.y;
-      const x = ax + (bx - ax) * k;
-      const y = ay + (by - ay) * k;
-      out.set(x, y, o.zAt(x, y) - o.facing * (a.depth + (b.depth - a.depth) * k));
+      let x = ax + (bx - ax) * k;
+      let y = ay + (by - ay) * k;
+      let depth = a.depth + (b.depth - a.depth) * k;
+      const w = o.fade ? Math.min(Math.max(o.fade(u), 0), 1) : 1;
+      if (w < 1) {
+        spanAt(o.outline, pv, s);
+        const ox = s.xLo + (s.xHi - s.xLo) * pu;
+        x = ox + (x - ox) * w;
+        y = s.y + (y - s.y) * w;
+        depth *= w;
+      }
+      out.set(x, y, o.zAt(x, y) - o.facing * depth);
     },
   });
 }

@@ -300,12 +300,22 @@ function rootOf(o: THREE.Object3D): THREE.Object3D {
  * assembled, which is right for bodywork and wrong for lamp internals: a lens
  * casting a shadow would black out the beam behind it, and a 3 mm filament in
  * a shadow map buys nothing at any distance.
+ *
+ * That has to be said as `userData.noShadow`, not as `castShadow = false`.
+ * This runs during the part build and `Car.build`'s pass runs after it, and
+ * that pass reads `noShadow` and ignores the flag — so for as long as this
+ * function set only the flag, it achieved nothing at all. In daylight the
+ * headlamp lens, a clear 409 × 168 mm plate 13 mm in front of its own bowl,
+ * was writing itself into the sun's shadow map and shading the reflector it
+ * is supposed to let the sun into. Measured against the licence plate, the
+ * lamp read 0.947 of it where the photograph reads 1.002.
  */
 function tidy(group: THREE.Object3D): void {
   group.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     m.castShadow = false;
+    m.userData.noShadow = true;
     if (/Glow|Lens|lens/.test(m.name)) m.receiveShadow = false;
   });
 }

@@ -112,13 +112,28 @@ def car_mask_for(render_path: Path, shape):
     if mp.exists():
         mk = np.array(Image.open(mp).convert("RGB").resize((shape[1], shape[0]))).astype(float)
         r, g, b = mk[..., 0], mk[..., 1], mk[..., 2]
-        # The silhouette is drawn in magenta and then goes through the grade
-        # and the bloom like everything else, so test the hue rather than the
-        # value. Nothing else in the scene has both R and B well above G.
-        m = (r > g * 1.25) & (b > g * 1.25) & ((r + b) * 0.5 > 60)
+        # The silhouette is drawn in magenta and still goes through the
+        # grade, so test the hue rather than the value. ACES cannot turn
+        # magenta white — its input matrix gives the green channel only
+        # 0.076 R + 0.134 B — and nothing else in the scene has both R and B
+        # well above G. Bloom could: it takes everything over its threshold,
+        # blurs it and adds it back, so a bright sky spilling white over the
+        # car lifts green until the test fails. It did exactly that once, and
+        # the gate then dropped the headlamps from the mask and reported
+        # "above 224 = 0.0 %" on a frame whose lamps measured 233. The chain
+        # now stands bloom and defocus down for this frame
+        # (`PostChain.setMaskMode`), so the margin here can be generous.
+        m = (r > g * 1.15) & (b > g * 1.15) & ((r + b) * 0.5 > 40)
         # Shed the two pixels of bloom spill and defocus around the edge.
         m = np.array(Image.fromarray((m * 255).astype(np.uint8))
                      .filter(ImageFilter.MinFilter(5))) > 127
+        # A mask that silently selects nothing, or the whole frame, is how the
+        # rule this replaced went wrong for several rounds without anyone
+        # noticing. The car is 16-18 % of the frame at every standard pose.
+        frac = 100 * m.mean()
+        if not 3.0 < frac < 40.0:
+            print(f"  !! car mask is {frac:.1f}% of the frame — that is not a car. "
+                  f"Check {mp.name}; every figure below is meaningless.", file=sys.stderr)
         return m, True
     return None, False
 

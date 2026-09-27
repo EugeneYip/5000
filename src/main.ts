@@ -191,6 +191,7 @@ async function main(): Promise<void> {
     setMaskMode(on) {
       if (on === maskActive) return;
       maskActive = on;
+      post.setMaskMode(on);
       car.root.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;

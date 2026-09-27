@@ -42,24 +42,79 @@ const FACING = 1 as const;
 
 /** Rubber seal between the lamp and the wing pressing. */
 const SEAL = 0.006;
-/** Bezel width across its visible face. */
-const BEZEL = 0.013;
+/**
+ * Bezel width across its visible face.
+ *
+ * 13 mm ate 26 mm off a 168 mm aperture — 15 % of the glass, and the glass is
+ * the brightest element on the car. In the reference frame the bright strips
+ * above and below the lamp are thin and the glass fills nearly the whole hole.
+ */
+const BEZEL = 0.009;
 /** Acrylic body thickness. Matches the lens shader's own optical thickness. */
 const LENS_BODY = 0.0042;
 
-/** The aperture the body pressing leaves for the lamp. */
+/**
+ * The aperture the body pressing leaves for the lamp.
+ *
+ * **It runs to the body's own silhouette, not to `HP.front.lampOuterX`.** The
+ * hardpoint's 779 mm is where the *clear* lamp ends; measured on the reference
+ * photograph the amber corner lens butts straight onto the headlamp glass and
+ * carries on to the body edge at ~850 mm, wrapping round onto the wing face.
+ * The 71 mm between the two is indicator, not paint. `src/car/body.ts` now
+ * carries a `lampSideR` panel across that band — it is the sheet metal behind
+ * the indicator, which is right — and this outline is what covers it. Clamped
+ * to the hardpoint instead, that panel renders as a bright painted strip
+ * outboard of the lamp that the real car does not have.
+ */
 const aperture: Outline = {
   yLo: F.lampBottomY,
   yHi: F.lampTopY,
   xInner: () => F.lampInnerX,
-  xOuter: (y) => Math.min(F.lampOuterX, noseHalfWidth(y) - 0.004),
+  xOuter: (y) => Math.max(noseHalfWidth(y) - 0.004, F.lampOuterX),
   radiusInner: 0.010,
   radiusOuter: 0.028,
 };
 
-const lensOutline = inset(aperture, SEAL + BEZEL);
+/**
+ * The glass: inset by the seal and the bezel where there IS a bezel — top,
+ * bottom and inboard — and by the seal alone at the outboard end, because
+ * there is no bezel there.
+ *
+ * Inset uniformly, the amber stopped 19 mm short of the body corner and what
+ * showed in the gap was the housing's own wall. That reads as a bright
+ * vertical bar closing the cluster off, which is the single thing that most
+ * makes the nose look like jewellery rather than like the car.
+ */
+const lensOutline: Outline = {
+  yLo: aperture.yLo + SEAL + BEZEL,
+  yHi: aperture.yHi - SEAL - BEZEL,
+  xInner: (y) => aperture.xInner(y) + SEAL + BEZEL,
+  xOuter: (y) => aperture.xOuter(y) - SEAL,
+  radiusInner: Math.max((aperture.radiusInner ?? 0) - SEAL - BEZEL, 0),
+  radiusOuter: Math.max((aperture.radiusOuter ?? 0) - SEAL, 0),
+};
 const AMBER_SPLIT = F.indicatorInnerX;
-const DIVIDER = 0.0045;
+/**
+ * Half-width of the moulded wall between chambers.
+ *
+ * 4.5 mm read as a dark trench across the glass. The photograph's lamp is a
+ * near-featureless sheet: the divisions are there, but as hairlines.
+ */
+const DIVIDER = 0.0026;
+
+/**
+ * How much bigger the reflector's own paraboloid is than the slot it is seen
+ * through. Mostly vertical: the aperture is a letterbox and the optic is not.
+ *
+ * These are also what keeps the glass reading as ONE sheet. A paraboloid sized
+ * to the slot puts its steep rim at the slot's edge and its vertex in the
+ * middle, which is exactly the two-lobe, X-seamed look the reference frame
+ * does not have; cropping the flat middle of a much larger optic does not.
+ * `OPTIC_W` is bounded at ~1.34 by `f < depth` — beyond that the H4's envelope
+ * comes out through the lens.
+ */
+const OPTIC_W = 1.3;
+const OPTIC_H = 2.4;
 
 /** Vertical division between the two clear chambers. */
 const CHAMBER_SPLIT = (lensOutline.xInner(0.78) + (AMBER_SPLIT - DIVIDER)) / 2;
@@ -81,7 +136,13 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   const black = ctx.materials.blackTrim();
   const rubber = ctx.materials.rubber({ roughness: 0.95 });
   const reflectorMat = ctx.materials.reflector();
-  const clearLens = ctx.materials.lens(0xf4f7fc, { prismatic: true });
+  // **Water-clear.** The 0xf4f7fc it used to be is a 7 % tint, and the lens
+  // shader charges for it twice — once in its own Beer–Lambert term and again
+  // in the transmission volume's attenuation — over a path the prism valleys
+  // lengthen by half as much again. That is 12-15 % off the brightest element
+  // on the car, to model a tint moulded acrylic does not have. The faint green
+  // people see in a headlamp lens is soda-lime *glass*, and this one is PMMA.
+  const clearLens = ctx.materials.lens(0xffffff, { prismatic: true });
   const amberLens = ctx.materials.lens(LIGHTS.indicatorColor, { prismatic: true });
   // A bulb envelope has to be OPAQUE. Three renders transmissive surfaces
   // against the opaque back buffer, so anything transparent inside the lens is
@@ -105,6 +166,16 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
       [BEZEL, 0.004],
       [BEZEL + 0.002, 0.014],
     ],
+    // No bright leg at the outboard end. `perimeter` puts the outboard edge at
+    // t 0.25-0.5; it fades out over the bottom-outboard corner and back in
+    // over the top-outboard one, so the strip above the glass and the strip
+    // below it each run out to the corner radius and stop, which is what the
+    // photograph shows. The amber simply meets the body edge.
+    fade: (t) => {
+      const a = 1 - smoothBand(t, 0.205, 0.255);
+      const b = smoothBand(t, 0.495, 0.545);
+      return Math.min(a + b, 1);
+    },
   });
   const sealGeo = frame({
     outline: aperture,
@@ -151,22 +222,40 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
     const RIM_DEPTH = 0.0135;
     const rimZ = FACE(box.cx, box.cy) - RIM_DEPTH;
     const depth = 0.052;
-    const halfW = box.halfW - 0.002;
+    // The optic is BIGGER than the hole you see it through, and much bigger
+    // vertically: the reflector shell is a shape of revolution flanged out
+    // behind the seal, and the aperture is a 130 mm letterbox cut across it.
+    // Sizing the paraboloid to the slot instead made the slot's own edge the
+    // rim, where the surface is steepest — so the top of the bowl mirrored the
+    // road and the bottom mirrored the sky's edge, and the lamp rendered 198
+    // at its top and 184 at its bottom against 230 through the middle. The
+    // photograph is flat at 228-244 corner to corner. Cropping a larger, much
+    // flatter paraboloid is what produces that.
+    const halfW = (box.halfW - 0.0006) * OPTIC_W;
+    const halfH = (box.halfH - 0.0006) * OPTIC_H;
 
     bowls.push(
       bowl({
         cx: box.cx, cy: box.cy,
-        halfW, halfH: box.halfH - 0.002,
+        halfW, halfH,
         zAt: FACE, rimDepth: RIM_DEPTH, facing: FACING, depth,
         corner: 4.4, flat: c.amber ? 0.16 : 0.13,
-        fit: inset(fit, 0.0015),
-        nu: 30, nv: 20,
+        // The bowl is pulled out to the lens' own outline. The 1.5 mm it used
+        // to stand back from it was a ring of housing showing through the
+        // glass all the way round the aperture, and in the reference frame
+        // there is no such ring: the optic runs to the seal.
+        fit: inset(fit, 0.0004),
+        nu: 30, nv: 22,
       }),
     );
 
     // A paraboloid r² = 4fζ: with the rim half-width as r and the bowl's own
     // depth as ζ, the focus falls f = R²/4D forward of the vertex. Putting the
     // filament anywhere else is what makes a modelled lamp look like a torch.
+    //
+    // `f < depth` is the condition for the filament to sit inside the bowl at
+    // all, and it bounds `OPTIC_W`: at 1.45 the H4's envelope came out through
+    // the lens.
     const f = (halfW * halfW) / (4 * depth);
     const vertexZ = rimZ - depth;
     const fz = vertexZ + f;
@@ -227,9 +316,15 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
     nu: 14, nv: 10,
   });
 
+  // Hairlines, not trenches. A 10 mm wall 48 mm deep behind a clear lens
+  // reads as a dark slot right across the glass; on the reference frame the
+  // chamber division is barely visible and the amber division is one bright
+  // line. Both are still real walls — they just stop at the reflector rim
+  // instead of running to the back of the housing, which is all a moulded
+  // divider does anyway.
   const dividerGeo = merge([
-    divider(CHAMBER_SPLIT, 0.010, 0.048),
-    divider(AMBER_SPLIT, 0.013, 0.050),
+    divider(CHAMBER_SPLIT, 0.0052, 0.014),
+    divider(AMBER_SPLIT, 0.0072, 0.018),
   ])!;
 
   // --- assembly ------------------------------------------------------------
@@ -240,11 +335,44 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
     group.add(mesh);
   };
 
+  /**
+   * **A clear lens does not cast a shadow.**
+   *
+   * `Car.build` runs a post-pass that turns `castShadow` on for every mesh a
+   * builder produced unless it is marked `userData.noShadow`. `tidy()` in
+   * `src/car/lights.ts` sets `castShadow = false` on the lamps and runs
+   * *before* that pass, so the flag was put straight back — and the headlamp
+   * lens, a solid 409 x 168 mm plate 13 mm in front of the reflector, was
+   * writing itself into the sun's shadow map and blacking out its own bowl.
+   *
+   * That is why the unlit lamp read as a washed-out lens rather than a block
+   * of reflected sun: the only light reaching the reflector was the IBL. In
+   * the reference photograph the lamp is the brightest thing on the car at
+   * 228–244 — that is direct sun, off the bowl, back out through the glass.
+   *
+   * `noShadow` is the documented opt-out and is the mechanism `tidy()` should
+   * have used; the rest of the lamps still need the same fix in that file.
+   */
+  const noShadow = (o: THREE.Object3D): void => {
+    o.traverse((n) => { n.userData.noShadow = true; });
+  };
+
   add('headlampBezel', bezelGeo, chrome);
   add('headlampSeal', sealGeo, rubber);
-  add('headlampHousing', housingGeo, black);
+  // **There is no black plastic inside a composite headlamp.** The housing is
+  // a black moulding from outside, but every interior surface — the bowl, the
+  // shelf around it, the wall between the chambers — is vacuum-aluminised in
+  // one operation, because any absorbing surface in there is lost beam.
+  //
+  // Modelled in `blackTrim` and mirror `chrome`, they were both dark: the
+  // bowl is a mirror and what a mirror shows is whatever is inside the lamp,
+  // so a black shelf and a mirror-polished divider fed the bowl its own dark
+  // interior and the aperture came out at 0.89 of the licence plate's value.
+  // The photograph has the lamp *level with* the plate — 236 against 236 —
+  // because everything the bowl can see in there is 88 % aluminium.
+  add('headlampHousing', housingGeo, reflectorMat);
   add('headlampReflector', merge(bowls), reflectorMat);
-  add('headlampDivider', dividerGeo, chrome);
+  add('headlampDivider', dividerGeo, reflectorMat);
   add('headlampShield', merge(shields), black);
   add('headlampBulb', merge(envelopes), coldBulb);
   add('headlampFilament', merge(coils), coldFilament);
@@ -279,6 +407,8 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   indicator[1].mesh.name = 'headlampIndicatorR';
   group.add(indicator[0].mesh, indicator[1].mesh);
 
+  noShadow(group);
+
   // --- beam emitters -------------------------------------------------------
   // One emitter per side, between the two clear chambers — but placed a
   // centimetre *in front of* the lens rather than at the filament. A
@@ -298,6 +428,12 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
 }
 
 // ---------------------------------------------------------------------------
+
+/** 0 below `lo`, 1 above `hi`, smooth between — for `frame`'s fade. */
+function smoothBand(t: number, lo: number, hi: number): number {
+  const k = Math.min(Math.max((t - lo) / (hi - lo), 0), 1);
+  return k * k * (3 - 2 * k);
+}
 
 function divider(x: number, width: number, depth: number): THREE.BufferGeometry {
   return slab({

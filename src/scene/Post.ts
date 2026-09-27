@@ -39,6 +39,21 @@ export interface PostChain {
   render(dt: number): void;
   setSize(w: number, h: number): void;
   setPose(pose: Pose | null): void;
+  /**
+   * Stand the chain down to what a silhouette frame needs.
+   *
+   * `__AUDI.setMaskMode` repaints the car magenta so the review tools can cut
+   * it out of the frame exactly. The tools read that by hue, and bloom is the
+   * one pass that can defeat them: it takes everything above its threshold,
+   * blurs it and adds it back, so a bright sky spilling white over the car
+   * lifts the green channel until the magenta no longer tests as magenta.
+   * That happened once mid-session and the gate then dropped the headlamps
+   * from the mask and reported "above 224 = 0.0 %" on a frame whose lamps
+   * measured 233. Defocus does the same at the silhouette edge, more slowly.
+   *
+   * Neither carries information a mask needs, so both come off.
+   */
+  setMaskMode(on: boolean): void;
 }
 
 const CAR_ROOT = 'Audi5000SWagon';
@@ -369,6 +384,13 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       composer.setSize(width, height);
       // `scenePass.depthTexture` keeps its identity across the resize, so DOF
       // and GTAO stay pointed at it.
+      accum.reset();
+      prevValid = false;
+    },
+
+    setMaskMode(on: boolean): void {
+      bloom.enabled = !on;
+      dof.enabled = !on;
       accum.reset();
       prevValid = false;
     },
