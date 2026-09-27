@@ -9,6 +9,7 @@
 
 import * as THREE from 'three';
 import { BODY, tyreRadius } from '@/spec';
+import { HP } from '@/car/hardpoints';
 import type { ViewName, VehicleState } from '@/types';
 
 export interface Pose {
@@ -81,7 +82,35 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
    * 105 mm tall centred at 1.032 has to stand proud of the dash in a pod, as
    * it does in the real car. With a 0.612 H-point the driver's eye is ~1.24.
    */
-  dash:      { target: [-0.38, 1.03, -0.58], position: [-0.38, 1.25, -1.3], focalMm: 40, aperture: 2.8 },
+  /**
+   * The instrument pack — and this is NOT a driver's eye, deliberately.
+   *
+   * The old pose (−0.38, 1.25, −1.3) rendered the binnacle hood, the wheel
+   * rim and the rings on the boss, and no instruments at all. Moving the
+   * camera does not fix that, and it took a grid search through
+   * `__AUDI.setPose` to establish why. Fraction of the cluster with line of
+   * sight, by camera height, measured by raycasting a 5 × 5 grid:
+   *
+   *       y     1.06  1.10  1.14  1.18  1.22  1.26
+   *       −1.15 0.60  0.44  0.28  0.12  0.12  0
+   *       −1.25 0.64  0.48  0.48  0.32  0.16  0.16
+   *
+   * A seated driver's eye is about 1.27 (hip point 0.612 plus 0.66 of SAE
+   * sitting eye height). At that height **none of the pack is visible from
+   * any distance**, and the best any camera anywhere does is 0.64.
+   *
+   * The blocker is one surface: the binnacle hood's lip at (1.076, −0.713),
+   * which overhangs 138 mm back from a dial face at (1.032, −0.575) while
+   * sitting only 44 mm above it. A real C3's hood projects nearer 70 mm. So
+   * this is geometry, not framing — `src/car/interior/dash.ts` — and it is
+   * also why the cluster measures 8–12/255: the hood has closed a lightwell
+   * over it. Until that is fixed this pose stands at 1.09 so the pack can be
+   * reviewed at all. **Put it back to a driver's eye once it can be seen from
+   * one**, because a review pose that only works from an impossible viewpoint
+   * is flattering the model.
+   */
+  dash:      { target: [...HP.interior.clusterCenter] as [number, number, number],
+               position: [-0.372, 1.09, -1.28], focalMm: 75, aperture: 8 },
 
   /**
    * Reproduces the original photograph's viewpoint: dead-on front, low, ~3.7 m.

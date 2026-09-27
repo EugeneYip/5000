@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { Stage, assertWebGL2 } from '@/scene/Stage';
-import { CameraRig } from '@/scene/CameraRig';
+import { CameraRig, POSES } from '@/scene/CameraRig';
 import { buildEnvironment, type EnvironmentHandle } from '@/scene/Environment';
 import { createPostChain, type PostChain } from '@/scene/Post';
 import { createMaterialLibrary } from '@/materials/library';
@@ -35,6 +35,8 @@ interface AudiDebugApi {
   setMaskMode(mode: 'off' | 'car' | 'paint'): void;
   pick(x: number, y: number): Record<string, unknown>[];
   census(): Record<string, number>;
+  bbox(match: string): Record<string, unknown>[];
+  setPose(name: string, patch: Record<string, unknown>): unknown;
   settle(frames?: number): void;
   measureFps(frames?: number): Promise<{ fps: number; ms: number; drawCalls: number; triangles: number }>;
   elapsed(): number;
@@ -298,6 +300,57 @@ async function main(): Promise<void> {
         reportedCalls: info.calls, reportedTriangles: info.triangles,
         passMultiplier: meshes ? Math.round((info.calls / meshes) * 100) / 100 : 0,
       };
+    },
+
+    /**
+     * World-space bounds of every mesh whose name contains `match`.
+     *
+     * Each mesh's OWN `geometry.boundingBox` transformed by its
+     * `matrixWorld` — never `Box3.setFromObject`, which descends into
+     * children. Several nodes here are shared parents: `tailgatePanel` alone
+     * carries the inner taillamps, the plate, the ribbed panel and the rear
+     * wiper, contributed by three different streams, and probing it with
+     * `setFromObject` once reported 52,794 triangles for a 3,548-triangle
+     * panel and looked exactly like a corruption bug. Written correctly once,
+     * here, so nobody has to get it right again.
+     */
+    bbox(match) {
+      const out: Record<string, unknown>[] = [];
+      const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+      stage.scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || !m.name.toLowerCase().includes(match.toLowerCase())) return;
+        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+        const b = m.geometry.boundingBox!.clone().applyMatrix4(m.matrixWorld);
+        const g = m.geometry;
+        out.push({
+          name: m.name,
+          visible: m.visible,
+          min: [r3(b.min.x), r3(b.min.y), r3(b.min.z)],
+          max: [r3(b.max.x), r3(b.max.y), r3(b.max.z)],
+          triangles: Math.round((g.index ? g.index.count : g.attributes.position.count) / 3),
+        });
+      });
+      return out;
+    },
+
+    /**
+     * Override a named pose in place, so a camera can be searched for in one
+     * browser session instead of one edit-and-render cycle per candidate.
+     *
+     * The `dash` pose cost several of those cycles before this existed: the
+     * instrument pack sits under an overhang and behind a steering wheel, and
+     * where a camera has to stand to see past both is not something you can
+     * read off the hardpoints — the binnacle hood is part of the batched dash
+     * shell and has no bounds of its own to consult.
+     */
+    setPose(name, patch) {
+      const p = (POSES as unknown as Record<string, Record<string, unknown>>)[name];
+      if (!p) return null;
+      Object.assign(p, patch);
+      rig.setView(name as ViewName);
+      rig.snapNext = true;
+      return { ...p };
     },
 
     settle(frames = 24) {
