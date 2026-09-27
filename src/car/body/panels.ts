@@ -51,8 +51,22 @@ const toEdge = (b: Bound): EdgeOpt => ({ radius: b.radius, flange: b.flange });
 // ---------------------------------------------------------------------------
 
 export const Z = {
-  noseFace: Z_NOSE_FACE,                  //  0.862
-  lampBack: 0.782,                        //  rear wall of the lamp aperture
+  noseFace: Z_NOSE_FACE,                  //  0.942
+  /**
+   * Rear wall of the lamp aperture: the pressing the wing's leading edge turns
+   * back to, and the datum `lights/headlamp.ts` sizes its housing against —
+   * "78 mm keeps the back wall just clear of `Z.lampBack`".
+   *
+   * This was the literal `0.782`, which is 160 mm behind the face, not the 80
+   * the lamp was built to. 0.782 is `Z_NOSE_FACE` as it stood *before* the
+   * front end was re-derived: the face moved to `HP.front.grilleZ` (0.942) and
+   * the `// 0.862` comments here and on `Z_NOSE_FACE` itself were left behind,
+   * so the number that was once "the face" survived as "80 mm behind it".
+   * An aperture meant to be 80 mm deep became a 160 mm trench with the lamp
+   * housing ending half way down it, and the rest reading as a black slot at
+   * the outboard corner. Derived from the face now, so it cannot drift again.
+   */
+  lampBack: Z_NOSE_FACE - 0.080,          //  0.862
   hoodFront: HP.front.hoodFrontZ,         //  0.782
   hoodRear: -0.345,
   cowlRear: -0.440,

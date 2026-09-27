@@ -284,6 +284,28 @@ export function buildBody(ctx: BuildContext): PartResult {
     ny: 8,
   });
 
+  // Sliver of front face outboard of the headlamp aperture, between the lamp's
+  // outer edge and the silhouette — the direct analogue of `lampBaseR` at the
+  // tail. Without it `noseLower` simply stops at `HP.front.lampOuterX` (0.779)
+  // while the body's own outline carries on to 0.850, so there were 71 mm of
+  // unpanelled front face across the 160 mm lamp band and the corner was open
+  // to the engine bay: 1624 of 7171 rays fired down −Z through that band came
+  // out on `interior/shell/innerSides`, `underbody/engineBay` and
+  // `underbody/driveline`. Identical count both sides, so not the
+  // `mirrorGeometry` stale-bounds fault recurring. Zero with this patch.
+  //
+  // Depends on `Z.lampBack` being 80 mm behind the nose face rather than 160 —
+  // see `panels.ts`. Without that correction this patch's outer edge hangs
+  // ahead of the wing's leading edge and opens a slot at the silhouette.
+  const lampSideR = facePatch({
+    yLo: HP.front.grilleBottomY, yHi: HP.front.lampTopY,
+    xLo: () => HP.front.lampOuterX,
+    xHi: (y) => Math.max(noseHalfWidth(y), HP.front.lampOuterX + 0.001),
+    zAt: noseFaceZ, facing: 1,
+    bottom: BUTT, top: BUTT, inner: OPEN, outer: BUTT,
+    ny: 5,
+  });
+
   // =========================================================================
   // Rear structure — taillamp apertures and the panel between them
   // =========================================================================
@@ -324,6 +346,8 @@ export function buildBody(ctx: BuildContext): PartResult {
   addDark('noseLower', noseLower, frontStructure);
   addPainted('frontWingR', wingR, frontStructure);
   addPainted('frontWingL', mirrorGeometry(wingR), frontStructure);
+  addPainted('lampSideR', lampSideR, frontStructure);
+  addPainted('lampSideL', mirrorGeometry(lampSideR), frontStructure);
   nodes.frontStructure = frontStructure;
   nodes.frontWingR = frontStructure.getObjectByName('frontWingR')!;
   nodes.frontWingL = frontStructure.getObjectByName('frontWingL')!;

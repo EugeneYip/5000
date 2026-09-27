@@ -3,7 +3,7 @@
  *
  * The whole body shell is one analytic surface `S(z, t)`:
  *
- *   z  — station, metres in the vehicle frame (nose +0.862 … tail −3.700)
+ *   z  — station, metres in the vehicle frame (nose +0.942 … tail −3.700)
  *   t  — position around the transverse section: 0 at the roof centreline,
  *        +1 at the outer edge of the floor on the RIGHT side, −1 on the left.
  *
@@ -30,8 +30,14 @@ import { BODY, QUALITY } from '@/spec';
 import { HP } from '@/car/hardpoints';
 import { spline, clamp, lerp, superellipseY } from './math';
 
-/** Front face plane: the grille/headlamp band. */
-export const Z_NOSE_FACE = HP.front.grilleZ;          // +0.862
+/**
+ * Front face plane: the grille/headlamp band.
+ *
+ * +0.942. It read `// +0.862` for as long as the front end has been correct,
+ * which is how `Z.lampBack` in `panels.ts` came to be set 160 mm back instead
+ * of 80 — 0.862 is where this plane used to be.
+ */
+export const Z_NOSE_FACE = HP.front.grilleZ;          // +0.942
 /** Last lofted station; aft of this the tailgate has rolled toward vertical. */
 export const Z_TAIL_END = -3.700;
 
