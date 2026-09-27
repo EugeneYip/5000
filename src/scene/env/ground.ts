@@ -51,6 +51,8 @@ interface Patch {
   uGoboOffset: THREE.IUniform<THREE.Vector2>;
   uDriftScale: THREE.IUniform<number>;
   uShadeTint: THREE.IUniform<THREE.Color>;
+  uKerbColor: THREE.IUniform<THREE.Color>;
+  uVergeColor: THREE.IUniform<THREE.Color>;
 }
 
 function patchAsphalt(mat: THREE.MeshStandardMaterial, gobo: THREE.Texture): Patch {
@@ -62,6 +64,8 @@ function patchAsphalt(mat: THREE.MeshStandardMaterial, gobo: THREE.Texture): Pat
     uGoboOffset: { value: new THREE.Vector2(0.31, 0.62) },
     uDriftScale: { value: 1 / 210 },
     uShadeTint: { value: new THREE.Color(0.42, 0.46, 0.58) },
+    uKerbColor: { value: new THREE.Color(0.08, 0.08, 0.08) },
+    uVergeColor: { value: new THREE.Color(0.05, 0.06, 0.03) },
   };
 
   mat.onBeforeCompile = (shader) => {
@@ -85,11 +89,14 @@ uniform float uGoboScale;
 uniform float uGoboStrength;
 uniform vec2 uGoboOffset;
 uniform float uDriftScale;
-uniform vec3 uShadeTint;`,
+uniform vec3 uShadeTint;
+uniform vec3 uKerbColor;
+uniform vec3 uVergeColor;`,
       )
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
+float audiShade = 0.0;
 {
   // Low-frequency tonal drift, in WORLD space, so nothing at this scale can
   // ever wrap with the four-metre albedo tile. Two octaves an order of
@@ -112,11 +119,65 @@ uniform vec3 uShadeTint;`,
   vec4 surf = texture2D(roughnessMap, vMapUv);
   diffuseColor.rgb *= mix(1.0, 0.34, surf.b * uWetness);
 
+  // The kerb, the gutter and the grass verge. The carriageway is eleven metres
+  // wide, then two metres of concrete, then grass — and without them the
+  // asphalt ran to the horizon in every direction as one unbroken sheet,
+  // which is most of why a frame with a correctly lit car in it still read as
+  // a salt flat. The same three bands, at the same stations and the same
+  // reflectances, are in the IBL's proxy ground, so the road the car is
+  // standing on and the road it is reflecting are one surface.
+  float across = abs(vGroundXZ.x);
+  float onKerb = smoothstep(10.4, 11.0, across) * (1.0 - smoothstep(12.4, 13.0, across));
+  float onVerge = smoothstep(15.4, 16.6, across);
+  // Gutter line: a dark strip of silt where the camber drains.
+  float gutter = (1.0 - smoothstep(9.7, 10.4, across)) * smoothstep(9.2, 9.8, across);
+  diffuseColor.rgb *= 1.0 - 0.34 * gutter;
+  diffuseColor.rgb = mix(diffuseColor.rgb, uKerbColor, onKerb);
+  diffuseColor.rgb = mix(diffuseColor.rgb, uVergeColor * (0.72 + 0.5 * drift), onVerge);
+
   // Dappled shade. Shaded road is lit by sky alone, so it goes cool as well
   // as dark — that colour shift is most of why real shade reads as shade.
+  //
+  // Carried into the indirect specular too, at lights_fragment_end below.
+  // Modulating only the albedo was not enough: with the fill at its proper
+  // strength roughly half of what the road returns is environment reflection,
+  // so a gobo that touched the diffuse alone came out at half strength and the
+  // dapple washed away exactly when the rest of the frame came right.
   float lit = texture2D(uGobo, vGroundXZ * uGoboScale + uGoboOffset).r;
-  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * uShadeTint, (1.0 - lit) * uGoboStrength);
+  // One tap only. A second at a coarser scale, however it was combined,
+  // always won where it was darker and it carries no leaf detail at that
+  // scale — so the fine structure that makes dapple read as dapple was being
+  // replaced by a smooth blob over most of the near field.
+  float shadeAmt = (1.0 - lit) * uGoboStrength;
+  // Only a hue filter here — light that has come through leaves is greener.
+  // The *depth* of the shade is not an albedo change and must not be done as
+  // one: darkening the albedo scales the sun and the sky together, which is a
+  // dimmer, not a shadow. See lights_fragment_end.
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * uShadeTint, shadeAmt * 0.55);
+  audiShade = shadeAmt;
 }`,
+      )
+      .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+// What a canopy actually does: it takes the sun off the road and leaves the
+// sky on it. That is a change to the *direct* term, and doing it here rather
+// than by tinting the albedo is the whole difference between dapple and a
+// dimmer — an albedo change scales sun and sky by the same factor, so it
+// lowers the road's mean and its variance together, which is measurably the
+// opposite of a shadow. Twelve per cent of the direct term is left standing
+// because the road-bounce light is lumped in with the sun here and is not
+// blocked by anything.
+//
+// The colour comes out on its own once the split is right: what is removed is
+// warm and what remains is the sky and the bounce, so shade goes cool without
+// anyone choosing a colour for it.
+float audiSunLeft = 1.0 - 0.88 * audiShade;
+reflectedLight.directDiffuse *= audiSunLeft;
+reflectedLight.directSpecular *= audiSunLeft;
+// And the crown that is blocking the sun blocks about half the sky as well.
+reflectedLight.indirectDiffuse *= 1.0 - 0.45 * audiShade;
+reflectedLight.indirectSpecular *= 1.0 - 0.55 * audiShade;`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
@@ -128,7 +189,7 @@ uniform vec3 uShadeTint;`,
       );
   };
   // Force a fresh program: onBeforeCompile is keyed on the material's cache key.
-  mat.customProgramCacheKey = () => 'audi-asphalt-v1';
+  mat.customProgramCacheKey = () => 'audi-asphalt-v4';
   return u;
 }
 
@@ -222,6 +283,14 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
     // Undo the gain the albedo map was stored with, then tint.
     tint.setHex(preset.groundTint).multiplyScalar(ASPHALT_ALBEDO_SCALE);
     asphalt.mat.color.copy(tint);
+    // Kerb and verge, at the same reflectances the IBL's proxy ground uses —
+    // 0.35 for weathered concrete against asphalt's 0.14, 0.22 for dry
+    // late-summer grass. These substitute for `diffuseColor` after the map has
+    // been sampled, and by then it is already true albedo (the 4x baked into
+    // the map and the 0.25 in `material.color` have cancelled), so they are
+    // written as plain reflectances.
+    asphalt.patch.uKerbColor.value.setRGB(0.92, 0.91, 0.88).multiplyScalar(0.35);
+    asphalt.patch.uVergeColor.value.setRGB(0.74, 0.82, 0.46).multiplyScalar(0.22);
     asphalt.patch.uWetness.value = preset.wetness;
     asphalt.patch.uGoboStrength.value = preset.dapple;
 
@@ -275,6 +344,11 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
     tint.setHex(preset.shadeTint);
     const tLum = Math.max(0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b, 1e-4);
     shade.lerp(tint.multiplyScalar(1 / tLum).multiply(shade), 0.25);
+    // Renormalised to unit luminance: this uniform is now a *hue* only. The
+    // depth of the shade is done on the direct light in the shader, where it
+    // belongs, and leaving any brightness in here as well would count it twice.
+    const sLum = Math.max(0.2126 * shade.r + 0.7152 * shade.g + 0.0722 * shade.b, 1e-4);
+    shade.multiplyScalar(1 / sLum);
     asphalt.patch.uShadeTint.value.copy(shade);
   };
 

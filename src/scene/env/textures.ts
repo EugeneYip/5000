@@ -240,7 +240,12 @@ void main() {
   float c1 = fbm(vUv * 2.2, 2.2, 3);
   float c2 = fbm(vUv * 5.5 + 2.0, 5.5, 3);
   float c3 = fbm(vUv * 13.0 + 5.0, 13.0, 2);
-  float canopy = smoothstep(0.30, 0.58, c1 * 0.55 + c2 * 0.3 + c3 * 0.15);
+  // A narrow remap, not a wide one. Three octaves summed cluster hard about
+  // their mean, so a 0.30-0.58 window returned "about half shaded" almost
+  // everywhere and the gobo came out as a uniform dimmer rather than as
+  // dapple — measured, switching it on *reduced* the road's local standard
+  // deviation, which is the exact opposite of what shade does.
+  float canopy = smoothstep(0.38, 0.50, c1 * 0.55 + c2 * 0.3 + c3 * 0.15);
   // Leaf-scale breakup punched through the crowns: ragged edges, and sun
   // flecks in the middle of the shade.
   //
@@ -252,9 +257,14 @@ void main() {
   // the whole road read as one flat sheet. It is allowed to reach zero now,
   // because what stops shade going black is the shade *colour* in ground.ts,
   // which is a real sky-plus-bounce term — not a floor clamped in here.
-  float leaf = smoothstep(0.30, 0.70, fbm(vUv * 96.0 + 11.0, 96.0, 2));
-  float twig = smoothstep(0.42, 0.72, fbm(vUv * 200.0 + 31.0, 200.0, 2));
-  float light = mix(1.0, 0.62 * leaf + 0.24 * twig, canopy);
+  // Three octaves of leaf structure, each pushed to high contrast. Dapple is
+  // not a soft gradient: it is a scatter of hard-edged sun flecks in a dark
+  // ground, and a smoothstep wide enough to keep it smooth is a smoothstep
+  // wide enough to make it invisible once the road is at its proper level.
+  float leaf = smoothstep(0.40, 0.56, fbm(vUv * 64.0 + 11.0, 64.0, 2));
+  float fleck = smoothstep(0.46, 0.60, fbm(vUv * 150.0 + 31.0, 150.0, 2));
+  float twig = smoothstep(0.50, 0.64, fbm(vUv * 320.0 + 7.0, 320.0, 2));
+  float light = mix(1.0, clamp(0.62 * leaf + 0.26 * fleck + 0.12 * twig, 0.0, 1.0), canopy);
   gl_FragColor = vec4(vec3(clamp(light, 0.0, 1.0)), 1.0);
 }
 `;
