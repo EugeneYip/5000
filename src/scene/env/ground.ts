@@ -273,9 +273,14 @@ float audiShade = 0.0;
 float audiSunLeft = 1.0 - 0.88 * audiShade;
 reflectedLight.directDiffuse *= audiSunLeft;
 reflectedLight.directSpecular *= audiSunLeft;
-// And the crown that is blocking the sun blocks about half the sky as well.
-reflectedLight.indirectDiffuse *= 1.0 - 0.45 * audiShade;
-reflectedLight.indirectSpecular *= 1.0 - 0.55 * audiShade;`,
+// And the crown that is blocking the sun blocks part of the sky as well —
+// but far less of it than this used to claim, because the crown is now *in
+// the environment map*. ibl.ts builds a real canopy over the proxy world, so
+// the map a shaded patch of road samples has already lost the sky the leaves
+// are covering; taking another 45 % off here counted it twice and dragged a
+// quarter of the frame below level 32.
+reflectedLight.indirectDiffuse *= 1.0 - 0.18 * audiShade;
+reflectedLight.indirectSpecular *= 1.0 - 0.24 * audiShade;`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
@@ -287,7 +292,7 @@ reflectedLight.indirectSpecular *= 1.0 - 0.55 * audiShade;`,
       );
   };
   // Force a fresh program: onBeforeCompile is keyed on the material's cache key.
-  mat.customProgramCacheKey = () => 'audi-asphalt-v8';
+  mat.customProgramCacheKey = () => 'audi-asphalt-v9';
   return u;
 }
 

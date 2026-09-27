@@ -55,9 +55,43 @@ function specBounds(): THREE.Box3 {
 const UP = new THREE.Vector3(0, 1, 0);
 
 /**
- * Size the sun's orthographic shadow frustum to the subject *and* the patch of
- * road its shadow falls on, measured in the light's own space. Anything looser
- * spends shadow texels on empty asphalt.
+ * How far up-sun of the subject the frustum reaches, metres.
+ *
+ * This used to be zero — the near plane sat just in front of the car — and
+ * that is why the car stood in open sun with a tree row beside it. At 11.5° of
+ * solar elevation the thing that shades a car is fifty to seventy metres
+ * up-sun and ten to fifteen metres up; the old frustum's *near plane* was
+ * about six metres in front of the bonnet, so every occluder that could have
+ * done anything was clipped away before the depth pass saw it.
+ *
+ * 90 m clears a nineteen-metre crown (19 / sin 11.5° = 95 m of run, and the
+ * bole is not what casts) with room for the subject to drive a little.
+ *
+ * **The cost is depth precision, and it is affordable here.** Three renders
+ * shadow maps through `MeshDepthMaterial` with `RGBADepthPacking`, so the
+ * stored depth is 32-bit fixed point over the frustum's range, not a 16- or
+ * 24-bit depth buffer: at a 100 m range that is 23 nm per step. What does
+ * scale with the range is `shadow.bias`, which is in normalised depth — so
+ * the same bias that was 1 mm of world offset over a 12 m frustum would be
+ * 8 mm over this one, which is enough to detach a tyre from its own contact
+ * patch. `applyPreset` rescales it below rather than leaving it to drift.
+ */
+const SHADOW_REACH = 90;
+
+/** The depth range the shadow bias below was set against. */
+const SHADOW_BIAS_RANGE = 12;
+const BASE_SHADOW_BIAS = -0.00008;
+
+/**
+ * Size the sun's orthographic shadow frustum to the subject, the patch of road
+ * its shadow falls on, and the column of air up-sun of both that whatever is
+ * shading it has to be standing in. Anything looser spends shadow texels on
+ * empty asphalt.
+ *
+ * Only the *depth* range grows. Left, right, top and bottom stay fitted to the
+ * subject, because light-space x and y are perpendicular to the sun and an
+ * occluder that shadows the car is by definition at the car's own light-space
+ * x and y — so the 4096² stays where it was and the texel size does not move.
  */
 function fitSunShadow(light: THREE.DirectionalLight, sunDir: THREE.Vector3, box: THREE.Box3): void {
   const centre = box.getCenter(new THREE.Vector3());
@@ -76,7 +110,9 @@ function fitSunShadow(light: THREE.DirectionalLight, sunDir: THREE.Vector3, box:
     }
   }
 
-  const eye = centre.clone().addScaledVector(sunDir, 60);
+  // The eye has to stand beyond the occluders, not among them: at 60 m it was
+  // level with the crowns that shade the car and half of them fell behind it.
+  const eye = centre.clone().addScaledVector(sunDir, 60 + SHADOW_REACH);
   const m = new THREE.Matrix4().lookAt(eye, centre, UP).setPosition(eye);
   const toLight = m.invert();
 
@@ -95,10 +131,34 @@ function fitSunShadow(light: THREE.DirectionalLight, sunDir: THREE.Vector3, box:
   cam.right = hi.x + pad;
   cam.bottom = lo.y - pad;
   cam.top = hi.y + pad;
+  // …and then opened out to a floor, which is the opposite of what a shadow
+  // fit normally wants and is here on purpose.
+  //
+  // `PCFSoftShadowMap` blurs over a fixed ±2 texels, so the only control over
+  // how soft a shadow is, is how big a texel is. Fitted tight the frustum is
+  // about fifteen metres across, which at 4096² is 3.7 mm a texel and a 15 mm
+  // penumbra — a razor edge. That is wrong twice over: the sun's disc puts a
+  // 7 cm penumbra on the car's own shadow at this elevation and half a metre
+  // on anything cast from the crowns sixty metres up-sun, and with a razor
+  // edge the canopy's leaf-scale gaps arrive as hard black flecks. Thirty-two
+  // metres puts a texel at 7.8 mm and the kernel at 31 mm, which is about
+  // where the car's own contact edge should sit, and it is enough to start
+  // averaging the canopy's speckle into shade rather than camouflage.
+  const FLOOR = 16;
+  const cx = (cam.left + cam.right) * 0.5;
+  const cy = (cam.bottom + cam.top) * 0.5;
+  cam.left = Math.min(cam.left, cx - FLOOR);
+  cam.right = Math.max(cam.right, cx + FLOOR);
+  cam.bottom = Math.min(cam.bottom, cy - FLOOR);
+  cam.top = Math.max(cam.top, cy + FLOOR);
   // View space looks down −z, so the near plane is the *largest* z.
-  cam.near = Math.max(0.1, -hi.z - pad);
+  cam.near = Math.max(0.1, -hi.z - pad - SHADOW_REACH);
   cam.far = -lo.z + pad;
   cam.updateProjectionMatrix();
+  // `shadow.bias` is a normalised-depth offset, so its world-space meaning is
+  // the frustum's depth range times itself. Hold that meaning fixed as the
+  // range opens up, or the contact shadows lift off the road.
+  light.shadow.bias = BASE_SHADOW_BIAS * (SHADOW_BIAS_RANGE / Math.max(cam.far - cam.near, 1));
 
   light.position.copy(eye);
   light.target.position.copy(centre);
@@ -142,7 +202,8 @@ export async function buildEnvironment(
   sun.name = 'env:sun';
   sun.castShadow = true;
   sun.shadow.mapSize.set(QUALITY.shadowMapSize, QUALITY.shadowMapSize);
-  sun.shadow.bias = -0.00008;
+  // Rescaled by `fitSunShadow` to keep its world-space meaning fixed.
+  sun.shadow.bias = BASE_SHADOW_BIAS;
   sun.shadow.normalBias = 0.012;
   sun.shadow.blurSamples = 6;
   root.add(sun, sun.target);

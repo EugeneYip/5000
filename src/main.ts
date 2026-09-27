@@ -32,7 +32,7 @@ interface AudiDebugApi {
   setPaint(hex: number): void;
   setArticulation(name: string, open: number): void;
   setUiVisible(v: boolean): void;
-  setMaskMode(on: boolean): void;
+  setMaskMode(mode: 'off' | 'car' | 'paint'): void;
   settle(frames?: number): void;
   measureFps(frames?: number): Promise<{ fps: number; ms: number; drawCalls: number; triangles: number }>;
   elapsed(): number;
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   // --- debug surface ---------------------------------------------------------
   const maskMat = new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide });
   const maskSaved = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
-  let maskActive = false;
+  let maskMode: 'off' | 'car' | 'paint' = 'off';
 
   globalThis.__AUDI = {
     ready: true,
@@ -175,7 +175,7 @@ async function main(): Promise<void> {
     setArticulation(name, open) { car.setArticulation(name, open); },
     setUiVisible(v) { hud.setVisible(v); },
     // Used by the screenshot harness to shoot a silhouette frame, from which
-    // the review tools derive an exact car mask.
+    // the review tools derive an exact mask.
     //
     // Deriving the mask from the image instead — "a pixel far from its own
     // row's median is car" — worked only while the background was a smooth
@@ -187,23 +187,30 @@ async function main(): Promise<void> {
     // Magenta rather than hiding the car, because hiding it also removes its
     // cast and contact shadows, and those land on road the mask must not
     // claim. Nothing else in the scene has both R and B far above G, so the
-    // test survives the grade and the bloom that run after this.
-    setMaskMode(on) {
-      if (on === maskActive) return;
-      maskActive = on;
-      post.setMaskMode(on);
+    // test survives the grade; bloom could defeat it, so `post.setMaskMode`
+    // stands bloom and defocus down while this is on.
+    //
+    // `'paint'` marks only the meshes wearing the body colour. The colour gate
+    // needs that and cannot infer it: at the `photomatch` pose there is no
+    // vertical fender face in frame at all, so a gate that goes looking for
+    // "a near-neutral mid-value patch on the car" finds the grille, and then
+    // asks the grille to be the colour of a fender.
+    setMaskMode(mode) {
+      const next = mode === 'off' ? 'off' : mode;
+      if (next === maskMode) return;
+      for (const [m, prev] of maskSaved) m.material = prev;
+      maskSaved.clear();
+      maskMode = next;
+      post.setMaskMode(next !== 'off');
+      if (next === 'off') return;
+      const paintMat = materials.paint();
       car.root.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
-        if (on) {
-          maskSaved.set(m, m.material);
-          m.material = maskMat;
-        } else {
-          const prev = maskSaved.get(m);
-          if (prev) m.material = prev;
-        }
+        if (next === 'paint' && m.material !== paintMat) return;
+        maskSaved.set(m, m.material);
+        m.material = maskMat;
       });
-      if (!on) maskSaved.clear();
     },
     settle(frames = 24) {
       for (let i = 0; i < frames; i++) {

@@ -49,6 +49,21 @@ WB_GAIN = (0.948, 1.013, 1.073)
 # polygon deliberately stops short of the people at the left and of the road
 # at the lower right — it is 17.8 % of the frame and is car all the way
 # through, which was checked by overlaying it.
+# The painted bodywork visible in the SAME frame — bonnet, front panel and the
+# right wing's outer face. Traced the same way and checked by overlay.
+#
+# This exists because `PAINT_TARGET` above is a *vertical fender face*, and at
+# the `photomatch` pose there is no vertical fender face in frame: the camera
+# is dead ahead of the nose. Nearly all the paint it can see is the bonnet,
+# which is a horizontal mirror and is therefore strongly blue — the photograph
+# measures (91, 110, 134) there, B-R of +43, where a fender face is neutral.
+# Judging this frame against the fender number asks the bonnet to be grey.
+PHOTO_PAINT_POLY = [
+    (0.5971, 0.4590), (0.7143, 0.4457), (0.8071, 0.4495), (0.8714, 0.4781),
+    (0.9129, 0.5219), (0.9371, 0.5733), (0.9486, 0.6152), (0.9386, 0.6305),
+    (0.8229, 0.6248), (0.7143, 0.6286), (0.5986, 0.6305),
+]
+
 PHOTO_CAR_POLY = [
     (0.5943, 0.2838), (0.8000, 0.2800), (0.8300, 0.3010), (0.8729, 0.3962),
     (0.9229, 0.5067), (0.9500, 0.6114), (0.9643, 0.7219), (0.9586, 0.8210),
@@ -87,16 +102,20 @@ def label(img, text, sub=""):
     return img
 
 
-def photo_car_pixels():
-    """The photograph's car, white-balanced, as an N×3 array."""
+def photo_pixels(poly):
+    """A traced region of the photograph, white-balanced, as an N×3 array."""
     ref = np.array(Image.open(REFERENCE_PHOTO).convert("RGB")).astype(float)
     h, w = ref.shape[:2]
     m = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(m).polygon([(fx * w, fy * h) for fx, fy in PHOTO_CAR_POLY], fill=255)
+    ImageDraw.Draw(m).polygon([(fx * w, fy * h) for fx, fy in poly], fill=255)
     return np.clip(ref * np.array(WB_GAIN), 0, 255)[np.array(m) > 127]
 
 
-def car_mask_for(render_path: Path, shape):
+def photo_car_pixels():
+    return photo_pixels(PHOTO_CAR_POLY)
+
+
+def silhouette_mask(render_path: Path, shape, suffix="mask"):
     """
     Exact car mask from the silhouette frame `shoot.mjs --mask` writes.
 
@@ -108,7 +127,7 @@ def car_mask_for(render_path: Path, shape):
     crush figure were describing the whole scene. Both reference constants in
     this file were fitted to that, and both were wrong.
     """
-    mp = render_path.parent / f"{render_path.stem}_mask.png"
+    mp = render_path.parent / f"{render_path.stem}_{suffix}.png"
     if mp.exists():
         mk = np.array(Image.open(mp).convert("RGB").resize((shape[1], shape[0]))).astype(float)
         r, g, b = mk[..., 0], mk[..., 1], mk[..., 2]
@@ -131,7 +150,7 @@ def car_mask_for(render_path: Path, shape):
         # rule this replaced went wrong for several rounds without anyone
         # noticing. The car is 16-18 % of the frame at every standard pose.
         frac = 100 * m.mean()
-        if not 3.0 < frac < 40.0:
+        if suffix == "mask" and not 3.0 < frac < 40.0:
             print(f"  !! car mask is {frac:.1f}% of the frame — that is not a car. "
                   f"Check {mp.name}; every figure below is meaningless.", file=sys.stderr)
         return m, True
@@ -225,17 +244,32 @@ def compare_to_photo(render_path: Path):
     hgt, wid = a.shape[:2]
     tgt = np.array(PAINT_TARGET, dtype=float)
 
-    car_mask, exact = car_mask_for(render_path, a.shape[:2])
+    car_mask, exact = silhouette_mask(render_path, a.shape[:2])
+    paint_mask, _ = silhouette_mask(render_path, a.shape[:2], "paint")
     if car_mask is None:
         row_bg = np.median(a, axis=1, keepdims=True)
         car_mask = np.abs(a - row_bg).mean(axis=2) > 12.0
 
+    # Search only where the body colour actually is.
+    #
+    # Masking to "the car" is not enough. At the `photomatch` pose — dead-on
+    # front — there is no vertical fender face in frame at all, so a search for
+    # "a near-neutral mid-value patch on the car" lands on the grille, and the
+    # gate then asks the grille to be the colour of a fender. That is exactly
+    # what happened: twelve patch positions were frozen into this file as an
+    # ungameable second metric, and four of the ten that qualified sat dead
+    # centre on the grille aperture. The photograph's grille measures 41
+    # white-balanced; the metric was asking for 149, and it scored 13.5 on a
+    # grille that was rendering silver — i.e. it scored well ON the defect, and
+    # jumped to 57.5 the moment the grille was fixed. Frozen positions are gone
+    # and the app marks the paint itself.
+    search_mask = paint_mask if paint_mask is not None else car_mask
     candidates = []
     for fy in np.arange(0.28, 0.72, 0.02):
         for fx in np.arange(0.10, 0.92, 0.02):
             y0, y1 = int(hgt * fy), int(hgt * (fy + 0.05))
             x0, x1 = int(wid * fx), int(wid * (fx + 0.03))
-            if car_mask[y0:y1, x0:x1].mean() < 0.92:
+            if search_mask[y0:y1, x0:x1].mean() < 0.92:
                 continue
             block = a[y0:y1, x0:x1].reshape(-1, 3)
             if block.size == 0:
@@ -272,38 +306,6 @@ def compare_to_photo(render_path: Path):
         med = np.array([0.0, 0.0, 0.0])
         dist = float("nan")
         where = "NO PAINT FOUND ON THE CAR — gate did not run"
-
-    # Second metric: the SAME PIXELS every time.
-    #
-    # The search above re-forms its top ten whenever the image changes, so it
-    # is reproducible for an identical build but not stable under small ones —
-    # it can improve while the panels get worse. Two configurations were caught
-    # scoring better here while being measurably worse on fixed patches (one
-    # greyed the zenith: gate 7.0, fixed-patch error 17.4). Composition drift
-    # is exactly the hole a metric like this leaves open.
-    #
-    # So: freeze the reference patch positions once, in this file, and read
-    # those pixels in every render. They cannot drift, so a movement is real.
-    frozen_err = float("nan")
-    frozen_hits = 0
-    # Derived once from a known-good build (renders/envfix4/photomatch.png) by
-    # taking its twelve closest qualifying patches and recording where they
-    # landed. Re-derive only if the photomatch POSE changes; do not re-derive
-    # to make a number look better, which would defeat the whole point.
-    fx_list = [(0.50, 0.48), (0.48, 0.50), (0.52, 0.60), (0.90, 0.70),
-               (0.48, 0.48), (0.88, 0.70), (0.50, 0.50), (0.40, 0.48),
-               (0.38, 0.54), (0.40, 0.50), (0.38, 0.44), (0.40, 0.54)]
-    errs = []
-    for fx, fy in fx_list:
-        y0, y1 = int(hgt * fy), int(hgt * (fy + 0.05))
-        x0, x1 = int(wid * fx), int(wid * (fx + 0.03))
-        if car_mask[y0:y1, x0:x1].mean() < 0.85:
-            continue
-        m = np.median(a[y0:y1, x0:x1].reshape(-1, 3), axis=0)
-        errs.append(float(np.sqrt(((m - tgt) ** 2).sum())))
-    if errs:
-        frozen_err = float(np.median(errs))
-        frozen_hits = len(errs)
 
     # Tone: the whole distribution, not one number.
     #
@@ -348,9 +350,23 @@ def compare_to_photo(render_path: Path):
     out_path = render_path.parent / f"_compare_{render_path.stem}.png"
     out.save(out_path)
     print(f"✓ {out_path}")
-    print(f"  paint distance from photograph target: {dist:.1f} (aim < 18)  [{where}]")
-    print(f"  fixed-patch error {frozen_err:.1f} over {frozen_hits}/12 frozen positions "
-          f"— cannot drift, so a movement here is real")
+    print(f"  nearest paint patch to the fender target #92939b: {best[0]:.1f} "
+          f"at x {best[3]:.2f} y {best[4]:.2f}, {len(candidates)} qualified"
+          if candidates else "  NO PAINT FOUND")
+    print(f"      (a diagnostic, not a gate, at this pose — #92939b is a vertical "
+          f"fender face and there is no vertical fender face in a dead-on front view)")
+    print(f"  paint mask: {'exact' if paint_mask is not None else 'NOT SHOT — search fell back to the whole car'}"
+          f"  ({100 * search_mask.mean():.1f}% of frame)")
+    if paint_mask is not None and paint_mask.any():
+        pm = np.median(a[paint_mask], axis=0)
+        rp = np.median(photo_pixels(PHOTO_PAINT_POLY), axis=0)
+        de = float(np.sqrt(((pm - rp) ** 2).sum()))
+        print(f"  body colour, over the paint only:  render "
+              f"({int(pm[0])},{int(pm[1])},{int(pm[2])})  vs photo "
+              f"({int(rp[0])},{int(rp[1])},{int(rp[2])})   dRGB {de:.1f} (aim < 12)")
+        print(f"      B-R {pm[2] - pm[0]:+.0f} vs {rp[2] - rp[0]:+.0f}"
+              f"   — the paint in this frame is nearly all bonnet, and a bonnet"
+              f" mirrors the sky")
     print(f"  car mask: {'exact silhouette' if exact else 'ROW-MEDIAN GUESS — shoot with --mask'}"
           f"  ({100 * car_mask.mean():.1f}% of frame)")
     print(f"  tone profile {tone_tv:.1f}% apart from the photograph (aim < 8)")

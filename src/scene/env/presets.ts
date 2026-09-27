@@ -102,6 +102,16 @@ export interface EnvPreset {
   readonly wetness: number;
   /** Strength of the tree-shade gobo projected onto the road. */
   readonly dapple: number;
+  /**
+   * Density of the planting *overhead*, 0 = open sky.
+   *
+   * Separate from `dapple`, which only ever painted the road. This one is read
+   * by the IBL's proxy world and by the backdrop's near planting, and it is
+   * the number that decides what a horizontal body panel has to mirror. The
+   * body is `metalness: 1.0`, so for the bonnet, the roof and the glass it is
+   * the *only* number that decides anything.
+   */
+  readonly canopy?: number;
   /** What colour shaded road is — sky-lit, so usually cooler than the sun. */
   readonly shadeTint: number;
   /**
@@ -326,14 +336,45 @@ export const PRESETS: Record<string, EnvPreset> = {
     // Inert on the body, which is `metalness: 1.0` and has no diffuse lobe at
     // all. This is doing its job on the interior, the tyres and the trim, and
     // nothing whatever on the paint — do not reach for it to lift the flanks.
-    hemi: { sky: 0x93b8e8, ground: 0x6d5a45, intensity: 0.18 },
+    //
+    // 0.35, and the reason is that the car is now standing in the planting's
+    // shadow instead of in open sun. Every *dielectric* surface on it — the
+    // bumper, the valance, the grille surround, the arch liners, the tyres —
+    // had the sun as about half its light and has just lost it, and the two
+    // terms that stand in for one-bounce fill from the sunlit boulevard around
+    // it are this and `bounce` below. Left where they were, the lower half of
+    // the car went to black: a quarter of the car's pixels below level 32
+    // against the photograph's 6.6 %, and the photograph's own shaded bumper
+    // measures 65, not 20.
+    //
+    // It still does nothing to the paint, so it cannot be used to cheat the
+    // colour gate in either direction.
+    hemi: { sky: 0x93b8e8, ground: 0x6d5a45, intensity: 0.5 },
     // `dir` is the direction the light *travels*, and this vector used to have
     // a negative y: the "light kicked back up off the road" was shining down,
     // which made it a second uncredited key from above and left, and left the
     // sills and arch liners with nothing. Pointed up, where a bounce belongs.
-    bounce: { color: 0xd4a173, intensity: 0.7, dir: [0.3, 0.55, 0.62] },
+    // 2.2, not 0.7. A shaded car on a boulevard at 11.5° of solar elevation
+    // is standing beside a very large area of *sunlit* road, pavement and
+    // stone, and one bounce off a 0.15–0.35 albedo surround across a wide
+    // aspect returns a fifth to a quarter of the sun. 0.7 against a key of
+    // 6.3 was 11 %, which is a fill for a car in the open — the shadow work
+    // is what makes this term load-bearing rather than cosmetic.
+    //
+    // It is worth 2.5 on the tone profile and, unlike an exposure, it reaches
+    // only the dielectrics: the paint is `metalness: 1.0`, so the colour gate
+    // cannot be moved with it in either direction.
+    bounce: { color: 0xd4a173, intensity: 2.2, dir: [0.3, 0.55, 0.62] },
     rim: { color: 0xbad4f0, intensity: 0.28, dir: [0.62, 0.42, -0.66] },
-    fog: { density: 0.0038 },
+    // 0.0018, not 0.0038. Halving the extinction is worth a kilometre of
+    // visibility and it is the photograph that asks for it: the far end of the
+    // Parkway in that frame still resolves buildings, a traffic signal and the
+    // flags on the lamp standards, where this render dissolved the tree line
+    // into one flat cream wash about a hundred and fifty metres out and the
+    // frame read as a salt flat with a car on it. Nothing on the car moves —
+    // it is four metres from the lens, where the old density was already
+    // worth 0.006 % — so this is a background change only.
+    fog: { density: 0.0018 },
     ground: 'asphalt',
     // City asphalt is not neutral. What you read as grey road is exposed
     // aggregate and tyre-ground dust, and both are warm; the photograph's
@@ -356,12 +397,27 @@ export const PRESETS: Record<string, EnvPreset> = {
     // is the only thing it belongs to.
     groundTint: 0xfff4cf,
     wetness: 0.06,
-    // Deeper, and on a shorter pitch — see `uGoboScale` in ground.ts. At 0.62
-    // the deepest shade under a crown removed just over half the direct term,
-    // and the direct term is only a fifth of what a road receives at 11° of
-    // solar elevation, so the deepest dapple in frame was a 12 % dip. The
-    // photograph's shade is a full stop below its sunlit road.
-    dapple: 0.88,
+    // 0.45, not 0.88, and the reason is that this is no longer the only thing
+    // shading the road.
+    //
+    // The gobo was painted on because casting the shade for real needed a
+    // canopy tens of metres up-sun and the sun's frustum stopped six metres in
+    // front of the bonnet. It does not any more — `SHADOW_REACH` in
+    // Environment.ts opens it to ninety, the park grove in backdrop.ts stands
+    // in it, and the crowns write a leaf-cut depth. So inside the frustum the
+    // two now compound, and at 0.88 they took the car two stops under: a white
+    // plate that measures 236 in the photograph came back at 185 and a quarter
+    // of the car's pixels fell below level 32 against the photograph's 6.6 %.
+    //
+    // It cannot go to zero either. The frustum is fifteen metres across and
+    // the road runs to the horizon, so beyond it there is no cast shadow at
+    // all — the gobo is what keeps the far carriageway banded instead of
+    // ending at a visible line.
+    dapple: 0.45,
+    // The reference photograph is taken *under* the row, not beside it: the
+    // car is in the planting's shade with the sun flecking the pavement, and
+    // the bonnet is mirroring a broken canopy rather than an open sky.
+    canopy: 1.0,
     shadeTint: 0x5d7196,
     // 3.2, and the 0.4 is bookkeeping rather than a look change.
     //
@@ -380,9 +436,23 @@ export const PRESETS: Record<string, EnvPreset> = {
     // reach `applySkyParams`), and the plate — the one calibrated neutral in
     // frame — reads 235 against the white-balanced photograph's 236.
     envIntensity: 3.3,
-    contactStrength: 0.62,
+    // 0.44. This pool exists because at a low sun neither the cast shadow nor
+    // screen-space AO puts anything under the sills — but the car is in the
+    // planting's shadow now, so the ground under it is already a stop down and
+    // the pool was being laid over the top of that.
+    contactStrength: 0.44,
     background: 0x8fb4d8,
-    grade: { ...BASE_GRADE },
+    grade: {
+      ...BASE_GRADE,
+      // 0.88. Occlusion is *more* visible in shade, not less: in open sun the
+      // key washes the crevices out, and with the car under the canopy there
+      // is no key left to do it. The photograph's deepest sixth of a stop —
+      // the grille's slat shadows, the gap behind the bumper, the arch liners
+      // — measures 6.6 % of the car below level 32 where this render had
+      // 0.6 %, and those are exactly the places a screen-space occlusion term
+      // is describing.
+      aoIntensity: 0.88,
+    },
   },
 
   studio: {
@@ -516,6 +586,7 @@ export const PRESETS: Record<string, EnvPreset> = {
     groundTint: 0xe4e7ec,
     wetness: 0.45,
     dapple: 0.18,
+    canopy: 0.55,
     shadeTint: 0x22304d,
     envIntensity: 0.9,
     contactStrength: 0.5,
@@ -579,6 +650,9 @@ export const PRESETS: Record<string, EnvPreset> = {
     groundTint: 0xfffaf0,
     wetness: 0.02,
     dapple: 0.3,
+    // Same boulevard, but a sun overhead comes almost straight down through
+    // the crowns, so far less of the sky is closed off from a body panel.
+    canopy: 0.45,
     shadeTint: 0x4d6a94,
     envIntensity: 1.0,
     contactStrength: 0.8,

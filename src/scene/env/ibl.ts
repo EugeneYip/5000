@@ -195,6 +195,34 @@ function skyRadiance(preset: EnvPreset, out: THREE.Color): number {
 }
 const _hor = new THREE.Color();
 
+/**
+ * The same mean, but *as the sky actually stands in the baked cubemap* — and
+ * the difference is a factor of `envIntensity`, so anything that has to sit at
+ * a ratio to the sky has to use this one.
+ *
+ * `skyRadiance()` above folds `envIntensity` in, which is right for what it is
+ * used for: it is an *irradiance* budget for a proxy surface, expressed in the
+ * units a material finally sees, and the material side multiplies the whole
+ * map by `envIntensity` again. The sky sphere inside the bake does not get
+ * that factor — `applySkyParams` is called with the preset's own exposure and
+ * nothing else — so the proxy furniture is deliberately standing 3.3× brighter
+ * than the sky it shares the map with. That is the calibration described under
+ * `envIntensity` in presets.ts and the flanks are measured against it.
+ *
+ * A canopy cannot be built on it. Foliage is dark *relative to the sky it is
+ * silhouetted against* — the photograph has its canopy at 50 against an open
+ * sky of 200 — and derived through `skyRadiance()` a shaded crown comes out at
+ * 0.7× the map's own sky, which is not a canopy, it is a slightly greenish
+ * cloud. So the overhead planting is derived here instead, and the ratio it
+ * lands at is the thing that was actually measured off the photograph.
+ */
+function bakedSkyRadiance(preset: EnvPreset, out: THREE.Color): THREE.Color {
+  return out
+    .setHex(preset.sky.zenith)
+    .lerp(_hor.setHex(preset.sky.horizon), 0.62)
+    .multiplyScalar(preset.sky.exposure);
+}
+
 /** `out += c · k`. Radiances add; `Color` has no operator for it. */
 function addScaled(out: THREE.Color, c: THREE.Color, k: number): THREE.Color {
   out.r += c.r * k;
@@ -330,6 +358,149 @@ function buildStreet(): Furniture {
     blockMeshes.push(m);
   }
 
+  // --- the canopy ------------------------------------------------------------
+  //
+  // The single largest error in the project was here: the upper hemisphere of
+  // this proxy world was open sky from twenty degrees to the zenith, right
+  // round the compass, and the paint is `metalness: 1.0` with no diffuse lobe,
+  // so a horizontal panel had nothing else to be. The bonnet came back at a
+  // flat 170 over its whole area. The photograph's is 113, running 83 on the
+  // kerb side to 159 on the carriageway side with one bright streak — because
+  // the real car is parked under a row of London planes and a bonnet is a
+  // mirror, so what it shows is a broken dark canopy with sky through the
+  // holes.
+  //
+  // **Laid out in the probe's angular frame, not in metres.** What a mirror
+  // integrates is solid angle, so the thing that has to be controlled is how
+  // much of each *direction* is leaf and how much is sky — and placing crowns
+  // at plausible street coordinates gives no control over that at all (the
+  // existing row at ±16 m covers 19°–39° at two azimuths and nothing else).
+  // Cells of azimuth × elevation, one jittered lobe each, a keep probability
+  // per cell: coverage becomes a number that can be read off the photograph
+  // and set, instead of an emergent property of a tree spacing.
+  //
+  // Two bands of elevation matter and they are not the same surface:
+  //   · 10°–30° behind the car is what the **bonnet** mirrors. A panel that
+  //     slopes 8° forward, seen from a camera 3.7 m ahead at 1.12 m, reflects
+  //     2 × 8° + 3° ≈ 19° up and aft.
+  //   · 50°–70° over the camera is what the **windscreen** mirrors, at 60° of
+  //     rake and near-grazing incidence.
+  // Both are covered here; the roof and the tailgate glass pick up the rest.
+  const canopyGroup = new THREE.Group();
+  canopyGroup.name = 'ibl:canopy';
+  group.add(canopyGroup);
+
+  const canopyDeepMat = new THREE.MeshBasicMaterial({ color: 0x0d1109 });
+  const canopyRimMat = new THREE.MeshBasicMaterial({ color: 0x2e2a14 });
+  /**
+   * The outer, thin part of a crown, where the sky comes through the leaves.
+   *
+   * Without it the layer is binary — full sky or full leaf — and so is the
+   * bonnet: measured, it came back with a quarter of its area at 173 and
+   * another quarter at 70 and almost nothing in between, which is a stencil,
+   * not shade. The photograph's bonnet is graded, half of it lying between 95
+   * and 145, because a real crown has an opaque core and a ragged skirt and a
+   * panel sees both. `depthWrite: false` so overlapping skirts compound the
+   * way overlapping foliage does.
+   */
+  const canopyVeilMat = new THREE.MeshBasicMaterial({
+    color: 0x0d1109, transparent: true, opacity: 0.55, depthWrite: false,
+  });
+  const leaves: Array<{
+    mesh: THREE.Mesh; ux: number; uy: number; uz: number;
+    rank: number; open: number; veil: boolean;
+  }> = [];
+
+  let cseed = 0x0a17d1;
+  const crnd = (): number => {
+    cseed = (cseed * 1103515245 + 12345) & 0x7fffffff;
+    return cseed / 0x7fffffff;
+  };
+
+  /**
+   * Fraction of the sky the planting stands in front of, over the kerb it
+   * grows on and over the open carriageway. Half of it is skirt rather than
+   * core, so what a panel actually sees through is
+   * `(1 − cover) + cover · VEIL_FRAC · (1 − opacity)`, which at these two
+   * numbers is 0.29 and 0.77.
+   *
+   * Both were read off the photograph rather than chosen. Inverting the tone
+   * curve on the bonnet's left and right thirds — 83 and 159 against the 170
+   * this render gives under an open sky — asks for transmissions of 0.29 and
+   * 0.79, and the mid third then lands at 130 against a measured 128.
+   */
+  const COVER_KERB = 0.86;
+  const COVER_ROAD = 0.24;
+  /** How much of the layer is skirt rather than opaque core. */
+  const VEIL_FRAC = 0.5;
+
+  const EL_LO = 10 * (Math.PI / 180);
+  const EL_HI = 84 * (Math.PI / 180);
+  /** 7.5°–13° of angular radius; mean solid angle of one lobe, steradians. */
+  const ANG_LO = 0.13;
+  const ANG_HI = 0.23;
+  const LOBE_SA = 2 * Math.PI * (1 - Math.cos((ANG_LO + ANG_HI) / 2));
+  /** Solid angle of the band the layer occupies. */
+  const BAND_SA = 2 * Math.PI * (Math.sin(EL_HI) - Math.sin(EL_LO));
+  /**
+   * Candidate directions, sampled uniformly in solid angle and then kept with
+   * the probability the coverage at that direction asks for.
+   *
+   * A cell grid with one lobe per cell was the obvious thing and it silently
+   * put a ceiling on the answer: a lobe subtends about 1.7 cells near the
+   * horizon, so "every cell filled" is a coverage of 0.82 and no request above
+   * that can be met. Half the layer then became skirt rather than core and the
+   * opaque coverage quietly halved with it — the bonnet went back to 171,
+   * which is where it started. Sampling by density has no such ceiling.
+   */
+  const CANDIDATES = 520;
+  for (let i = 0; i < CANDIDATES; i++) {
+    // x = sin(a), z = cos(a): a = 0 is ahead of the car (towards the camera),
+    // a = ±π/2 is the two kerbs.
+    const a = crnd() * Math.PI * 2;
+    const el = Math.asin(Math.sin(EL_LO) + crnd() * (Math.sin(EL_HI) - Math.sin(EL_LO)));
+    const ce = Math.cos(el);
+    const ux = Math.sin(a) * ce;
+    const uz = Math.cos(a) * ce;
+    const uy = Math.sin(el);
+
+    // The asymmetry is the whole point and it is measurable. The planting is
+    // on the near kerb at −x; the far carriageway at +x is open sky, which is
+    // why the photograph's bonnet runs 83 on one side and 159 on the other. A
+    // canopy that closed the sky evenly would take the bonnet's mean down and
+    // its *variance* with it, which is a lens cap, not shade.
+    const openAz = THREE.MathUtils.smoothstep(Math.sin(a), -0.85, 0.85);
+    // Azimuth stops meaning anything overhead: a direction eighty degrees up
+    // is not over one kerb or the other, it is simply under the crowns. So the
+    // kerb/carriageway split fades out towards the zenith rather than the
+    // *coverage* fading out — which is what the first version did, on the
+    // theory that a street planting is a band over its kerb. It is not, here:
+    // the photograph's windscreen carries big dark tree reflections and
+    // measures 81 with a tenth of it below 28, and a windscreen at 60° of rake
+    // mirrors 59° of elevation. Thinning the zenith left it at 118 with
+    // nothing below 66 — a clean mirror of an empty sky.
+    const toZenith = THREE.MathUtils.smoothstep(uy, 0.55, 0.95);
+    const open = THREE.MathUtils.lerp(openAz, 0.12, toZenith);
+    const cover = Math.min(COVER_KERB * (1 - open) + COVER_ROAD * open, 0.97);
+
+    // Lobes dropped at random cover `1 − exp(−λ · lobeΩ)` of a direction, so
+    // the density the asked-for coverage needs is `−ln(1 − cover) / lobeΩ`,
+    // and a uniform candidate standing for `bandΩ / CANDIDATES` of sky is kept
+    // with that density times its own share.
+    if (crnd() > (-Math.log(1 - cover) / LOBE_SA) * (BAND_SA / CANDIDATES)) continue;
+
+    // Depth in the layer, so the crowns overlap raggedly instead of sitting on
+    // one shell — a shell reads as a dome, and a dome has a visible edge.
+    const ang = ANG_LO + crnd() * (ANG_HI - ANG_LO);
+    const dist = 17 + crnd() * 19;
+    const lobe = new THREE.Mesh(canopyGeo, canopyDeepMat);
+    lobe.position.set(PROBE.x + ux * dist, PROBE.y + uy * dist, PROBE.z + uz * dist);
+    lobe.scale.set(dist * ang, dist * ang * 0.74, dist * ang);
+    lobe.rotation.set(crnd() * 3, crnd() * 3, crnd() * 3);
+    canopyGroup.add(lobe);
+    leaves.push({ mesh: lobe, ux, uy, uz, rank: crnd(), open: openAz, veil: crnd() < VEIL_FRAC });
+  }
+
   const sky = new THREE.Color();
   const sun = new THREE.Color();
   const tint = new THREE.Color();
@@ -342,6 +513,21 @@ function buildStreet(): Furniture {
   const LEAF_T = 0.1;
   /** Bark. */
   const BARK = 0.11;
+
+  /**
+   * How much sky a leaf on the underside of a crown can still see past its own
+   * neighbours and the mass above it. This is the number that makes a canopy a
+   * canopy: the lobes here are convex shells with nothing inside them, and left
+   * to collect the whole hemisphere they render at the sky's own brightness.
+   */
+  const CANOPY_SKY_VIS = 0.16;
+  /** Diffuse sky that comes down *through* the leaf layer rather than off it. */
+  const CANOPY_TRANSMIT = 0.075;
+  /** Foliage in late-summer leaf, as a multiplier on whatever is lighting it. */
+  const CANOPY_TINT = new THREE.Color(0.62, 0.8, 0.42);
+  /** What the low sun does to the crowns it grazes: transmitted, so gold. */
+  const CANOPY_GOLD = new THREE.Color(1.0, 0.8, 0.42);
+  const bakedSky = new THREE.Color();
 
   return {
     group,
@@ -429,6 +615,62 @@ function buildStreet(): Furniture {
         sky,
         BARK * 0.45,
       );
+
+      // --- and the canopy overhead -----------------------------------------
+      //
+      // Derived against `bakedSkyRadiance`, not `skyRadiance` — see the note
+      // on those two. What is being set here is a *contrast ratio* against the
+      // sky inside the same cubemap, and that ratio is what the photograph
+      // measures: canopy 50 against an open sky of 200.
+      const density = preset.canopy ?? 0;
+      canopyGroup.visible = density > 0;
+      if (density > 0) {
+        bakedSkyRadiance(preset, bakedSky);
+        // Two terms, and keeping them apart is what keeps the bonnet *cool*.
+        //
+        // Only the first is leaf-coloured: it is sky light that has bounced
+        // off a leaf, so it carries the leaf's green. The second has come
+        // straight down between the leaves and is still sky — and it is the
+        // larger of the two, which is why a canopy photographs as a dark
+        // blue-grey rather than as a green one. Tinting both turned the
+        // bonnet olive: (105, 87, 62) against the photograph's (91, 111, 134),
+        // the red/blue order inverted.
+        canopyDeepMat.color.copy(bakedSky).multiplyScalar(CANOPY_TRANSMIT);
+        addScaled(
+          canopyDeepMat.color,
+          tint.copy(bakedSky).multiply(CANOPY_TINT),
+          LEAF * CANOPY_SKY_VIS,
+        );
+        // The rim, and it is a *fringe*, not a face test.
+        //
+        // The obvious test — "we see this lobe's inward face, so it is lit
+        // when the sun is on that face" — is the one the roadside row uses and
+        // it is wrong for a canopy the probe is standing underneath. It made
+        // every lobe dead aft of the car gold, because the sun's azimuth is
+        // 125° away from aft and so its light does fall on the face turned
+        // towards us; and dead aft is precisely what the bonnet mirrors, so
+        // the bonnet came back at (110, 95, 83) against the photograph's
+        // (91, 111, 134) — the red/blue order inverted.
+        //
+        // What that test leaves out is everything in the way. At 11.5° the
+        // beam arrives almost horizontally, so to reach a crown inside this
+        // layer it has to cross forty metres of the same layer first, and the
+        // layer is 84 % closed on the side it is coming from. Only the crowns
+        // standing out in the thin part of the planting see the sun at all.
+        addScaled(
+          canopyRimMat.color.copy(sun).multiply(CANOPY_GOLD).multiplyScalar((LEAF / Math.PI) * eWall * 0.55),
+          canopyDeepMat.color,
+          1,
+        );
+        canopyVeilMat.color.copy(canopyDeepMat.color);
+        for (const l of leaves) {
+          l.mesh.visible = l.rank < density;
+          const faceLit = -(l.ux * sunDir.x + l.uy * sunDir.y + l.uz * sunDir.z);
+          l.mesh.material = faceLit > 0.15 && l.open > 0.45
+            ? canopyRimMat
+            : l.veil ? canopyVeilMat : canopyDeepMat;
+        }
+      }
     },
   };
 }
@@ -634,7 +876,17 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
       (0.55 * skyCol.b + 0.12 * shadeMul.b) / Math.max(skyCol.b + shadeMul.b, 1e-4),
     );
     groundUniforms.uShadeMul.value.copy(shadeMul);
-    groundUniforms.uCanopy.value = preset.dapple;
+    // `canopy`, not `dapple`, and the two have parted company on purpose.
+    //
+    // `dapple` is the gobo's strength on the road the car *stands* on, and it
+    // was cut from 0.88 to 0.45 when the grove started casting a real shadow
+    // over that road — inside the sun's frustum the two were compounding. But
+    // nothing casts a shadow in *here*: this proxy road is a shader on a disc
+    // in a scene with no lights in it at all. Left on `dapple` it came back
+    // 0.43 of a stop brighter than the road in front of the bumper, and since
+    // the lower half of every horizontal panel's reflection lobe is made of
+    // it, that arrived on the bonnet as warm fill.
+    groundUniforms.uCanopy.value = preset.canopy ?? preset.dapple;
 
     scene.updateMatrixWorld(true);
 

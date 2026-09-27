@@ -14,7 +14,7 @@
  *   node tools/shoot.mjs --out=renders/round3     # where to write
  *   node tools/shoot.mjs --w=2560 --h=1440        # resolution
  *   node tools/shoot.mjs --env=dusk --nolabel     # environment preset
- *   node tools/shoot.mjs --mask                   # also write <view>_mask.png
+ *   node tools/shoot.mjs --mask                   # also write <view>_{mask,paint}.png
  *
  * Exit code is non-zero if the page threw, so a loop can detect breakage.
  */
@@ -182,11 +182,13 @@ for (const name of wanted) {
   // is the only way its per-car readings mean what they say — see
   // `setMaskMode` in main.ts.
   if (MASK.has(name)) {
-    await page.evaluate(() => globalThis.__AUDI?.setMaskMode?.(true));
-    await page.evaluate(() => globalThis.__AUDI?.settle?.(8));
-    await page.waitForTimeout(350);
-    await page.screenshot({ path: resolve(OUT, `${name}_mask.png`), type: 'png' });
-    await page.evaluate(() => globalThis.__AUDI?.setMaskMode?.(false));
+    for (const [mode, suffix] of [['car', 'mask'], ['paint', 'paint']]) {
+      await page.evaluate((m) => globalThis.__AUDI?.setMaskMode?.(m), mode);
+      await page.evaluate(() => globalThis.__AUDI?.settle?.(8));
+      await page.waitForTimeout(350);
+      await page.screenshot({ path: resolve(OUT, `${name}_${suffix}.png`), type: 'png' });
+    }
+    await page.evaluate(() => globalThis.__AUDI?.setMaskMode?.('off'));
     await page.evaluate(() => globalThis.__AUDI?.settle?.(24));
     await page.waitForTimeout(450);
   }
