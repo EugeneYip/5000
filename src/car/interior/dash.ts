@@ -20,20 +20,31 @@
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { HP } from '@/car/hardpoints';
-import { CABIN, TONE, screenY, softMin } from './layout';
+import { CABIN, PACK, TONE, packSection, packSightline, screenY, softMin } from './layout';
 import type { StaticBatch } from './batch';
 import {
-  clamp, cyl, D2R, fbm, lerp, merge, mesh, mirrored, roundedBox, slab, smoothstep, surface, type Vec3,
+  clamp, cyl, fbm, lerp, merge, mesh, mirrored, roundedBox, slab, smoothstep, surface, type Vec3,
 } from './util';
 
 const DX = HP.interior.steeringCenter[0];
 const FRONT_Z = CABIN.dashFrontZ;
 
+/**
+ * How far the hood reaches back over the dial face.
+ *
+ * It was 138 mm, which put the lip 44 mm above a face it overhung by more
+ * than its own height — a lid, not a hood. A real C3's projects nearer 70 mm.
+ */
+const HOOD_REACH = 0.070;
+
+/** Air the hood's ceiling keeps above the driver's sightline at the lip. */
+const HOOD_CLEAR = 0.0066;
+
 type P2 = [number, number];
 
 /** Nothing on the dash top may reach the glass; it has to run out beneath it. */
-function underScreen(z: number, y: number): number {
-  return softMin(y, screenY(z) - 0.013, 0.012);
+function underScreen(z: number, y: number, gap = 0.013, k = 0.012): number {
+  return softMin(y, screenY(z) - gap, k);
 }
 
 /** Plain section, (z, y), windscreen → under-dash. 36 stations. */
@@ -63,40 +74,103 @@ function plainSection(): P2[] {
 }
 
 /**
- * Binnacle section: over the hood, down its rear lip, forward along the
- * cavity ceiling, down the bezel, then back out under the cluster.
+ * Binnacle section: up the brow, back along the crown to the rear lip,
+ * forward again along the hood's ceiling onto the top of the instrument
+ * pack's rim, then down *behind* the pack and out underneath it.
+ *
+ * Two rules, and the section exists to obey them:
+ *
+ * 1. **Nothing in it may pass in front of the pack.** The previous version
+ *    ran its "bezel" 10 mm in front of the dial face — and because this is a
+ *    loft with no hole in it, that was not a bezel, it was a wall across the
+ *    whole binnacle. It is what the 8–12/255 "cluster" in `renders/dash3`
+ *    actually was: the dash pad, with the odometer reset knob poking through
+ *    it. The run past the pack is therefore struck from `packSection()` on
+ *    the far side of the print, where the pack's own rim covers the joint.
+ *
+ * 2. **Nothing in it may cross the driver's line of sight to the pack.**
+ *    `packSightline()` is that line, struck from `DRIVER_EYE` through the
+ *    top-front corner of the rim — the pack's silhouette edge. The ceiling
+ *    leaves from that exact corner and climbs away from the line all the way
+ *    back to the lip, so the margin only ever grows.
+ *
+ * The brow runs close to the windscreen where it passes over the pack: see
+ * `BROW_GAP`.
  */
+
+/**
+ * Standoff the brow keeps from the windscreen, against the 13 mm the rest of
+ * the dash top keeps.
+ *
+ * Not a liberty — a consequence. `HP.interior.clusterCenter` at y 1.032 puts
+ * the pack's own rim 10 mm under the screen chord, so a hood that meets the
+ * top of that rim, as any hood must, cannot also stay 13 mm clear. The chord
+ * is the conservative reading of a screen that is really bowed outward, and
+ * the surface this applies to is a dark moulding a centimetre under dark
+ * glass. Reported with the stream: 1.032 is ~15 mm high for this package.
+ */
+const BROW_GAP = 0.004;
+
 function binnacleSection(): P2[] {
   const p: P2[] = [];
-  // Over the hood. It crests above the lens and its rear rim curls down to a
-  // thin lip, which is what shades the glass from the windscreen.
-  const CREST = 1.1005;
-  const LIP_Z = -0.7130;
-  for (let i = 0; i < 12; i++) {
-    const s = i / 11;
-    const up = smoothstep(0, 0.58, s);
-    const down = smoothstep(0.62, 1.0, s);
-    const z = lerp(FRONT_Z, LIP_Z, s);
-    p.push([z, underScreen(z, lerp(1.0468, CREST, up) - down * 0.0240)]);
+
+  // The pack's silhouette edge: top-front corner of the rim. Everything the
+  // hood does is measured from here.
+  const [rimZ, rimY] = packSection(PACK.halfH + PACK.rim, PACK.rimDepth);
+  const LIP_Z = PACK.centre[2] - HOOD_REACH;
+  const CEIL_LIP = packSightline(LIP_Z) + HOOD_CLEAR;
+  const CEIL_RIM = rimY + 0.0020;
+  const BROW_RIM = rimY + 0.0045;
+  const LIP_Y = CEIL_LIP + 0.0045;
+
+  // -- the brow, 12 stations ------------------------------------------------
+  // Stations are bunched where the section turns: the leading face climbs out
+  // of the dash top over the 60 mm just forward of the pack, and one station
+  // lands on `rimZ` so the crown starts exactly where the pack ends.
+  const TOE_Z = rimZ + 0.060;
+  const at = [0, 0.10, 0.21, 0.32, 0.43, 0.52, 0.61, 0.69, 0.77, 0.85, 0.93, 1];
+  for (const t of at) {
+    const z = lerp(FRONT_Z, LIP_Z, t);
+    const onPad = z >= TOE_Z;
+    const y = onPad
+      ? 1.0468
+      : z >= rimZ
+        ? lerp(1.0468, BROW_RIM, smoothstep(0, 1, (TOE_Z - z) / (TOE_Z - rimZ)))
+        : lerp(BROW_RIM, LIP_Y, (rimZ - z) / (rimZ - LIP_Z));
+    p.push([z, onPad ? underScreen(z, y) : underScreen(z, y, BROW_GAP, 0.004)]);
   }
-  const lip: P2[] = [
-    [LIP_Z - 0.0034, 1.0645], [LIP_Z - 0.0044, 1.0600],
-    [LIP_Z - 0.0018, 1.0568], [LIP_Z + 0.0042, 1.0558], [LIP_Z + 0.0108, 1.0570],
-  ];
-  p.push(...lip);
-  // Cavity ceiling, running forward to just above the top of the lens.
+
+  // -- the lip, 5 stations --------------------------------------------------
+  // The rear rim rolls back and under to a thin edge; this is the one part of
+  // the hood the driver sees end-on.
+  p.push(
+    [LIP_Z - 0.0028, LIP_Y - 0.0010],
+    [LIP_Z - 0.0040, LIP_Y - 0.0026],
+    [LIP_Z - 0.0030, CEIL_LIP + 0.0006],
+    [LIP_Z + 0.0002, CEIL_LIP],
+    [LIP_Z + 0.0050, CEIL_LIP - 0.0016],
+  );
+
+  // -- the ceiling, 6 stations ----------------------------------------------
+  // Straight from the lip onto the rim. Its slope is steeper than the
+  // sightline's, so clearance is least where they meet and grows from there.
   for (let i = 1; i <= 6; i++) {
     const s = i / 6;
-    p.push([lerp(LIP_Z + 0.0108, -0.5540, s), lerp(1.0570, 1.0965, s ** 0.8)]);
+    p.push([lerp(LIP_Z + 0.0050, rimZ, s), lerp(CEIL_LIP - 0.0016, CEIL_RIM, s)]);
   }
-  // Down the bezel, parallel to the lens.
-  const tilt = 16 * D2R;
-  for (let i = 1; i <= 6; i++) {
-    const h = lerp(0.0565, -0.0575, i / 6);
-    p.push([-0.575 + Math.sin(tilt) * h - 0.0100, 1.032 + Math.cos(tilt) * h]);
+
+  // -- the aperture, 6 stations ---------------------------------------------
+  // Over the top of the rim, then straight down 1.5 mm behind the print. The
+  // pack is 16 mm proud of this, so from the eye — which is on the face
+  // normal — the rim covers the joint exactly.
+  const hTop = PACK.halfH + PACK.rim;
+  p.push(packSection(hTop, 0.0010));
+  for (let i = 0; i < 5; i++) {
+    p.push(packSection(lerp(hTop - 0.004, -hTop, i / 4), -0.0015));
   }
-  const outZ = -0.575 + Math.sin(tilt) * -0.0575 - 0.0100;
-  const outY = 1.032 + Math.cos(tilt) * -0.0575;
+
+  // -- out under the cluster to the fascia, 7 stations -----------------------
+  const [outZ, outY] = packSection(-hTop, -0.0015);
   const fz = (y: number): number => -0.7125 + (1.028 - y) * CABIN.fasciaRake;
   for (let i = 1; i <= 7; i++) {
     const s = i / 7;
@@ -115,6 +189,13 @@ function dashHalfW(v: number): number {
 function buildMoulding(): THREE.BufferGeometry {
   const plain = plainSection();
   const binn = binnacleSection();
+  // The loft lerps the two sections station for station, so they have to be
+  // the same length. The binnacle is now five blocks with hand-set counts and
+  // getting one of them wrong throws out of `surface()` with nothing that
+  // points back here.
+  if (plain.length !== binn.length) {
+    throw new Error(`dash: ${plain.length} plain stations vs ${binn.length} binnacle`);
+  }
   const NV = plain.length - 1;
   const NU = 100;
 

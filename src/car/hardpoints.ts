@@ -378,9 +378,42 @@ export const HP = {
   interior: {
     /** Driver's hip point — everything in the cabin is laid out from here. */
     hipPointDriver: [-0.372, 0.612, -1.145] as [number, number, number],
+    /**
+     * OPEN: 0.938 is a local MINIMUM for how much of the instrument pack the
+     * driver can see. With `steeringDiameter` 0.385 the rim's annulus projects
+     * onto the print across the upper third of both main dials — most of the
+     * speedometer scale — and its side arcs cross the temperature and fuel
+     * gauges. Sweeping hub height alone, fraction of the print with line of
+     * sight from (−0.372, 1.27, −1.22):
+     *
+     *     0.898 → 0.728   0.918 → 0.667   0.938 → 0.617   0.958 → 0.691
+     *     0.968 → 0.778   0.978 → 0.802   0.988 → 0.827
+     *
+     * So ±40 mm recovers 11–21 points. But 0.988 puts the wheel's top rim at
+     * 1.164, above the binnacle brow crest at 1.128, which is wrong for this
+     * car. It is the wheel/cluster/eye triangle rather than the wheel alone,
+     * and settling it needs a measurement off a real C3 interior, not more
+     * arithmetic against our own geometry.
+     */
     steeringCenter: [-0.372, 0.938, -0.735] as [number, number, number],
     steeringDiameter: 0.385,
     steeringTiltDeg: 24,
+    /**
+     * OPEN: this may be ~15 mm high, and the steering centre below may be at a
+     * local worst against it. Both are measurements taken from inside the
+     * model, so neither is evidence about the real car — recorded here rather
+     * than acted on.
+     *
+     * At y 1.032 the pack's own rim top-front corner lands at (−0.5675,
+     * 1.0985), which is 10 mm under the windscreen chord at that station
+     * (1.1088). Any binnacle hood has to meet the top of that rim, so the brow
+     * cannot also hold the 13 mm standoff the rest of the dash top keeps; it
+     * is held to 4 mm over the ~25 mm where it passes the pack, minimum
+     * measured clearance 7 mm. Invisible in `front3q` (dark moulding under
+     * dark glass) and the straight chord understates a bowed screen, but it is
+     * a compromise this number forced. 1.018 would let the brow keep 13 mm
+     * everywhere.
+     */
     clusterCenter: [-0.372, 1.032, -0.575] as [number, number, number],
     dashTopY: 1.055,
     dashFrontZ: -0.395,

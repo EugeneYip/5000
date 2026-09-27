@@ -16,6 +16,7 @@
 import { BODY, TRIM_COLORS } from '@/spec';
 import { HP } from '@/car/hardpoints';
 import { T, halfWidthAt, heightAt, tAtY, topAt } from '@/car/body/surface';
+import { FACE } from './dials';
 
 const I = HP.interior;
 
@@ -109,6 +110,77 @@ export function softMin(a: number, b: number, k = 0.010): number {
 /** Where the fascia face sits at a given height. */
 export function fasciaZ(y: number): number {
   return CABIN.dashRearZ + (CABIN.dashTopY - y) * CABIN.fasciaRake;
+}
+
+// ---------------------------------------------------------------------------
+// The driver's eye, and the instrument pack it has to see
+// ---------------------------------------------------------------------------
+
+/**
+ * A seated driver's eye.
+ *
+ * Hip point plus 658 mm — SAE sitting eye height, seat at mid travel — and
+ * 75 mm behind it. This is a *constraint*, not a camera: it is the point from
+ * which every instrument and legend in the car has to be readable, and the
+ * binnacle hood was built without one. A 5 × 5 raycast grid over the cluster
+ * scored **0.00 from this point at every distance**, because the hood's rear
+ * lip overhung 138 mm back from the dial face while sitting 44 mm above it.
+ * Anything that reaches over the pack is now struck against this point first.
+ */
+export const DRIVER_EYE: readonly [number, number, number] = [
+  I.hipPointDriver[0],
+  I.hipPointDriver[1] + 0.658,
+  I.hipPointDriver[2] - 0.075,
+];
+
+/**
+ * The instrument pack, as both the module that builds it and the dash
+ * moulding that has to leave an aperture for it see it.
+ *
+ * It lives here because the moulding used to carry its own copy of the
+ * centre, the rake and the bezel offset — and that copy put a solid lofted
+ * wall 10 mm *in front of* the dial face, right across the binnacle. That
+ * wall, not a lighting fault, is what the 8–12/255 "cluster" in the `dash`
+ * render actually was.
+ */
+export const PACK = {
+  centre: I.clusterCenter,
+  /**
+   * Face rake. Struck so the print is square to `DRIVER_EYE`: read head-on,
+   * with the lens throwing its one hard reflection at the header rail rather
+   * than back at the driver. The old fixed 16° was solved against a 1.24 m
+   * eye and is 4° shallow for a 1.27 m one.
+   */
+  rake: Math.atan2(
+    DRIVER_EYE[1] - I.clusterCenter[1],
+    I.clusterCenter[2] - DRIVER_EYE[2],
+  ),
+  halfW: FACE.w / 2000,
+  halfH: FACE.h / 2000,
+  /** Surround: how far the rim stands outside the print, and how far proud. */
+  rim: 0.006,
+  rimDepth: 0.016,
+} as const;
+
+/**
+ * World (z, y) on the driver's centreline of a point on the pack's face plane
+ * at local height `h`, displaced `d` along the face normal — **positive `d` is
+ * toward the driver**. `packSection(halfH + rim, rimDepth)` is therefore the
+ * pack's silhouette edge, which is where the hood's ceiling has to land.
+ */
+export function packSection(h: number, d = 0): [number, number] {
+  const s = Math.sin(PACK.rake);
+  const c = Math.cos(PACK.rake);
+  return [PACK.centre[2] + s * h - c * d, PACK.centre[1] + c * h + s * d];
+}
+
+/**
+ * Height of the driver's sightline to the pack's silhouette edge at station
+ * `z`. Nothing between the eye and the pack may sit below this line.
+ */
+export function packSightline(z: number): number {
+  const [rz, ry] = packSection(PACK.halfH + PACK.rim, PACK.rimDepth);
+  return ry + ((ry - DRIVER_EYE[1]) / (rz - DRIVER_EYE[2])) * (z - rz);
 }
 
 /** Inner trim half-width at a height — the body tumbles home above the belt. */

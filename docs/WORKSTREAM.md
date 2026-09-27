@@ -69,6 +69,13 @@ replaced was selecting 57 % of the frame, so every per-car number the gate
 printed for several rounds was a whole-scene number, and the two constants it
 compared against were invented. Details in `docs/REFERENCE-PHOTO.md` § Tone.
 
+**Probe the surface you care about, not the bounding box around it.** A grid
+search over the instrument pack sampled the front plane of
+`__AUDI.bbox('cluster')` — which is the front of a 16 mm surround, about 5 mm
+proud of the wall that was actually covering the dials — and reported the pack
+64 % visible when it was 0 % visible from every camera position at every
+height. The bounds of a part are not the part.
+
 **Then open the PNGs with the Read tool and actually look at them.** Judge
 them with your own eyes against real reference photographs of the car, which
 you should fetch with WebSearch/WebFetch. Iterate. Never report success from
@@ -87,6 +94,10 @@ export PATH="/Library/Developer/CommandLineTools/usr/bin:$PATH"
 
 **Do not commit or push.** Leave your files in the working tree; the lead
 integrates and commits. Committing concurrently will conflict.
+
+**Namespace your scratch files.** The session scratchpad is shared between
+every stream running at once, not per-stream. Two streams both wrote
+`probe.mjs` and one silently replaced the other's mid-round. Prefix yours.
 
 ## House style
 

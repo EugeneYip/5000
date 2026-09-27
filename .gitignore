@@ -4,3 +4,5 @@ dist/
 *.log
 renders/
 .vite/
+scratchpad/
+__pycache__/

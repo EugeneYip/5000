@@ -13,15 +13,12 @@
 import * as THREE from 'three';
 import type { BuildContext, VehicleState } from '@/types';
 import { ENGINE } from '@/spec';
-import { HP } from '@/car/hardpoints';
-import { TONE } from './layout';
+import { PACK, TONE } from './layout';
 import { ARROWS, DIALS, FACE, SPEEDO_MAX, SWEEP, TACHO_MAX, drawCluster, shortSweep, tileCentre } from './dials';
 import { canvasTexture, createLens } from './printed';
 import { clamp, cyl, D2R, lerp, merge, mesh } from './util';
 
-const C = HP.interior.clusterCenter;
-/** Face rake: square to the driver's eye, which sits 16 degrees above it. */
-const RAKE = 16;
+const C = PACK.centre;
 const MPS_TO_MPH = 2.2369362920544;
 
 /** Face millimetres to cluster-local metres. */
@@ -95,7 +92,9 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
   const group = new THREE.Group();
   group.name = 'cluster';
   group.position.set(C[0], C[1], C[2]);
-  group.rotation.x = RAKE * D2R;
+  // Square to the driver's eye — see `PACK.rake`. The dash moulding builds its
+  // aperture from the same number, so the two cannot drift apart.
+  group.rotation.x = PACK.rake;
 
   const art = drawCluster();
   const faceTex = canvasTexture(art.face, ctx.renderer);
@@ -104,27 +103,37 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
    * The dial print, from the library rather than a local `MeshStandardMaterial`
    * — which was outside the registry, so `setEnvMap` never reached it.
    *
-   * `specularIntensity` is the cavity correction, and this is the case it was
-   * added for. The face sits at the back of the binnacle: its mouth is the
-   * hood lip at z −0.713 and the lower bezel edge at y 0.977, 138 mm away and
-   * 79 mm of aperture across a 160 mm-wide cluster. The cosine-weighted form
-   * factor of that rectangle is 0.167 of the hemisphere, and what fills the
-   * other 0.83 is the hood's own matte black interior at perhaps 5 % — so the
-   * print is lit by about 0.2 of open sky. Nothing in the renderer knows that:
-   * interior meshes do not cast shadows (`Car` opts them out), and GTAO runs at
-   * half resolution behind a six-pixel denoise. Without this the dial blacks
-   * sit at the 4 % Fresnel floor as if they faced the sky, which on a cluster
-   * you look *into* is the difference between print and painted-on grey.
+   * `specularIntensity` and `envMapIntensity` were both solved against a
+   * binnacle that does not exist any more, and are back to something like
+   * physical here.
    *
-   * It is not doubling for an albedo knob, and the one hard reflection the
-   * pack does have is not lost — it comes off the lens a centimetre in front.
+   * The old figures — 0.2 and 0.35 — were struck from a mouth "138 mm away
+   * and 79 mm of aperture", a form factor of 0.167 of the hemisphere. That
+   * described the *fault*: `dash.ts` was running a solid lofted wall 10 mm in
+   * front of this print, so the print was not in a deep cavity, it was in a
+   * closed box, and the correction was measuring the box. With the aperture
+   * cut and the hood pulled back to 70 mm the print sees the cabin across the
+   * whole of its own outline, so the specular lobe goes back to 1 — the
+   * physical 4 % Fresnel floor of any dielectric — and there is no occlusion
+   * left for it to stand in for.
+   *
+   * `envMapIntensity` at 0.95 is the one number here that is still a stand-in.
+   * What this face really sees is a dark cabin lit by daylight through the
+   * screen, and the renderer has no interior bounce at all: the env map is the
+   * outdoor IBL, so a physically-honest fraction of it would leave the dials
+   * black for want of the bounce that is missing. Judged the way the brief
+   * asks — dim but plainly legible, numbers readable, needles with form,
+   * warning symbols visible — rather than derived.
+   *
+   * The one hard reflection the pack has is not from here; it comes off the
+   * lens a centimetre in front.
    */
   const faceMat = ctx.materials.printed(faceTex, {
     roughness: 0.74,
     emissiveMap: litTex,
     emissive: 0xffffff,
-    envMapIntensity: 0.35,
-    specularIntensity: 0.2,
+    envMapIntensity: 0.95,
+    specularIntensity: 1,
   }) as THREE.MeshPhysicalMaterial;
 
   // The printed face. Built facing +Z then turned about Y, which puts the
@@ -138,20 +147,25 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
 
   // Surround and the two dial bezels, standing off the face.
   const trim: THREE.BufferGeometry[] = [];
+  // The rim is also the aperture: the dash moulding's binnacle section runs
+  // down 1.5 mm behind the print and stops at exactly this outline, so the
+  // rim is what covers the joint. Both read `PACK`.
+  const OW = PACK.halfW + PACK.rim;
+  const OH = PACK.halfH + PACK.rim;
   const surround = new THREE.Shape();
-  surround.moveTo(-lw(FACE.w) / 2 - 0.006, -lw(FACE.h) / 2 - 0.006);
-  surround.lineTo(lw(FACE.w) / 2 + 0.006, -lw(FACE.h) / 2 - 0.006);
-  surround.lineTo(lw(FACE.w) / 2 + 0.006, lw(FACE.h) / 2 + 0.006);
-  surround.lineTo(-lw(FACE.w) / 2 - 0.006, lw(FACE.h) / 2 + 0.006);
+  surround.moveTo(-OW, -OH);
+  surround.lineTo(OW, -OH);
+  surround.lineTo(OW, OH);
+  surround.lineTo(-OW, OH);
   surround.closePath();
   surround.holes.push(new THREE.Path().setFromPoints([
-    new THREE.Vector2(-lw(FACE.w) / 2, -lw(FACE.h) / 2),
-    new THREE.Vector2(lw(FACE.w) / 2, -lw(FACE.h) / 2),
-    new THREE.Vector2(lw(FACE.w) / 2, lw(FACE.h) / 2),
-    new THREE.Vector2(-lw(FACE.w) / 2, lw(FACE.h) / 2),
+    new THREE.Vector2(-PACK.halfW, -PACK.halfH),
+    new THREE.Vector2(PACK.halfW, -PACK.halfH),
+    new THREE.Vector2(PACK.halfW, PACK.halfH),
+    new THREE.Vector2(-PACK.halfW, PACK.halfH),
   ]));
-  const sg = new THREE.ExtrudeGeometry(surround, { depth: 0.016, bevelEnabled: true, bevelSize: 0.0015, bevelThickness: 0.0015, bevelSegments: 1 });
-  sg.translate(0, 0, -0.016);
+  const sg = new THREE.ExtrudeGeometry(surround, { depth: PACK.rimDepth, bevelEnabled: true, bevelSize: 0.0015, bevelThickness: 0.0015, bevelSegments: 1 });
+  sg.translate(0, 0, -PACK.rimDepth);
   sg.computeVertexNormals();
   trim.push(sg);
 
