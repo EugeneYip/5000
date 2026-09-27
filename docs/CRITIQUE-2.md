@@ -64,9 +64,23 @@ The same surface orientation in the render:
 | **median of all 1483 mid-neutral (sat<0.30) patches on the flank** | | **63.8** |
 | RH front wing face in `photomatch` | `#595054` | 85 |
 
-**148 against 48–85.** Whole-car tonal histograms say the same thing: on the shaded
-side of `photomatch`, **17.7 % of the car's pixels fall below level 40**, against
-**3.2 %** in the photograph; the medians are 87 and 131.
+**148 against 48–85.** That measurement stands, and the fix that followed it was
+right: vertical faces now land within ΔRGB 10 of the photograph.
+
+> **The histogram sentence that used to follow it did not stand, and it did real
+> damage.** It read: *"on the shaded side of `photomatch`, 17.7 % of the car's
+> pixels fall below level 40, against 3.2 % in the photograph; the medians are
+> 87 and 131."* The pair is swapped. Both figures were taken through
+> `sheet.py`'s row-median car mask, and applied to the *photograph* that mask
+> selects 83 % of the frame — for which the photograph measures median 87 with
+> 17.5 % below 40, which is precisely what the sentence attributes to the
+> render. 131 and 3.2 % were the render's own numbers.
+>
+> Measured through a traced polygon, the photograph's car is **median 95 with
+> 11.5 % of it below 40**. So the target the project then spent three rounds
+> lifting towards was the number it started from. The flanks genuinely were two
+> stops dark and lifting them was correct; carrying on until the *whole car*
+> reached 131 was not, and it flattened the frame. See commit 18e8bfc.
 
 Cause is visible in the light rig: `sun i=6.0`, `hemi i=0.12`, `bounce i=0.42`,
 `rim i=0.28` — a **50 : 1** key-to-sky ratio. Open-sky golden hour on a boulevard is

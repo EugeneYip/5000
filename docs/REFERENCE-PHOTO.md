@@ -42,6 +42,31 @@ A render is only accepted as colour-correct when, posed and lit like the
 photograph (`--views=photomatch`), the fender face lands within ΔE 3 of
 `#92939b` and the hood shows the same sky-driven blue shift.
 
+## Tone
+
+What the car in the photograph actually measures, white-balanced, read through
+the polygon traced in `tools/sheet.py` (`PHOTO_CAR_POLY` — 17.8 % of the frame,
+car all the way through, checked by overlay):
+
+| | |
+|---|---|
+| median | **95** |
+| below 40 | **11.5 %** |
+| below 32 | 6.6 % |
+| above 224 | **10.3 %** |
+
+The shape matters more than any of those numbers. The photograph's car is
+**wide**: it holds deep shadow and clipped highlight in the same frame. The
+grille gaps are below 32 and the headlamps are above 224, thirty centimetres
+apart. A render that matches the median and misses both ends is not close —
+that is exactly the failure this project had, and a median moves for neither.
+
+Two earlier figures, "median 131" and "3.2 % below 40", appear in
+`docs/CRITIQUE-2.md` and were wired into `tools/sheet.py` as the acceptance
+target. Neither is in the photograph. Both came from a car mask that was
+selecting most of the frame, and the pair was swapped on top of that. Corrected
+in commit 18e8bfc.
+
 ## Licence plate
 
 Pennsylvania issue of the period: white face, dark navy characters, a thin

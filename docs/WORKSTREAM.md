@@ -59,6 +59,16 @@ Other streams are mid-edit in the same working tree. So:
 - To check just your own files:
   `npx tsc --noEmit 2>&1 | grep "^src/<your-directory>/"`
 
+`--mask` (on by default for `photomatch`) also writes `<view>_mask.png`, the
+car repainted flat magenta. `sheet.py` reads the car through that silhouette
+and prints a 16-bucket luminance histogram beside the photograph's. That
+printout is the scoreboard; the single `tone profile` figure at the top of it
+is the percentage of the car's pixels that would have to change bucket to
+match. **Do not calibrate lighting against anything else** — the mask this
+replaced was selecting 57 % of the frame, so every per-car number the gate
+printed for several rounds was a whole-scene number, and the two constants it
+compared against were invented. Details in `docs/REFERENCE-PHOTO.md` § Tone.
+
 **Then open the PNGs with the Read tool and actually look at them.** Judge
 them with your own eyes against real reference photographs of the car, which
 you should fetch with WebSearch/WebFetch. Iterate. Never report success from
