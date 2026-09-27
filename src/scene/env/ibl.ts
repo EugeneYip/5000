@@ -406,9 +406,19 @@ function buildStreet(): Furniture {
   const canopyVeilMat = new THREE.MeshBasicMaterial({
     color: 0x0d1109, transparent: true, opacity: 0.55, depthWrite: false,
   });
+  /**
+   * …and the same skirt when the sun is on it. Sunlight is a *lighting* state,
+   * not an opacity one: the previous version swapped a lit skirt for the
+   * opaque rim material, so half the layer silently stopped being skirt on
+   * whichever side the sun was, and the `VEIL_FRAC` calibration below only
+   * held on the shaded side.
+   */
+  const canopyRimVeilMat = new THREE.MeshBasicMaterial({
+    color: 0x2e2a14, transparent: true, opacity: 0.55, depthWrite: false,
+  });
   const leaves: Array<{
     mesh: THREE.Mesh; ux: number; uy: number; uz: number;
-    rank: number; open: number; veil: boolean;
+    rank: number; veil: boolean;
   }> = [];
 
   let cseed = 0x0a17d1;
@@ -433,6 +443,34 @@ function buildStreet(): Furniture {
   const COVER_ROAD = 0.24;
   /** How much of the layer is skirt rather than opaque core. */
   const VEIL_FRAC = 0.5;
+
+  /**
+   * Fraction of a direction the planting stands in front of. `sa` is the sine
+   * of the azimuth (−1 over the planted kerb, +1 over the open carriageway)
+   * and `uy` the sine of the elevation.
+   *
+   * Shared with the sun-reach calculation in `apply` below rather than written
+   * out twice, because the two have to agree: what shadows the *bonnet* and
+   * what shadows a *crown* are the same leaves.
+   */
+  const coverAt = (sa: number, uy: number): number => {
+    const openAz = THREE.MathUtils.smoothstep(sa, -0.85, 0.85);
+    // Azimuth stops meaning anything overhead: a direction eighty degrees up
+    // is not over one kerb or the other, it is simply under the crowns. So the
+    // kerb/carriageway split fades out towards the zenith rather than the
+    // *coverage* fading out — which is what the first version did, on the
+    // theory that a street planting is a band over its kerb. It is not, here:
+    // the photograph's windscreen carries big dark tree reflections and
+    // measures 81 with a tenth of it below 28, and a windscreen at 60° of rake
+    // mirrors 59° of elevation. Thinning the zenith left it at 118 with
+    // nothing below 66 — a clean mirror of an empty sky.
+    const open = THREE.MathUtils.lerp(openAz, 0.12, THREE.MathUtils.smoothstep(uy, 0.55, 0.95));
+    return Math.min(COVER_KERB * (1 - open) + COVER_ROAD * open, 0.97);
+  };
+
+  /** What gets through the layer along one radial crossing of it. */
+  const layerTransmit = (cover: number): number =>
+    (1 - cover) + cover * VEIL_FRAC * (1 - canopyVeilMat.opacity);
 
   const EL_LO = 10 * (Math.PI / 180);
   const EL_HI = 84 * (Math.PI / 180);
@@ -469,19 +507,7 @@ function buildStreet(): Furniture {
     // why the photograph's bonnet runs 83 on one side and 159 on the other. A
     // canopy that closed the sky evenly would take the bonnet's mean down and
     // its *variance* with it, which is a lens cap, not shade.
-    const openAz = THREE.MathUtils.smoothstep(Math.sin(a), -0.85, 0.85);
-    // Azimuth stops meaning anything overhead: a direction eighty degrees up
-    // is not over one kerb or the other, it is simply under the crowns. So the
-    // kerb/carriageway split fades out towards the zenith rather than the
-    // *coverage* fading out — which is what the first version did, on the
-    // theory that a street planting is a band over its kerb. It is not, here:
-    // the photograph's windscreen carries big dark tree reflections and
-    // measures 81 with a tenth of it below 28, and a windscreen at 60° of rake
-    // mirrors 59° of elevation. Thinning the zenith left it at 118 with
-    // nothing below 66 — a clean mirror of an empty sky.
-    const toZenith = THREE.MathUtils.smoothstep(uy, 0.55, 0.95);
-    const open = THREE.MathUtils.lerp(openAz, 0.12, toZenith);
-    const cover = Math.min(COVER_KERB * (1 - open) + COVER_ROAD * open, 0.97);
+    const cover = coverAt(Math.sin(a), uy);
 
     // Lobes dropped at random cover `1 − exp(−λ · lobeΩ)` of a direction, so
     // the density the asked-for coverage needs is `−ln(1 − cover) / lobeΩ`,
@@ -498,7 +524,7 @@ function buildStreet(): Furniture {
     lobe.scale.set(dist * ang, dist * ang * 0.74, dist * ang);
     lobe.rotation.set(crnd() * 3, crnd() * 3, crnd() * 3);
     canopyGroup.add(lobe);
-    leaves.push({ mesh: lobe, ux, uy, uz, rank: crnd(), open: openAz, veil: crnd() < VEIL_FRAC });
+    leaves.push({ mesh: lobe, ux, uy, uz, rank: crnd(), veil: crnd() < VEIL_FRAC });
   }
 
   const sky = new THREE.Color();
@@ -622,6 +648,10 @@ function buildStreet(): Furniture {
       // on those two. What is being set here is a *contrast ratio* against the
       // sky inside the same cubemap, and that ratio is what the photograph
       // measures: canopy 50 against an open sky of 200.
+      // TEMP-DEBUG knobs (remove before reporting)
+      const TUNE = ((globalThis as unknown as Record<string, Record<string, number>>).__IBL_TUNE) ?? {};
+      canopyVeilMat.opacity = TUNE.veilOpacity ?? 0.55;
+      canopyRimVeilMat.opacity = canopyVeilMat.opacity;
       const density = preset.canopy ?? 0;
       canopyGroup.visible = density > 0;
       if (density > 0) {
@@ -635,40 +665,57 @@ function buildStreet(): Furniture {
         // blue-grey rather than as a green one. Tinting both turned the
         // bonnet olive: (105, 87, 62) against the photograph's (91, 111, 134),
         // the red/blue order inverted.
-        canopyDeepMat.color.copy(bakedSky).multiplyScalar(CANOPY_TRANSMIT);
+        canopyDeepMat.color.copy(bakedSky).multiplyScalar(CANOPY_TRANSMIT * (TUNE.transmit ?? 1));
         addScaled(
           canopyDeepMat.color,
           tint.copy(bakedSky).multiply(CANOPY_TINT),
-          LEAF * CANOPY_SKY_VIS,
+          LEAF * CANOPY_SKY_VIS * (TUNE.skyVis ?? 1),
         );
-        // The rim, and it is a *fringe*, not a face test.
+        // The rim — sunlit foliage — and **how much sun there is to be lit by**.
         //
-        // The obvious test — "we see this lobe's inward face, so it is lit
-        // when the sun is on that face" — is the one the roadside row uses and
-        // it is wrong for a canopy the probe is standing underneath. It made
-        // every lobe dead aft of the car gold, because the sun's azimuth is
-        // 125° away from aft and so its light does fall on the face turned
-        // towards us; and dead aft is precisely what the bonnet mirrors, so
-        // the bonnet came back at (110, 95, 83) against the photograph's
-        // (91, 111, 134) — the red/blue order inverted.
+        // Two separate questions, and the previous version answered the second
+        // one backwards. Geometrically, the face of a crown turned towards the
+        // probe is sunlit when `-dot(u, sunDir) > 0`; that part is right and is
+        // kept. What it leaves out is everything in the way, and the guard it
+        // carried — "only lobes over the *open* side are lit" — selects exactly
+        // the wrong lobes: the sun is at −x, over the planted kerb, so a crown
+        // out over the open carriageway at +x has the whole seven-deep row
+        // between it and the sun, while the one guard value that mattered,
+        // dead aft, sits at `open` 0.50 and cleared a 0.45 threshold anyway.
         //
-        // What that test leaves out is everything in the way. At 11.5° the
-        // beam arrives almost horizontally, so to reach a crown inside this
-        // layer it has to cross forty metres of the same layer first, and the
-        // layer is 84 % closed on the side it is coming from. Only the crowns
-        // standing out in the thin part of the planting see the sun at all.
+        // Measured off the baked cubemap in the directions the bonnet's own
+        // pixels mirror (camera solved from `__AUDI.pick`, mean incidence 78°,
+        // clearcoat lobe at 22° of elevation aft): the gold rim was **40 % of
+        // what the bonnet reflects**, at R/B 2.12, and the layer's gold was all
+        // on the +x side. That is the whole of the inverted cast.
+        //
+        // So the gold is scaled by how much sun actually reaches a crown inside
+        // the layer: the layer's own transmittance along the sun's azimuth,
+        // raised to the plane-parallel air mass `1/sin(elevation)` because at a
+        // low sun the beam crosses the layer nearly horizontally and therefore
+        // many times over. Nothing is hand-set, and the five presets each get
+        // their own answer — at `goldenhour`'s 11.5° it comes out at 0.004 and
+        // the crowns are silhouettes, at `noon`'s 70° it is 0.37 and they are
+        // not.
+        const sunHoriz = Math.hypot(sunDir.x, sunDir.z);
+        const sunReach = Math.pow(
+          layerTransmit(coverAt(sunHoriz > 1e-4 ? sunDir.x / sunHoriz : 0, Math.max(sunDir.y, 0))),
+          Math.min(1 / Math.max(sunDir.y, 0.12), 8),
+        );
         addScaled(
-          canopyRimMat.color.copy(sun).multiply(CANOPY_GOLD).multiplyScalar((LEAF / Math.PI) * eWall * 0.55),
+          canopyRimMat.color.copy(sun).multiply(CANOPY_GOLD)
+            .multiplyScalar((LEAF / Math.PI) * eWall * 0.55 * sunReach),
           canopyDeepMat.color,
           1,
         );
         canopyVeilMat.color.copy(canopyDeepMat.color);
+        canopyRimVeilMat.color.copy(canopyRimMat.color);
         for (const l of leaves) {
           l.mesh.visible = l.rank < density;
-          const faceLit = -(l.ux * sunDir.x + l.uy * sunDir.y + l.uz * sunDir.z);
-          l.mesh.material = faceLit > 0.15 && l.open > 0.45
-            ? canopyRimMat
-            : l.veil ? canopyVeilMat : canopyDeepMat;
+          const lit = -(l.ux * sunDir.x + l.uy * sunDir.y + l.uz * sunDir.z) > 0.15;
+          l.mesh.material = l.veil
+            ? (lit ? canopyRimVeilMat : canopyVeilMat)
+            : (lit ? canopyRimMat : canopyDeepMat);
         }
       }
     },
@@ -792,6 +839,7 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
   const sunAz = new THREE.Vector3();
 
   const bake = (preset: EnvPreset, sunDir: THREE.Vector3): void => {
+    (globalThis as unknown as Record<string, unknown>).__IBL_LAST = { preset, sunDir: sunDir.clone() };
     street.group.visible = preset.ground !== 'studio';
     studio.group.visible = preset.ground === 'studio';
     ground.visible = preset.ground !== 'studio';
@@ -898,6 +946,15 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     renderer.setRenderTarget(prevTarget);
 
     pmrem.fromCubemap(cubeRT.texture, target!);
+  };
+
+  // TEMP-DEBUG (remove before reporting): lets a probe re-bake the proxy world
+  // with a modified preset and read the cubemap back, so "where is the warmth
+  // coming from" can be measured instead of argued.
+  (globalThis as unknown as Record<string, unknown>).__IBL_DBG = {
+    scene, cubeRT, renderer, probe: PROBE, groundUniforms,
+    rebake: (p: EnvPreset, s: { x: number; y: number; z: number }): void =>
+      bake(p, new THREE.Vector3(s.x, s.y, s.z)),
   };
 
   return {
