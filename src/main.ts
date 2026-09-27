@@ -32,6 +32,7 @@ interface AudiDebugApi {
   setPaint(hex: number): void;
   setArticulation(name: string, open: number): void;
   setUiVisible(v: boolean): void;
+  setMaskMode(on: boolean): void;
   settle(frames?: number): void;
   measureFps(frames?: number): Promise<{ fps: number; ms: number; drawCalls: number; triangles: number }>;
   elapsed(): number;
@@ -157,6 +158,10 @@ async function main(): Promise<void> {
   requestAnimationFrame(frame);
 
   // --- debug surface ---------------------------------------------------------
+  const maskMat = new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide });
+  const maskSaved = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+  let maskActive = false;
+
   globalThis.__AUDI = {
     ready: true,
     three: THREE,
@@ -169,6 +174,36 @@ async function main(): Promise<void> {
     setPaint(hex) { materials.setPaintColor(hex); },
     setArticulation(name, open) { car.setArticulation(name, open); },
     setUiVisible(v) { hud.setVisible(v); },
+    // Used by the screenshot harness to shoot a silhouette frame, from which
+    // the review tools derive an exact car mask.
+    //
+    // Deriving the mask from the image instead — "a pixel far from its own
+    // row's median is car" — worked only while the background was a smooth
+    // gradient. Once the environment grew trees, road texture and a HUD, that
+    // mask covered 57 % of the frame, so every per-car figure read through it
+    // was really a whole-scene figure, and the tone calibration was steered by
+    // it for several rounds.
+    //
+    // Magenta rather than hiding the car, because hiding it also removes its
+    // cast and contact shadows, and those land on road the mask must not
+    // claim. Nothing else in the scene has both R and B far above G, so the
+    // test survives the grade and the bloom that run after this.
+    setMaskMode(on) {
+      if (on === maskActive) return;
+      maskActive = on;
+      car.root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        if (on) {
+          maskSaved.set(m, m.material);
+          m.material = maskMat;
+        } else {
+          const prev = maskSaved.get(m);
+          if (prev) m.material = prev;
+        }
+      });
+      if (!on) maskSaved.clear();
+    },
     settle(frames = 24) {
       for (let i = 0; i < frames; i++) {
         const dt = 1 / 60;

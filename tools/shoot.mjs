@@ -14,6 +14,7 @@
  *   node tools/shoot.mjs --out=renders/round3     # where to write
  *   node tools/shoot.mjs --w=2560 --h=1440        # resolution
  *   node tools/shoot.mjs --env=dusk --nolabel     # environment preset
+ *   node tools/shoot.mjs --mask                   # also write <view>_mask.png
  *
  * Exit code is non-zero if the page threw, so a loop can detect breakage.
  */
@@ -74,6 +75,15 @@ const VIEWS = {
   platecam:  { desc: 'licence plate, legibility check' },
   photomatch:{ desc: 'matches the original 1988 photograph pose exactly' },
 };
+
+// Views that also get a silhouette companion frame. `photomatch` always does:
+// it is the frame every colour and tone gate is read from.
+const MASK = new Set(
+  args.mask === true ? wantedAll() : args.mask ? String(args.mask).split(',') : ['photomatch'],
+);
+function wantedAll() {
+  return args.views ? String(args.views).split(',').map((s) => s.trim()) : Object.keys(VIEWS);
+}
 
 const wanted = args.views
   ? String(args.views).split(',').map((s) => s.trim()).filter(Boolean)
@@ -167,6 +177,19 @@ for (const name of wanted) {
   await page.screenshot({ path: file, type: 'png' });
   results.push({ name, file, desc: VIEWS[name].desc });
   console.log(`  ✓ ${name.padEnd(11)} ${VIEWS[name].desc}`);
+
+  // Silhouette companion. `sheet.py` reads the car mask straight off it, which
+  // is the only way its per-car readings mean what they say — see
+  // `setMaskMode` in main.ts.
+  if (MASK.has(name)) {
+    await page.evaluate(() => globalThis.__AUDI?.setMaskMode?.(true));
+    await page.evaluate(() => globalThis.__AUDI?.settle?.(8));
+    await page.waitForTimeout(350);
+    await page.screenshot({ path: resolve(OUT, `${name}_mask.png`), type: 'png' });
+    await page.evaluate(() => globalThis.__AUDI?.setMaskMode?.(false));
+    await page.evaluate(() => globalThis.__AUDI?.settle?.(24));
+    await page.waitForTimeout(450);
+  }
 }
 
 // Perf probe — AAA means it also has to run.

@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
     import numpy as np
 except ImportError:
     sys.exit("needs Pillow and numpy: python3 -m pip install pillow numpy")
@@ -37,6 +37,23 @@ REFERENCE_PHOTO = Path(
 # Paint target, white-balanced, sampled from the photograph's fender faces.
 PAINT_TARGET = (0x92, 0x93, 0x9B)
 
+# Gain that makes the licence plate — the one certain neutral in frame — read
+# 236,236,236. See docs/REFERENCE-PHOTO.md.
+WB_GAIN = (0.948, 1.013, 1.073)
+
+# The car in the photograph, traced by hand as a polygon in fractions of the
+# frame. Everything the tool says about "the car" is read through this.
+#
+# It has to be hand-traced because there is no other way to get it: the frame
+# has two people leaning on the car, trees behind it and a road under it. The
+# polygon deliberately stops short of the people at the left and of the road
+# at the lower right — it is 17.8 % of the frame and is car all the way
+# through, which was checked by overlaying it.
+PHOTO_CAR_POLY = [
+    (0.5943, 0.2838), (0.8000, 0.2800), (0.8300, 0.3010), (0.8729, 0.3962),
+    (0.9229, 0.5067), (0.9500, 0.6114), (0.9643, 0.7219), (0.9586, 0.8210),
+    (0.7857, 0.8362), (0.5957, 0.8286),
+]
 VIEW_ORDER = [
     "side", "front3q", "rear3q", "front", "rear", "top",
     "wheel", "headlight", "taillight", "platecam", "badge", "roofrail",
@@ -68,6 +85,48 @@ def label(img, text, sub=""):
         w = d.textlength(sub, font=fs)
         d.text((img.width - w - 12, 12), sub, fill=(150, 155, 162), font=fs)
     return img
+
+
+def photo_car_pixels():
+    """The photograph's car, white-balanced, as an N×3 array."""
+    ref = np.array(Image.open(REFERENCE_PHOTO).convert("RGB")).astype(float)
+    h, w = ref.shape[:2]
+    m = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(m).polygon([(fx * w, fy * h) for fx, fy in PHOTO_CAR_POLY], fill=255)
+    return np.clip(ref * np.array(WB_GAIN), 0, 255)[np.array(m) > 127]
+
+
+def car_mask_for(render_path: Path, shape):
+    """
+    Exact car mask from the silhouette frame `shoot.mjs --mask` writes.
+
+    Falls back to the old "a pixel far from its own row's median is car" rule
+    when that frame is absent, and says so — loudly, because that rule is what
+    this whole gate used to believe and it was wrong. The background was a
+    smooth gradient when it was written; once the environment grew trees, road
+    texture and a HUD it selected 57 % of the frame, so `car_median` and the
+    crush figure were describing the whole scene. Both reference constants in
+    this file were fitted to that, and both were wrong.
+    """
+    mp = render_path.parent / f"{render_path.stem}_mask.png"
+    if mp.exists():
+        mk = np.array(Image.open(mp).convert("RGB").resize((shape[1], shape[0]))).astype(float)
+        r, g, b = mk[..., 0], mk[..., 1], mk[..., 2]
+        # The silhouette is drawn in magenta and then goes through the grade
+        # and the bloom like everything else, so test the hue rather than the
+        # value. Nothing else in the scene has both R and B well above G.
+        m = (r > g * 1.25) & (b > g * 1.25) & ((r + b) * 0.5 > 60)
+        # Shed the two pixels of bloom spill and defocus around the edge.
+        m = np.array(Image.fromarray((m * 255).astype(np.uint8))
+                     .filter(ImageFilter.MinFilter(5))) > 127
+        return m, True
+    return None, False
+
+
+def tone_profile(px, bins=16):
+    """Distribution of luminance over a set of pixels, as percentages."""
+    lum = px.mean(axis=1)
+    return np.histogram(lum, bins=bins, range=(0, 256))[0] / max(len(lum), 1) * 100.0
 
 
 def contact_sheet(directory: Path, cols=3, tile_w=760):
@@ -151,8 +210,10 @@ def compare_to_photo(render_path: Path):
     hgt, wid = a.shape[:2]
     tgt = np.array(PAINT_TARGET, dtype=float)
 
-    row_bg = np.median(a, axis=1, keepdims=True)
-    car_mask = np.abs(a - row_bg).mean(axis=2) > 12.0
+    car_mask, exact = car_mask_for(render_path, a.shape[:2])
+    if car_mask is None:
+        row_bg = np.median(a, axis=1, keepdims=True)
+        car_mask = np.abs(a - row_bg).mean(axis=2) > 12.0
 
     candidates = []
     for fy in np.arange(0.28, 0.72, 0.02):
@@ -229,10 +290,30 @@ def compare_to_photo(render_path: Path):
         frozen_err = float(np.median(errs))
         frozen_hits = len(errs)
 
-    # Brightness of the car overall, which is the thing a single patch hides.
+    # Tone: the whole distribution, not one number.
+    #
+    # "Car median 131, crush 3.2 %" were both invented. They were fitted
+    # through the row-median mask above, which at the time was selecting more
+    # than half the frame, so they described the scene and not the car — and
+    # the lighting was calibrated to them for several rounds. Measured through
+    # the traced polygon, the photograph's car is median 95 with 11.5 % of it
+    # below 40.
+    #
+    # A median alone hides the failure this render actually has, which is that
+    # it is compressed towards the middle: it is short of BOTH deep shadow and
+    # clipped highlight, in the same frame, and a median moves for neither. So
+    # compare the whole histogram and report the total-variation distance —
+    # half the sum of the absolute differences, i.e. the percentage of the
+    # car's pixels that would have to move bucket to match the photograph.
     car_px = a[car_mask]
     car_median = float(np.median(car_px)) if car_px.size else float("nan")
     crushed = float((car_px.mean(axis=1) < 40).mean() * 100) if car_px.size else float("nan")
+    ref_px = photo_car_pixels()
+    ref_median = float(np.median(ref_px))
+    ref_crush = float((ref_px.mean(axis=1) < 40).mean() * 100)
+    ref_clip = float((ref_px.mean(axis=1) > 224).mean() * 100)
+    clipped = float((car_px.mean(axis=1) > 224).mean() * 100) if car_px.size else float("nan")
+    tone_tv = float(np.abs(tone_profile(car_px) - tone_profile(ref_px)).sum() * 0.5)
 
     note = (
         f"paint target (white-balanced fender)  #{PAINT_TARGET[0]:02x}{PAINT_TARGET[1]:02x}{PAINT_TARGET[2]:02x}"
@@ -252,10 +333,21 @@ def compare_to_photo(render_path: Path):
     out.save(out_path)
     print(f"✓ {out_path}")
     print(f"  paint distance from photograph target: {dist:.1f} (aim < 18)  [{where}]")
-    print(f"  car median level {car_median:.0f} (photograph 131)   "
-          f"pixels below 40: {crushed:.1f}% (photograph 3.2%)")
     print(f"  fixed-patch error {frozen_err:.1f} over {frozen_hits}/12 frozen positions "
           f"— cannot drift, so a movement here is real")
+    print(f"  car mask: {'exact silhouette' if exact else 'ROW-MEDIAN GUESS — shoot with --mask'}"
+          f"  ({100 * car_mask.mean():.1f}% of frame)")
+    print(f"  tone profile {tone_tv:.1f}% apart from the photograph (aim < 8)")
+    print(f"      median   {car_median:6.1f}  vs {ref_median:6.1f}")
+    print(f"      below 40 {crushed:5.1f}%  vs {ref_crush:5.1f}%   (shadow)")
+    print(f"      above 224{clipped:5.1f}%  vs {ref_clip:5.1f}%   (highlight)")
+    bins = np.linspace(0, 256, 17)
+    rp, pp = tone_profile(car_px), tone_profile(ref_px)
+    for i in range(16):
+        bar = "#" * int(round(rp[i])) or "."
+        ref_bar = "#" * int(round(pp[i])) or "."
+        print(f"      {int(bins[i]):3d}-{int(bins[i+1]):3d}  render {rp[i]:5.1f}% {bar:<22s}"
+              f" photo {pp[i]:5.1f}% {ref_bar}")
     return out_path
 
 
