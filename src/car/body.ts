@@ -164,8 +164,29 @@ export function buildBody(ctx: BuildContext): PartResult {
   // clears the lamps and runs up to the backlight aperture.
   const tgFaceLower = tgFaceRail(HP.rear.tailgateBottomY, apLoY, SHUT_DEEP, OPEN, 3);
   const tgFaceUpper = tgFaceRail(apHiY, HP.glass.tailgateGlassBottomY, OPEN, BUTT, 6);
+
+  // The painted band stopped on a straight line at the glass sill, but the
+  // body silhouette there is still 77 mm wider than the glass — so between the
+  // glass edge and the silhouette there was no panel at all, and each lower
+  // corner of the backlight showed the load bay through a wedge. Carry the
+  // paint up the outboard side of the aperture until the silhouette closes
+  // onto the glass edge, which it does about 100 mm higher.
+  const glassHalfW = HP.glass.tailgateGlassHalfW;
+  let yClose = HP.glass.tailgateGlassBottomY;
+  const yCloseLimit = HP.glass.tailgateGlassTopY;
+  while (yClose < yCloseLimit && tailgateHalfWidth(yClose) > glassHalfW) yClose += 0.003;
+  const tgFaceCornerR = facePatch({
+    yLo: HP.glass.tailgateGlassBottomY, yHi: yClose,
+    xLo: () => glassHalfW,
+    xHi: (y) => Math.max(tailgateHalfWidth(y), glassHalfW),
+    zAt: rearFaceZ, facing: -1,
+    bottom: OPEN, top: OPEN, inner: OPEN, outer: OPEN,
+    ny: 5,
+  });
+
   const tailgateGeo = mergeGeometries([
     tgHeader, tgSideR, mirrorGeometry(tgSideR), tgFaceLower, tgFaceUpper,
+    tgFaceCornerR, mirrorGeometry(tgFaceCornerR),
   ]);
   const tgHinge = new THREE.Vector3(0, topAt(Z.tgHinge), Z.tgHinge);
   tailgateGeo.translate(-tgHinge.x, -tgHinge.y, -tgHinge.z);
