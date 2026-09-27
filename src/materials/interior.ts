@@ -84,7 +84,9 @@ roughnessFactor = clamp(roughnessFactor + (1.0 - mix(0.5, audiCabinG, audiCabinR
         replace: /* glsl */ `$&
 {
   float h = (audiCabinG - 0.5) * audiSlopeAmp(uCabinGrain.y, uCabinGrain.x) * audiCabinRes;
-  normal = audiBump(-vViewPosition, normal, dFdx(h), dFdy(h), 1.0);
+  // Creased height: bound the gradient or the creases print as white grit.
+  vec2 audiCabinGrad = audiBoundGradient(h, vAudiObjPos, uCabinGrain.y);
+  normal = audiBump(-vViewPosition, normal, audiCabinGrad.x, audiCabinGrad.y, 1.0);
 }
 `,
       },

@@ -23,10 +23,10 @@ import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import { QUALITY } from '@/spec';
 import type { BuildContext } from '@/types';
-import { placeOnSkin, sideNormal, sidePoint, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
+import { sideNormal, sidePoint, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
 import { badgeText } from './glyphs';
 import {
-  at, clamp, dish, framesFrom, lathe, lerp, merge, mesh, mirrorX, offsetPolyline,
+  at, clamp, DEG, dish, framesFrom, lathe, lerp, merge, mesh, mirrorX, offsetPolyline,
   roundedBox, smoothstep, sweep, type Frame, type Pt,
 } from './util';
 
@@ -52,7 +52,28 @@ function flankFrames(zRear: number, zFront: number, y: number, n: number): Frame
 // Rubbing strip
 // ---------------------------------------------------------------------------
 
-const HH = S.rubStripHeight / 2;
+/**
+ * ⚠ `HP.side.rubStripHeight` (0.054) and `HP.side.rubStripY` (0.556) are both
+ * wrong and are overridden here. Reported rather than edited, per the stream
+ * rules — but they should be changed at source to 0.098 / 0.5875.
+ *
+ * `docs/CRITIQUE-2.md` §7 measured the built moulding at **57 mm** against
+ * **99 mm** on the calibrated blueprint (column scans at z −1.0 / −1.6 / −2.2
+ * give y 538 → 637) and **≈97 mm** off `GCFS-85`'s door columns. The bottom
+ * edge was right — 530 built against 538 drawn — so the strip grows upward
+ * from where it already sits, which also brings its top to within 11 mm of the
+ * bumper mouldings' own strip (0.602–0.648) instead of 65 mm below it. On the
+ * real car those two are one continuous line round the corner.
+ *
+ * The bright line does NOT scale with it. It is built from absolute offsets
+ * off the top edge, so widening the moulding takes it from 40 % of the strip
+ * to 18 % — which is exactly the blueprint's proportion (18 mm at 601–619 in a
+ * 99 mm band) and the second half of §7's complaint.
+ */
+const STRIP_HEIGHT = 0.098;
+const STRIP_Y = 0.5875;
+
+const HH = STRIP_HEIGHT / 2;
 
 /** Outer face of the moulding: a soft crown, fullest a little above centre. */
 const STRIP_FACE: Pt[] = [
@@ -73,7 +94,7 @@ function stripSection(scale: number): Pt[] {
 }
 
 function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeometry } {
-  const frames = flankFrames(S.rubStripRearZ, S.rubStripFrontZ, S.rubStripY, 86);
+  const frames = flankFrames(S.rubStripRearZ, S.rubStripFrontZ, STRIP_Y, 86);
   const span = Math.abs(S.rubStripFrontZ - S.rubStripRearZ);
   const capFrac = 0.045 / span;
 
@@ -179,20 +200,47 @@ export function buildSides(ctx: BuildContext): THREE.Group {
 
   // Small oval "audi" on the front-fender section of the moulding, just aft of
   // the front wheel arch (§2.6).
+  //
+  // Baked into two meshes rather than four Object3Ds: `docs/CRITIQUE-2.md` §11
+  // names `fenderBadgeGroundLeft` (24 triangles) as an example of the tiny
+  // meshes putting the draw count 40 % over budget, and a badge that is
+  // mirrored rather than instanced costs nothing to merge.
   {
     const z = -0.424;
-    const f = skinFrame(z, S.rubStripY + 0.002);
-    const oval = new THREE.Mesh(new THREE.CircleGeometry(0.026, 24), dark);
-    oval.name = 'fenderBadgeGroundRight';
-    oval.scale.set(1, 0.40, 1);
-    placeOnSkin(oval, f, 0.0146);
-    const text = badgeText('audi', 0.0092, { depth: 0.0012, tracking: 0.02, weight: '500' });
-    const txt = new THREE.Mesh(text, bright);
-    txt.name = 'fenderBadgeRight';
-    placeOnSkin(txt, f, 0.0148);
-    const ovalL = oval.clone(); ovalL.position.x *= -1; ovalL.scale.x *= -1; ovalL.name = 'fenderBadgeGroundLeft';
-    const txtL = txt.clone(); txtL.position.x *= -1; txtL.scale.x *= -1; txtL.name = 'fenderBadgeLeft';
-    group.add(oval, txt, ovalL, txtL);
+    const f = skinFrame(z, STRIP_Y - 0.004);
+    const onFlank = (g: THREE.BufferGeometry, lift: number): THREE.BufferGeometry => {
+      const m = new THREE.Matrix4().makeBasis(f.along, f.up, f.n);
+      m.setPosition(f.o.clone().addScaledVector(f.n, lift));
+      g.applyMatrix4(m);
+      return g;
+    };
+    const oval = new THREE.CircleGeometry(0.026, 24);
+    oval.scale(1, 0.40, 1);
+    onFlank(oval, 0.0146);
+    const text = onFlank(badgeText('audi', 0.0092, { depth: 0.0012, tracking: 0.02, weight: '500' }), 0.0148);
+    group.add(mesh('fenderBadgeGrounds', merge([oval, mirrorX(oval)]), dark));
+    group.add(mesh('fenderBadges', merge([text, mirrorX(text)]), bright));
+  }
+
+  // --- mud flaps -----------------------------------------------------------
+  //
+  // `docs/CRITIQUE-2.md` §3 lists them as missing; `GCFS-85` shows a large one
+  // hanging off the arch's trailing lip, roughly as tall as it is wide and
+  // reaching down past the rocker's bottom edge. All four in one mesh — they
+  // are four copies of one moulding and nothing needs them apart.
+  {
+    const flaps: THREE.BufferGeometry[] = [];
+    for (const axleZ of [S.archFrontCenter[2], S.archRearCenter[2]]) {
+      // Just aft of where the arch opening's trailing edge meets the body, so
+      // the flap reads as bolted to that lip rather than floating behind it.
+      const z = axleZ - S.archRadius - 0.014;
+      const g = roundedBox(0.200, 0.174, 0.009, 0.004, 3);
+      // Leaning back at the bottom, the way a rubber flap hangs at rest.
+      g.rotateX(-7 * DEG);
+      g.translate(0.745, 0.218, z);
+      flaps.push(g, mirrorX(g));
+    }
+    group.add(mesh('mudFlaps', merge(flaps), plastic));
   }
 
   // --- door handles --------------------------------------------------------

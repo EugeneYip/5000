@@ -97,6 +97,25 @@ export interface EnvPreset {
   readonly dapple: number;
   /** What colour shaded road is — sky-lit, so usually cooler than the sun. */
   readonly shadeTint: number;
+  /**
+   * How much of the baked proxy world actually reaches a material.
+   *
+   * Not a look knob and not an exposure: it is the factor by which the proxy
+   * world under-counts the real one, and it was measured rather than picked.
+   * `paint.ts` builds the body at `metalness: 1.0`, so a body panel has no
+   * diffuse lobe and the hemisphere, bounce and rim lights contribute nothing
+   * to it — taking `hemi.intensity` from 0.12 to 0.75 moves a shaded flank by
+   * zero levels. Every panel not in direct sun is showing this map and only
+   * this map, and zeroing the map's terms one at a time says the flank is
+   * mirroring the *ground*: without the proxy road it falls 56 → 30, without
+   * the furniture only to 48, and no change to the sky band moves it at all.
+   *
+   * What the 140 m disc and forty-two leaf blobs leave out of that band is
+   * most of a boulevard — the far carriageway and its traffic, parked cars
+   * (vertical, specular, at exactly flank height), the pavement crowds, the
+   * lamp standards with their flags, the sunlit grass past the trees. All of
+   * it stands in the reflection and none of it is modelled.
+   */
   readonly envIntensity: number;
   /** Darkness of the rendered contact-occlusion pool under the car. */
   readonly contactStrength: number;
@@ -137,7 +156,12 @@ export const PRESETS: Record<string, EnvPreset> = {
     name: 'goldenhour',
     sunDir: GOLDEN_SUN,
     sunColor: 0xffdec0,
-    sunIntensity: 6.0,
+    // 5.6, down from 6.0. The sun is the one source in the rig whose level was
+    // already right — the road, the plate and the bumper all landed within a
+    // few per cent of the white-balanced photograph — so this is a trim, not a
+    // rebalance. Cutting the key further to chase a key-to-fill number takes
+    // the road down with it, and the road is the fill.
+    sunIntensity: 5.6,
     sunShadow: true,
     sunShadowRadius: 2.2,
     sky: {
@@ -164,10 +188,24 @@ export const PRESETS: Record<string, EnvPreset> = {
       // energy the flanks are actually standing in: a vertical panel sees
       // almost no sun and almost nothing but sky and what the sky lights.
       // Underrating it by half is why they were reading two stops dark.
-      exposure: 0.95,
+      //
+      // 1.10 now, still inside the 0.8–1.3 measured above and at the hazy end
+      // of it because the photograph is hazy. It cannot go much past this: the
+      // dome is the background as well as the source, and at 1.9 the sky is at
+      // 224 and at 2.8 it is clipped. Anyone who tries to fix the flanks from
+      // here will wash the frame out before the flanks arrive — measured, the
+      // sky reaches 250 while a shaded flank is still only at 112.
+      exposure: 1.1,
     },
-    hemi: { sky: 0x93b8e8, ground: 0x6d5a45, intensity: 0.12 },
-    bounce: { color: 0xd4a173, intensity: 0.42, dir: [0.35, -0.62, 0.7] },
+    // Inert on the body, which is `metalness: 1.0` and has no diffuse lobe at
+    // all. This is doing its job on the interior, the tyres and the trim, and
+    // nothing whatever on the paint — do not reach for it to lift the flanks.
+    hemi: { sky: 0x93b8e8, ground: 0x6d5a45, intensity: 0.18 },
+    // `dir` is the direction the light *travels*, and this vector used to have
+    // a negative y: the "light kicked back up off the road" was shining down,
+    // which made it a second uncredited key from above and left, and left the
+    // sills and arch liners with nothing. Pointed up, where a bounce belongs.
+    bounce: { color: 0xd4a173, intensity: 0.7, dir: [0.3, 0.55, 0.62] },
     rim: { color: 0xbad4f0, intensity: 0.28, dir: [0.62, 0.42, -0.66] },
     fog: { density: 0.0038 },
     ground: 'asphalt',
@@ -175,7 +213,7 @@ export const PRESETS: Record<string, EnvPreset> = {
     wetness: 0.06,
     dapple: 0.62,
     shadeTint: 0x5d7196,
-    envIntensity: 1.0,
+    envIntensity: 2.8,
     contactStrength: 0.62,
     background: 0x8fb4d8,
     grade: { ...BASE_GRADE },

@@ -215,8 +215,24 @@ interface AuditRow {
   material: string;
   /** Drawables wearing it. */
   meshes: number;
-  /** Draw calls they cost: a multi-group geometry costs one per group. */
+  /**
+   * Draw calls they actually cost.
+   *
+   * One per mesh, *not* one per geometry group. three only walks
+   * `geometry.groups` when `mesh.material` is an array; a merged geometry that
+   * kept its groups but wears a single material is still one draw. Counting
+   * groups here reported `chrome:0.050` at 56 draws for 8 meshes and put the
+   * whole audit about 40 % over the renderer's own figure — which, on a budget
+   * item, is the difference between chasing a real saving and chasing nothing.
+   */
   draws: number;
+  /**
+   * Geometry groups those meshes carry *beyond* the materials that address
+   * them. Zero cost today, but it is dead bookkeeping on every merge, and a
+   * later caller that turns one of these into a material array pays a draw per
+   * group the moment it does.
+   */
+  idleGroups: number;
   triangles: number;
   /** Meshes not parented under the car — stage, ground, sky. */
   offCar: number;
@@ -244,7 +260,7 @@ function auditScene(renderer: THREE.WebGLRenderer, registry: MaterialRegistry): 
       const rows = new Map<string, AuditRow>();
       const row = (name: string): AuditRow => {
         let e = rows.get(name);
-        if (!e) { e = { material: name, meshes: 0, draws: 0, triangles: 0, offCar: 0 }; rows.set(name, e); }
+        if (!e) { e = { material: name, meshes: 0, draws: 0, idleGroups: 0, triangles: 0, offCar: 0 }; rows.set(name, e); }
         return e;
       };
 
@@ -255,15 +271,20 @@ function auditScene(renderer: THREE.WebGLRenderer, registry: MaterialRegistry): 
 
         const g = mesh.geometry;
         const tri = Math.round(((g.index ? g.index.count : g.attributes.position?.count ?? 0) / 3) * (mesh.count ?? 1));
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        const groups = Math.max(g.groups?.length ?? 0, 1);
+        const multi = Array.isArray(mesh.material);
+        const mats = multi ? (mesh.material as THREE.Material[]) : [mesh.material as THREE.Material];
+        const groups = g.groups ?? [];
         let onCar = false;
         for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p.name === 'Audi5000SWagon') { onCar = true; break; }
 
-        for (const m of mats) {
+        for (let i = 0; i < mats.length; i++) {
+          const m = mats[i];
           const e = row(known.get(m.uuid) ?? `(unregistered) ${m.name || m.type}`);
           e.meshes += 1;
-          e.draws += Math.max(Math.round(groups / mats.length), 1);
+          // A material array is drawn once per group that addresses it; a
+          // single material is drawn once, groups or no groups.
+          e.draws += multi ? Math.max(groups.filter((gr) => gr.materialIndex === i).length, 1) : 1;
+          if (!multi) e.idleGroups += Math.max(groups.length - 1, 0);
           e.triangles += Math.round(tri / mats.length);
           if (!onCar) e.offCar += 1;
         }

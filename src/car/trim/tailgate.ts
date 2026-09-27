@@ -248,7 +248,19 @@ export function buildTailgatePanel(ctx: BuildContext): TailgatePanelResult {
   return { group, riders: [group] };
 }
 
-/** Lay a geometry built flat onto the body's rear surface. */
+/**
+ * Lay a geometry built flat onto the body's rear surface.
+ *
+ * The bounds have to be rebuilt afterwards, and that is not housekeeping.
+ * `roundedBox` is measured here before it is placed, so `geometry.boundingBox`
+ * is already populated; `translate` refreshes it, but moving the vertices by
+ * hand does not. Leaving it stale left `tailgateRibPanel` reporting
+ * z [+0.022, +0.031] — the FRONT-AXLE plane, 3.8 m from where the mesh
+ * actually draws — which is what `docs/CRITIQUE-2.md` §6 measured. A stale box
+ * is not cosmetic: `Mesh.raycast` early-outs on it, so the panel was
+ * unhittable, and it is the same class of bug as round one's stranded
+ * `fritDots`.
+ */
 function conform(g: THREE.BufferGeometry): void {
   const pos = g.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
@@ -256,4 +268,6 @@ function conform(g: THREE.BufferGeometry): void {
   }
   pos.needsUpdate = true;
   g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
 }

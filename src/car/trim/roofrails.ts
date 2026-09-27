@@ -26,12 +26,38 @@
  * over its last 90 mm at each end, so the terminations are the extrusion
  * itself rather than something bolted under it.
  *
- * HEIGHT. `HP.roof.railTopY` (1.474) and `BODY.heightOverRails` are overall
- * *vehicle* height, measured over the roof's centreline crown — at the rail's
- * own station the skin is 47 mm lower, and taking 1.474 literally puts the
- * blade 100 mm in the air on stilts. What is achievable is `railBaseY`: the
- * blade's underside sits at 1.408, which is 40 mm above the skin under it and
- * within §6.6's 50–55 mm. Reported.
+ * HEIGHT — rewritten after `docs/CRITIQUE-2.md` §5 measured it.
+ *
+ * The previous version of this file capped the blade's underside at
+ * `HP.roof.railBaseY` (1.408) and argued that `railTopY` (1.474) could not be
+ * reached without stilts. It was right about 1.474 and wrong about everything
+ * that follows from it. Raycasting the built scene put the blade's crown at
+ * **1408 — seven millimetres BELOW the roof's own centreline crown (1415)** —
+ * so in a true side elevation the rails did not break the roofline at all,
+ * where the blueprint's topmost ink over them is 1462–1480. A roof rail you
+ * cannot see in profile is not a roof rail.
+ *
+ * Probed, at the rail's own station (x 0.673):
+ *
+ * | | z −1.4 | z −2.0 | z −2.6 | z −3.075 |
+ * |---|---|---|---|---|
+ * | roof skin | 1367 | 1373 | 1364 | 1308 |
+ *
+ * So the three numbers cannot all be satisfied: 1.474 over a 1.373 skin is a
+ * **79 mm** stand-off, against §6.6's twice-derived 50–55. This build takes
+ * §6.6's figure at its top end and lets the hardpoint act as a *ceiling*
+ * rather than a target:
+ *
+ *   underside 1.373 + 0.060 = **1.433**, crown **1.459**
+ *
+ * — 44 mm clear of the roof's centre crown, so the rails break the roofline in
+ * elevation; 3 mm under the blueprint's lower bound; 15 mm under `railTopY`,
+ * against the 66 mm the review measured. `HP.roof.railBaseY` (1.408) is now
+ * 25 mm low and wants raising with it; reported rather than edited here.
+ *
+ * Finish stays `blackTrim`: §6.6 reads the OEM part as chrome, but the car
+ * being reproduced is the one in the owner's photograph and the rails read
+ * dark there. Decided, not an oversight.
  */
 
 import * as THREE from 'three';
@@ -41,10 +67,10 @@ import { roofEdgePoint, skinY } from './bodyref';
 import { clamp, framesFrom, lerp, merge, mesh, roundedBox, smoothstep, sweep, type Pt } from './util';
 
 const R = HP.roof;
-/** Blade section: 38 × 22 mm, the "twice as wide as tall" of §6.6. */
-const SECTION_H = 0.022;
+/** Blade section: 38 × 26 mm — §6.6 gives "about 25–30 mm tall". */
+const SECTION_H = 0.026;
 /** Gap the blade keeps above the skin through the straight part of its run. */
-const STANDOFF = 0.040;
+const STANDOFF = 0.060;
 /** How far in from the roof-to-bodyside joint the blade's outer face sits. */
 const EDGE_GAP = 0.008;
 /** Length over which each end sweeps down onto the skin. */
@@ -69,7 +95,10 @@ function skinUnder(z: number): number {
  */
 function baseY(z: number, t: number): number {
   const skin = skinUnder(z);
-  const run = Math.min(R.railBaseY, skin + STANDOFF);
+  // `railTopY` as a ceiling on the blade's crown, not as the level to build
+  // to: over the flat of the roof the stand-off governs, and the hardpoint
+  // only bites if the skin under the rail is ever higher than it should be.
+  const run = Math.min(R.railTopY - SECTION_H, skin + STANDOFF);
   const k = clamp(Math.min(t, 1 - t) / (TERMINATION / SPAN), 0, 1);
   return lerp(skin + 0.003, run, smoothstep(k));
 }

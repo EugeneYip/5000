@@ -24,6 +24,7 @@ import { buildMirrors } from './trim/mirrors';
 import { buildSides } from './trim/sides';
 import { buildRearBadges } from './trim/badges';
 import { buildTailgatePanel, rearPlateMount } from './trim/tailgate';
+import { buildTailgateSpoiler } from './trim/spoiler';
 import { buildWipers, fitRearWiper } from './trim/wipers';
 import { buildDetails } from './trim/details';
 
@@ -50,6 +51,14 @@ export function buildTrim(ctx: BuildContext): PartResult {
   const tailgate = buildTailgatePanel(ctx);
   group.add(tailgate.group);
 
+  // Spoiler, the black band under the backlight and the CHMSL. All three were
+  // missing entirely (`docs/CRITIQUE-2.md` §3); all three are tailgate
+  // furniture, so they join the riders below. `nodes.chmsl` is published for
+  // the lights stream rather than wired up here.
+  const spoiler = buildTailgateSpoiler(ctx);
+  group.add(spoiler.group);
+  Object.assign(nodes, spoiler.nodes);
+
   group.add(buildRoofRails(ctx));
   group.add(buildMirrors(ctx).group);
   group.add(buildSides(ctx));
@@ -70,7 +79,7 @@ export function buildTrim(ctx: BuildContext): PartResult {
   // exists while this builder runs — `Car` adds each part's group as it is
   // built and trim comes after glass but before anything is assembled — so
   // both hand-overs are tried on the frame loop until they take.
-  const riders = [...tailgate.riders, rear, wipers.rearMount];
+  const riders = [...tailgate.riders, ...spoiler.riders, rear, wipers.rearMount];
   let mounted = false;
   let tick = 0;
 

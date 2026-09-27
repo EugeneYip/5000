@@ -33,6 +33,14 @@ const PROBE = new THREE.Vector3(0, 0.95, -1.37);
  */
 const ROAD_ALBEDO = 0.155;
 
+/**
+ * …and the two surfaces either side of it, which a vertical body panel
+ * mirrors just as much of and which were not modelled at all. Weathered
+ * concrete pavement, and dry late-summer grass.
+ */
+const KERB_ALBEDO = 0.35;
+const VERGE_ALBEDO = 0.22;
+
 export interface IblHandle {
   /** Stable across preset changes. */
   readonly texture: THREE.Texture;
@@ -42,6 +50,8 @@ export interface IblHandle {
 
 const GROUND_FRAG = /* glsl */ `
 uniform vec3 uColor;
+uniform vec3 uKerbColor;
+uniform vec3 uVergeColor;
 uniform vec3 uHorizonColor;
 uniform vec3 uSheenColor;
 uniform vec3 uSunAzimuth;
@@ -52,6 +62,23 @@ void main() {
   vec3 v = vWorld - cameraPosition;
   float dist = length(v.xz);
   vec3 dir = normalize(v);
+
+  // The boulevard is not one surface. Carriageway out to eleven metres, then
+  // a concrete kerb and pavement, then the grass verge the trees stand in.
+  // Their reflectances are 0.155, 0.35 and 0.22 — the pavement returns nearly
+  // two and a half times what the asphalt does and the verge half as much
+  // again, and all three sit in the band a vertical body panel mirrors.
+  //
+  // This matters more than anything else in the file. Measured by zeroing the
+  // terms one at a time: with the proxy road removed a shaded flank falls from
+  // 56 to 30, with the furniture removed it only falls to 48, and with the sky
+  // band changed by any amount it does not move at all. A vertical panel on
+  // this car is lit by the reflection of the ground and essentially nothing
+  // else — so reducing the whole lower hemisphere to one flat asphalt colour
+  // was throwing away most of the fill the flanks are supposed to stand in.
+  float across = abs(vWorld.x);
+  vec3 surf = mix(uColor, uKerbColor, smoothstep(10.5, 12.5, across));
+  surf = mix(surf, uVergeColor, smoothstep(15.5, 18.0, across));
 
   // Schlick. A road is a dielectric, so at grazing incidence it stops being
   // asphalt and becomes a mirror — which is why the far end of a dry street
@@ -68,7 +95,7 @@ void main() {
   float fres = 0.04 + 0.96 * graze;
   float mirror = fres * uGloss;
 
-  vec3 c = uColor * (1.0 - mirror);
+  vec3 c = surf * (1.0 - mirror);
   c += uHorizonColor * mirror;
 
   // A sheen streak running towards the sun, the way a low sun lays a path
@@ -145,12 +172,24 @@ function addScaled(out: THREE.Color, c: THREE.Color, k: number): THREE.Color {
  * that, more than any missing light, is what made the flanks go dark. The
  * masses are now further out and lower, and the tree rows are spaced so sky
  * shows between the crowns — which is what the photograph shows too.
+ *
+ * **Why this file, and not the light rig, decides how bright the car is.**
+ * `paint.ts` builds the body with `metalness: 1.0`. A fully metallic material
+ * has *no diffuse lobe at all*, so the hemisphere light, the road-bounce light
+ * and the rim light contribute nothing whatsoever to a body panel — measured:
+ * taking `hemi.intensity` from 0.12 to 0.75 moves a shaded flank by zero
+ * levels. Everything a panel that is not in direct sun shows is the
+ * environment map. So when the flanks read two stops dark, the fault is here,
+ * in what the proxy world radiates into the band those panels mirror — and
+ * raising the sky's own exposure cannot fix it, because the sky dome is also
+ * the background and reaches white long before the flanks reach 148.
  */
 function buildStreet(): Furniture {
   const group = new THREE.Group();
   group.name = 'ibl:street';
 
   const trunkMat = new THREE.MeshBasicMaterial({ color: 0x1a1512 });
+  const trunkLitMat = new THREE.MeshBasicMaterial({ color: 0x6b553c });
   const canopyMat = new THREE.MeshBasicMaterial({ color: 0x1d2416 });
   const canopyLitMat = new THREE.MeshBasicMaterial({ color: 0x4a4a22 });
   const facadeMat = new THREE.MeshBasicMaterial({ color: 0x6b5a44 });
@@ -159,31 +198,42 @@ function buildStreet(): Furniture {
   const canopyGeo = new THREE.IcosahedronGeometry(1, 1);
   const trunkGeo = new THREE.CylinderGeometry(0.22, 0.3, 7, 6);
 
+  /** Crowns whose sunward side is turned towards the probe, and trunks. */
+  const crowns: Array<{ mesh: THREE.Mesh; nx: number; nz: number }> = [];
+  const trunks: Array<{ mesh: THREE.Mesh; nx: number; nz: number }> = [];
+
   // A row each side at boulevard spacing. Set back to the far kerb — plane
   // trees on the Parkway stand about twelve metres off the centre of a traffic
   // lane, and at nine they loomed over the car and shuttered the horizon.
+  //
+  // Sixteen, not twelve and a half. The band a vertical panel actually mirrors
+  // runs from the horizon to about twenty degrees up, and at 12.5 m a crown
+  // whose underside is at 6 m already starts at 24° — so the row was not in
+  // the band, it was the *lid* on it, and the panels were mirroring the dark
+  // undersides of two hundred leaf blobs. Out at sixteen the same crown starts
+  // at 19° and the band below it opens onto road, kerb and lit stone.
   for (let side = -1; side <= 1; side += 2) {
     for (let i = 0; i < 7; i++) {
       const z = -30 + i * 11.5 + (side > 0 ? 5 : 0);
-      const x = side * (12.5 + (i % 2) * 1.4);
-      const h = 8.2 + (i % 3) * 1.5;
+      const x = side * (16.0 + (i % 2) * 1.4);
+      const h = 8.6 + (i % 3) * 1.5;
 
       const trunk = new THREE.Mesh(trunkGeo, trunkMat);
       trunk.position.set(x, 3.5, z);
       group.add(trunk);
+      trunks.push({ mesh: trunk, nx: -x, nz: -z });
 
       // Three overlapping blobs read as a crown; one sphere reads as a ball.
       // Sized to leave four metres of sky between neighbours — a continuous
       // hedge at this height is a wall, and a wall is what we are removing.
       for (let b = 0; b < 3; b++) {
-        const crown = new THREE.Mesh(canopyGeo, b === 0 ? canopyLitMat : canopyMat);
-        crown.position.set(
-          x + (b - 1) * 1.5 + (i % 2) * 0.4,
-          h + (b === 1 ? 1.0 : 0),
-          z + (b - 1) * 1.0,
-        );
+        const crown = new THREE.Mesh(canopyGeo, canopyMat);
+        const cx = x + (b - 1) * 1.5 + (i % 2) * 0.4;
+        const cz = z + (b - 1) * 1.0;
+        crown.position.set(cx, h + (b === 1 ? 1.0 : 0), cz);
         crown.scale.set(2.8 - b * 0.3, 2.0 - b * 0.18, 2.7 - b * 0.28);
         group.add(crown);
+        crowns.push({ mesh: crown, nx: -cx, nz: -cz });
       }
     }
   }
@@ -236,6 +286,8 @@ function buildStreet(): Furniture {
   const STONE = 0.42;
   /** Plane-tree foliage in leaf. */
   const LEAF = 0.15;
+  /** …and what gets *through* a crown rather than off it. */
+  const LEAF_T = 0.1;
   /** Bark. */
   const BARK = 0.11;
 
@@ -262,13 +314,24 @@ function buildStreet(): Furniture {
       // the car — which put a warm slab in the bonnet's reflection where the
       // photograph has sky. Deriving it also means the five presets, which do
       // not share a sun azimuth, each get their own answer.
-      for (const m of blockMeshes) {
-        const nx = -m.position.x;
-        const nz = -m.position.z;
+      const facesSun = (nx: number, nz: number): number => {
         const inv = 1 / Math.max(Math.hypot(nx, nz), 1e-4);
-        const facing = (nx * inv) * sunDir.x + (nz * inv) * sunDir.z;
-        m.material = facing > 0.08 ? facadeLitMat : facadeMat;
+        return nx * inv * sunDir.x + nz * inv * sunDir.z;
+      };
+
+      for (const m of blockMeshes) {
+        m.material = facesSun(-m.position.x, -m.position.z) > 0.08 ? facadeLitMat : facadeMat;
       }
+
+      // The same test for the planting, which used to pick the lit blob as
+      // `b === 0` — one in three, everywhere, regardless of where the sun was.
+      // A crown is lit on the side the sun is on like everything else, and the
+      // crowns a *shaded* flank mirrors are precisely the ones across the road,
+      // whose car-facing side is the sunward one. Getting that wrong is most of
+      // why the shaded flank had a dark tunnel to look into: two thirds of the
+      // canopy was shaded no matter which way it faced.
+      for (const c of crowns) c.mesh.material = facesSun(c.nx, c.nz) > 0 ? canopyLitMat : canopyMat;
+      for (const t of trunks) t.mesh.material = facesSun(t.nx, t.nz) > 0 ? trunkLitMat : trunkMat;
 
       // A surface seeing a fraction f of the sky emits `albedo · f · L`, and
       // one facing the sun adds `albedo · E · cos / π`. Every colour below is
@@ -293,11 +356,27 @@ function buildStreet(): Furniture {
       // crown at this sun elevation is also *translucent*: roughly a tenth of
       // what hits the far side comes through. That transmitted light is the
       // difference between a tree line and a hole in the world.
+      //
+      // The transmitted term carried a further 0.4 discount on top of the 0.1
+      // transmittance, which is double-counting: `LEAF_T` is already the
+      // fraction that gets through. At a sun 11° above the horizon every crown
+      // in the row is edge-on to the beam and glowing, which is exactly what
+      // the photograph shows of the planting behind the car.
       canopyMat.color.copy(sky).multiply(tint.setRGB(0.42, 0.56, 0.33)).multiplyScalar(0.45);
-      addScaled(canopyMat.color, tint.setRGB(1.0, 0.82, 0.4).multiply(sun), (0.1 / Math.PI) * eWall * 0.4);
+      addScaled(canopyMat.color, tint.setRGB(1.0, 0.82, 0.4).multiply(sun), (LEAF_T / Math.PI) * eWall);
 
+      // Bark. A trunk is *vertical*, so the irradiance on it is the wall's,
+      // not the ground's — this read `eGround`, which at 11.5° of elevation is
+      // one fifth of `eWall`, and then discounted it by a further 0.12. The
+      // row came out at 0.025 radiance: black posts standing in front of the
+      // one bright thing in the band. A cylinder averages 1/π of the normal
+      // irradiance over its lit half, which is the only discount it should get.
       trunkMat.color.copy(sky).multiplyScalar(BARK * 0.45);
-      addScaled(trunkMat.color, sun, (BARK / Math.PI) * eGround * 0.12);
+      addScaled(
+        trunkLitMat.color.copy(sun).multiplyScalar((BARK / Math.PI) * eWall * (1 / Math.PI)),
+        sky,
+        BARK * 0.45,
+      );
     },
   };
 }
@@ -368,6 +447,8 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
 
   const groundUniforms = {
     uColor: { value: new THREE.Color(0.04, 0.04, 0.042) },
+    uKerbColor: { value: new THREE.Color(0.09, 0.09, 0.09) },
+    uVergeColor: { value: new THREE.Color(0.06, 0.07, 0.04) },
     uHorizonColor: { value: new THREE.Color(0.2, 0.24, 0.3) },
     uSheenColor: { value: new THREE.Color(1, 0.72, 0.44) },
     uSunAzimuth: { value: new THREE.Vector3(-0.82, 0, 0.58) },
@@ -434,20 +515,40 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     // sky shader ramps between — so read it from there rather than carrying a
     // second, silently disagreeing constant.
     const skyTerm = skyRadiance(preset, skyCol);
-    albedo.setHex(preset.groundTint).multiplyScalar(ROAD_ALBEDO * (sunTerm + skyTerm));
+    const eTotal = sunTerm + skyTerm;
+    albedo.setHex(preset.groundTint).multiplyScalar(ROAD_ALBEDO * eTotal);
     groundUniforms.uColor.value.copy(albedo);
+    // The kerb and pavement, and the grass verge the trees stand in. Same
+    // irradiance, their own reflectances — concrete weathered to 0.35, dry
+    // late-summer grass to 0.22 with the green it still has.
+    groundUniforms.uKerbColor.value.setHex(preset.groundTint).multiplyScalar(KERB_ALBEDO * eTotal);
+    groundUniforms.uVergeColor.value.setRGB(0.78, 0.86, 0.52).multiplyScalar(VERGE_ALBEDO * eTotal);
     // What the far field is veiled by: the sky the shader itself draws at the
     // horizon, at the same exposure, so the road and the sky meet without a
     // seam and the panels see one continuous band.
+    //
+    // No 0.88 discount any more. That was here to stop the far road reading
+    // brighter than the sky above it — but at eighty-odd degrees of incidence
+    // a dielectric returns what it is given, and the photograph has exactly
+    // that: the far half of the boulevard at 171 against a sky of about 135.
     groundUniforms.uHorizonColor.value
       .setHex(preset.sky.horizon)
-      .multiplyScalar(preset.sky.exposure * preset.envIntensity * 0.88);
+      .multiplyScalar(preset.sky.exposure * preset.envIntensity);
     groundUniforms.uSheenColor.value.setHex(preset.sky.sun);
     groundUniforms.uSheen.value = 0.12 + preset.wetness * 0.95;
     // How sharply the surface mirrors. Dry asphalt scatters most of its
     // grazing reflection into a wide lobe, so it picks up the horizon's
     // colour without ever showing an image; standing water approaches one.
-    groundUniforms.uGloss.value = 0.52 + preset.wetness * 0.44;
+    //
+    // 0.74 dry, not 0.52. Scattering the lobe wide does not *destroy* the
+    // energy — at 85° of incidence a dielectric returns nearly all of it, just
+    // smeared over the whole horizon band instead of into an image, and the
+    // horizon band is what this term is already painting. The photograph
+    // settles it: the far half of the boulevard reads 171 against a sky of
+    // ~135, i.e. the road is the *brighter* of the two, and at 0.52 it could
+    // never get past 55 % of the horizon sky. The lower half of every vertical
+    // panel's reflection is made of this number.
+    groundUniforms.uGloss.value = 0.74 + preset.wetness * 0.24;
     sunAz.set(sunDir.x, 0, sunDir.z);
     if (sunAz.lengthSq() < 1e-6) sunAz.set(0, 0, 1);
     groundUniforms.uSunAzimuth.value.copy(sunAz.normalize());

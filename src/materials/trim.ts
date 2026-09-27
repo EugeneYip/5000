@@ -169,7 +169,12 @@ diffuseColor.rgb *= (1.0 + audiPlasticMottle * uPlasticGrain.w)
         replace: /* glsl */ `$&
 {
   float h = (audiGrainH - 0.5) * audiSlopeAmp(uPlasticGrain.y, uPlasticGrain.x) * audiGrainRes;
-  normal = audiBump(-vViewPosition, normal, dFdx(h), dFdy(h), 1.0);
+  // The grain is a field of plateaus with creases between them, so its
+  // screen-space derivative spikes every time a crease crosses a quad. Left
+  // alone those spikes flip the normal skyward on one pixel at a time and
+  // print white grit over the whole bumper.
+  vec2 audiGrainGrad = audiBoundGradient(h, vAudiObjPos, uPlasticGrain.y);
+  normal = audiBump(-vViewPosition, normal, audiGrainGrad.x, audiGrainGrad.y, 1.0);
 }
 `,
       },
@@ -318,7 +323,9 @@ material.roughness = clamp(material.roughness
         replace: /* glsl */ `$&
 {
   float h = (audiRubberMicro - 0.5) * audiSlopeAmp(uRubberParams.y, uRubberParams.x) * audiRubberRes;
-  normal = audiBump(-vViewPosition, normal, dFdx(h), dFdy(h), 1.0);
+  // Creased height: bound the gradient or the creases print as white grit.
+  vec2 audiRubGrad = audiBoundGradient(h, vAudiObjPos, uRubberParams.y);
+  normal = audiBump(-vViewPosition, normal, audiRubGrad.x, audiRubGrad.y, 1.0);
 }
 `,
       },

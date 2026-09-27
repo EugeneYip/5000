@@ -132,12 +132,25 @@ void main() {
   float h = asphaltHeight(vUv);
   // Bitumen is nearly black; what you read as "grey road" is the exposed
   // aggregate. So build the albedo from the height field, not the other way.
-  vec3 bitumen = vec3(0.038, 0.038, 0.041);
-  vec3 stone   = vec3(0.072, 0.072, 0.072);
-  vec3 pale    = vec3(0.105, 0.104, 0.101);
-  float chip = smoothstep(0.55, 0.92, h);
+  //
+  // These were 0.038 / 0.072 / 0.105, which integrates to a mean reflectance
+  // of about 0.06 — fresh-laid bitumen in a car park. ibl.ts has always
+  // documented the surface a car is actually photographed on as 0.12-0.18 and
+  // fed its proxy road 0.155, so the road you *see* and the road the paint
+  // *reflects* disagreed by a factor of two and a half. The photograph settles
+  // which is right: the shaded asphalt beside the car reads 123 after white
+  // balance and the sunlit half of the boulevard 171, where the render's near
+  // road was coming back at 48. Same ratios, rescaled to a 0.14 mean.
+  vec3 bitumen = vec3(0.088, 0.088, 0.095);
+  vec3 stone   = vec3(0.152, 0.152, 0.152);
+  vec3 pale    = vec3(0.206, 0.204, 0.198);
+  // Fewer, less contrasty pale chips. At a 6 cm aggregate scale the speckle
+  // is two or three pixels in the near field, and at the old amplitude it
+  // read as sensor noise rather than as a road surface — a quarter of the
+  // frame sat below level 40 purely in the gaps between chips.
+  float chip = smoothstep(0.62, 0.95, h);
   vec3 c = mix(bitumen, stone, smoothstep(0.16, 0.70, h));
-  c = mix(c, pale, chip * (0.15 + 0.45 * hash1(floor(vUv * 64.0))));
+  c = mix(c, pale, chip * (0.10 + 0.30 * hash1(floor(vUv * 64.0))));
   // Low-frequency tonal drift stops the tile reading as a repeat.
   c *= 0.90 + 0.20 * fbm(vUv * 3.0, 3.0, 3);
   // A few pale scuffs and tar-seam darkening.

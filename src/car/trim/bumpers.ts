@@ -231,7 +231,34 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
   group.name = 'bumpers';
 
   const plastic = ctx.materials.bumperPlastic();
-  const bright = ctx.materials.chrome({ roughness: 0.2 });
+  /**
+   * The bumper strips are NOT brightwork in the sense the rings are.
+   *
+   * `docs/CRITIQUE-2.md` §2 traced the pale front bumper to this material: at
+   * `chrome:0.180` the strip clips to 245–249 along the whole sunlit length,
+   * and the golden-hour grade's bloom then smears a ~250 mm skirt down the
+   * moulding — which is what makes a 0.025-albedo grey apron return 0.64 of
+   * the licence plate where the photograph gives 0.31.
+   *
+   * ⚠ Moving it up the chrome ladder does not fix it, and this was measured
+   * rather than assumed. `chrome:0.300` makes it **worse**: `createChrome`
+   * treats roughness above 0.07 as brushing and pulls the base roughness back
+   * toward 0.09 as it does, so 0.18 → 0.30 moves the base from 0.152 to only
+   * 0.162 while tripling the brush-normal slope — the peak stays and the
+   * *area* at the mirror angle grows. Re-shot identically, pixels over 246 in
+   * `front3q` went 2072 → 3420.
+   *
+   * So: not a plated finish at all. A US 5 mph bumper's cap strip is an
+   * anodised aluminium extrusion that has been in weather since 1988, and
+   * `dirtyMetal` is the library's parameterised metal — metalness 0.35 rather
+   * than 1.0, roughness 0.62, `envMapIntensity` 0.55 and a little road film.
+   * At α = 0.62 the specular lobe is ~40× broader than chrome's, so the sun
+   * cannot clip it, and what is left is the bright satin line the reference
+   * photographs actually show.
+   */
+  const strip = ctx.materials.dirtyMetal({
+    color: 0xb4b9bf, roughness: 0.62, metalness: 0.35, grime: 0.25,
+  });
   const paint = ctx.materials.paint();
   const dark = ctx.materials.blackTrim();
 
@@ -269,7 +296,7 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     frontExtras.push(onFace(f.frames, front, sx * 0.845, 0.452, roundedBox(0.048, 0.026, 0.016, 0.006), -0.0105));
   }
   group.add(mesh('frontBumper', merge(frontExtras), plastic));
-  group.add(mesh('frontRubStrip', f.bright, bright));
+  group.add(mesh('frontRubStrip', f.bright, strip));
   // Not `paint`: the photograph shows dark grey moulding through here, and a
   // metallic clearcoat on a panel this close to horizontal mirrors the sky.
   group.add(mesh('frontValance', f.valance, plastic));
@@ -293,7 +320,7 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
   // (`trim/tailgate.ts`, `docs/CRITIQUE.md` §3) — `HP.rear.plateCenter` still
   // describes the bumper position and is no longer read by anything.
   group.add(mesh('rearBumper', merge(rearExtras), plastic));
-  group.add(mesh('rearRubStrip', r.bright, bright));
+  group.add(mesh('rearRubStrip', r.bright, strip));
   group.add(mesh('rearValance', r.valance, paint));
 
   void QUALITY;

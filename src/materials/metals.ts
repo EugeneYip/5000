@@ -280,7 +280,9 @@ roughnessFactor = clamp(roughnessFactor + audiDirtAmt * 0.18
         replace: /* glsl */ `$&
 {
   float h = (audiDirtGrain - 0.5) * audiSlopeAmp(uDirtParams.y, uDirtParams.x) * audiDirtRes;
-  normal = audiBump(-vViewPosition, normal, dFdx(h), dFdy(h), 1.0);
+  // Creased height: bound the gradient or the creases print as white grit.
+  vec2 audiDirtGrad = audiBoundGradient(h, vAudiObjPos, uDirtParams.y);
+  normal = audiBump(-vViewPosition, normal, audiDirtGrad.x, audiDirtGrad.y, 1.0);
 }
 `,
       },
@@ -486,15 +488,29 @@ diffuseColor.rgb *= mix(audiIron, uDiscRust * mix(0.65, 1.0, audiBlot), audiRust
  */
 export function createReflector(): THREE.MeshPhysicalMaterial {
   const uniforms = {
+    // A stipple is a *diffuser*, and a diffuser's cells have to be small
+    // against the part, not merely small against the pixel: 1.1 mm pebbling on
+    // a 400 mm bowl. At 6.7 mm — where this started — each cell was a concave
+    // mirror wide enough to focus the sun into one pixel of itself, so the
+    // headlamp bowl rendered as a field of white glitter rather than as a
+    // paraboloid, and behind a taillamp the same lattice printed straight
+    // through the transmissive lens as a 27-pixel grid. That grid was a good
+    // half of what reads as the lens' "dot-matrix crosshatch", and no amount of
+    // work on the lens itself could have removed it.
+    //
+    // At 1.1 mm the lattice is a fine satin grain in a close-up and a broad
+    // scatter cone at any real distance, which is what a vapour-deposited bowl
+    // actually is. Depth comes down with it: the bowl needs a wide cone, not a
+    // steep one.
     // x cells/m  y dimple depth  z gap darkening  w unused
-    uReflParams: { value: new THREE.Vector4(150.0, 0.52, 0.14, 0.0) },
+    uReflParams: { value: new THREE.Vector4(900.0, 0.32, 0.14, 0.0) },
   };
 
   const material = new THREE.MeshPhysicalMaterial({
     // Vacuum-deposited aluminium, ~88 % broadband.
     color: 0xe8e9ec,
     metalness: 1,
-    roughness: 0.10,
+    roughness: 0.13,
     envMapIntensity: 1.15,
     dithering: true,
   });
@@ -518,6 +534,13 @@ diffuseColor.rgb *= 1.0 - uReflParams.z * (1.0 - audiDimpleMask);
         find: '#include <roughnessmap_fragment>',
         replace: /* glsl */ `$&
 roughnessFactor = clamp(roughnessFactor + (1.0 - audiResolvedTight(vAudiObjPos * uReflParams.x)) * 0.30, 0.02, 1.0);
+// The pebbling aliases in the *highlight* long before it aliases as a pattern:
+// six pixels to a dimple is plenty to draw the dimple and nowhere near enough
+// to draw a 7°-wide specular lobe swinging across it. So the normal's
+// per-pixel spread is convolved into roughness, and the sun spreads over the
+// dimple instead of landing on one pixel of it. This is what turns the bowl
+// back into a paraboloid; the fade above only handles the distant case.
+roughnessFactor = audiSpecularAA(audiReflNObj, roughnessFactor, 0.50, 0.30);
 `,
       },
       {

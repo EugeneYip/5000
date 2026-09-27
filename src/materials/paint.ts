@@ -259,7 +259,8 @@ float audiFlakeRarity(vec3 q, float keep) {
   return step(1.0 - keep, audiHash13(floor(q) * 1.37 + 3.1));
 }
 
-vec3 audiFlakeNormal(vec3 objPos, vec3 nObj, AudiFrame fr, out float mask, out float resolved) {
+vec3 audiFlakeNormal(vec3 objPos, vec3 nObj, AudiFrame fr, out float mask, out float resolved,
+                     out float flakeRes) {
   float dens = uFlakeParams.x;
   vec3 q = AUDI_FLAKE_SKEW * objPos * dens;
   AudiFlake fine = audiFlakeAt(q, nObj, uFlakeParams.y, uFlakeParams.z);
@@ -271,6 +272,15 @@ vec3 audiFlakeNormal(vec3 objPos, vec3 nObj, AudiFrame fr, out float mask, out f
 
   float rFine = audiResolved(q);
   float rCoarse = audiResolved(q2);
+
+  // A flake is about half its cell across, so a lattice that is comfortably
+  // resolved can still be holding a flake well under a pixel — and a sub-pixel
+  // mirror does not average, it flashes. Each one returns the sun disc whole on
+  // one pixel and nothing on its neighbours, which is the white grit that reads
+  // as dust on the sensor over a dark panel. The *lattice* resolve above is the
+  // wrong test for that; this measures the flake itself.
+  float sz = max(uFlakeParams.y, 0.05);
+  flakeRes = max(audiResolved(q / sz), audiResolved(q2 / (sz * 1.15)));
 
   // Coarse flakes win where they exist; they sit nearer the clearcoat.
   float wc = coarse.mask * rCoarse * audiFlakeRarity(q2, 0.14);
@@ -306,7 +316,9 @@ material.roughness = clamp(uFlopParams.y * mix(1.0, 1.35, audiTrav) + geometryRo
 AudiFrame audiFr = audiMakeFrame(vAudiObjPos, -vViewPosition);
 float audiFlakeMask = 0.0;
 float audiFlakeRes = 0.0;
-vec3 audiFlakeN = audiFlakeNormal(vAudiObjPos, normalize(vAudiObjNormal), audiFr, audiFlakeMask, audiFlakeRes);
+float audiFlakeSharp = 0.0;
+vec3 audiFlakeN = audiFlakeNormal(vAudiObjPos, normalize(vAudiObjNormal), audiFr,
+                                  audiFlakeMask, audiFlakeRes, audiFlakeSharp);
 // Flake is buried in the same absorbing binder, so it flops too.
 float audiFlakeFlop = mix(1.0, 0.22, audiTrav);
 vec3 audiFlakeDirect = vec3(0.0);
@@ -317,7 +329,12 @@ const PAINT_DIRECT_GLINT = /* glsl */ `
   vec3 audiH = normalize(directLight.direction + geometryViewDir);
   float audiNL = saturate(dot(geometryNormal, directLight.direction));
   float audiFH = saturate(dot(audiFlakeN, audiH));
-  audiFlakeDirect += directLight.color * audiNL * pow(audiFH, uFlakeShape.y) * uFlakeShape.z;
+  // Same bargain as the env lobe above: a lobe this tight is a delta function
+  // to a pixel that no longer contains a whole flake, so it widens and drops
+  // in the same proportion. Energy constant, flash gone.
+  float audiFP = mix(48.0, uFlakeShape.y, audiFlakeSharp);
+  audiFlakeDirect += directLight.color * audiNL * pow(audiFH, audiFP) * uFlakeShape.z
+                   * ((audiFP + 1.0) / (uFlakeShape.y + 1.0));
 }
 `;
 
@@ -328,7 +345,11 @@ const PAINT_FLAKE_APPLY = /* glsl */ `
   #ifdef USE_ENVMAP
     // Flakes live under the clearcoat: their view ray is refracted too.
     vec3 audiVc = audiRefractInto(geometryViewDir, geometryNormal, audiIor);
-    audiFlakeEnv = getIBLRadiance(audiVc, audiFlakeN, uFlakeShape.x);
+    // Sharp while the flake is bigger than a pixel — that mirror is the sparkle
+    // — and no sharper than the population's own lobe once it is not. Variance
+    // goes, energy stays: the flash becomes the average of what it was flashing
+    // at, so the panel neither dims nor stops looking metallic.
+    audiFlakeEnv = getIBLRadiance(audiVc, audiFlakeN, mix(0.34, uFlakeShape.x, audiFlakeSharp));
     // The energy the whole flake population averages to. Fading *variance*
     // into this, rather than fading flake out, keeps the paint the same
     // brightness whether the lattice is resolved or a mile away.

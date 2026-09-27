@@ -214,9 +214,23 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
 
     // Normalise the shade tint to a pure hue shift, then apply the darkening
     // separately, so changing the colour never changes how dark shade is.
+    //
+    // Normalised on *luminance*, not on the peak channel. Peak-normalising a
+    // blue tint scales by its blue and leaves red and green far below it, so
+    // `0.46` was delivering a luminance of 0.25 — shade half as bright again
+    // as it should be, and darker the bluer the tint got. Which is exactly the
+    // knob you would reach for to change the colour of shade without meaning
+    // to change its depth.
+    //
+    // And 0.52, not 0.46: shaded road is the *same* road with the sun taken
+    // off it and the sky left on. At this preset the sun delivers 1.19 of the
+    // 2.48 total irradiance on a horizontal surface, so what is left in shade
+    // is 52 % — not a number to taste. The gobo was taking the road to a
+    // quarter of its lit value and dragging a third of every wide frame under
+    // level 40 with it.
     shade.setHex(preset.shadeTint);
-    const peak = Math.max(shade.r, shade.g, shade.b, 1e-4);
-    shade.multiplyScalar(0.46 / peak);
+    const lum = Math.max(0.2126 * shade.r + 0.7152 * shade.g + 0.0722 * shade.b, 1e-4);
+    shade.multiplyScalar(0.52 / lum);
     asphalt.patch.uShadeTint.value.copy(shade);
   };
 

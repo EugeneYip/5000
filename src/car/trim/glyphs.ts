@@ -36,6 +36,33 @@ export const PLATE_FONT_STACK =
 /** Period Audi badge script: a plain, slightly wide grotesque in caps. */
 export const BADGE_FONT_STACK = `"Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif`;
 
+/**
+ * The tailgate model designation — `Audi 5000 S`.
+ *
+ * `docs/CRITIQUE-2.md` §12: the real badge is "a distinctive squared-off face
+ * with wide letter spacing", not the modern grotesque this was set in. The
+ * squared industrial face the 1980s badge actually derives from (Eurostile /
+ * Microgramma) is not on any platform this runs on — probed, it falls straight
+ * through to the default. **DIN Alternate** is: same German-industrial
+ * lineage, flat terminals, and the straight-sided zeros `BAT-R` shows in
+ * `5000 CD` at 2048 px. The spacing is carried by `tracking`, not the face.
+ */
+export const BADGE_MODEL_FONT_STACK =
+  `"DIN Alternate", "PT Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
+
+/**
+ * The small engine/drivetrain scripts — `fuel injection`, and the same family
+ * as the `turbo` and `quattro` on `BAT-R`.
+ *
+ * Read off that frame at 2048 px: lowercase, obliqued, **geometric** — round
+ * bowls, near-circular `o`, letters almost touching. That is a slanted
+ * geometric sans, not a connected copperplate, and not the upright camel-case
+ * `FuelInjection` this used to render. Futura's oblique is the closest
+ * available face; the tight tracking is as important as the shapes.
+ */
+export const BADGE_SCRIPT_FONT_STACK =
+  `"Futura", "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif`;
+
 export function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = w;
@@ -342,11 +369,15 @@ export function maskFromCanvas(c: HTMLCanvasElement): Mask {
 export function badgeText(
   text: string,
   cap: number,
-  opts: { depth?: number; tracking?: number; condense?: number; weight?: string; font?: string } = {},
+  opts: {
+    depth?: number; tracking?: number; condense?: number; weight?: string; font?: string;
+    /** CSS font-style — `italic` for the obliqued engine scripts. */
+    style?: string;
+  } = {},
 ): THREE.BufferGeometry {
   const PX = 320;
   const probe = makeCanvas(8, 8).getContext('2d')!;
-  const font = `${opts.weight ?? '500'} ${PX}px ${opts.font ?? BADGE_FONT_STACK}`;
+  const font = `${opts.style ? `${opts.style} ` : ''}${opts.weight ?? '500'} ${PX}px ${opts.font ?? BADGE_FONT_STACK}`;
   probe.font = font;
   const capPx = capHeightPx(probe);
   const condense = opts.condense ?? 1;

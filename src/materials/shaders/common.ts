@@ -163,6 +163,26 @@ vec3 audiObjToView(AudiFrame f, vec3 d) {
  * so we carry our own copy for procedural heights.
  */
 export const GLSL_BUMP = /* glsl */ `
+/**
+ * A screen-space height gradient, bounded by the slope the pattern actually
+ * has.
+ *
+ * dFdx of a height built from creases — turbulence, |noise|, a moulded grain —
+ * spikes wherever a crease crosses the 2x2 quad, because one pixel's step
+ * across a V reads as an arbitrarily steep wall. Those spikes land on isolated
+ * pixels and tilt the normal far enough to catch the sky, which is the white
+ * "dust on the sensor" speckle a grained black bumper shows on a dark panel.
+ *
+ * A moulded grain has no facet steeper than the slope it was authored with, so
+ * clamping the per-pixel rise to that slope times the surface's own per-pixel
+ * step discards nothing real and removes the spikes exactly. 'surfPos' must be
+ * the space the height was evaluated in, so the two agree on what a metre is.
+ */
+vec2 audiBoundGradient(float h, vec3 surfPos, float slope) {
+  float lim = slope * length(fwidth(surfPos)) + 1e-9;
+  return clamp(vec2(dFdx(h), dFdy(h)), -lim, lim);
+}
+
 vec3 audiBump(vec3 surfPos, vec3 N, float dHdx, float dHdy, float scale) {
   vec3 sX = dFdx(surfPos);
   vec3 sY = dFdy(surfPos);
@@ -225,5 +245,42 @@ AudiFlake audiFlakeAt(vec3 q, vec3 nObj, float size, float spread) {
 }
 `;
 
+/**
+ * Geometric specular antialiasing.
+ *
+ * `audiResolved()` and friends handle a detail that has gone *smaller* than a
+ * pixel. This handles the other half of the problem, and it is the one that
+ * produced the headlamp reflector's glitter: a lattice that is comfortably
+ * resolved — six pixels to a dimple — can still alias, because what aliases is
+ * the *highlight*, not the pattern. A dimple whose normal sweeps 50° across
+ * six pixels sweeps it past a specular lobe only 6° wide, so the light source
+ * lands inside one pixel of each dimple and nowhere else: a field of isolated
+ * white dots instead of a bowl. Fading the dimples out cannot fix that, and
+ * supersampling only makes the dots smoother.
+ *
+ * The cure is Tokuyoshi & Kaplanyan's: measure the normal's screen-space
+ * variance, treat it as an extra roughness kernel, and convolve it into the
+ * material's own roughness. The lobe then spans exactly the range of normals
+ * the pixel actually contains, so the glint spreads over the dimple instead of
+ * flickering on one pixel of it — at the same average energy, which is why the
+ * surface does not get darker or duller when it stops sparkling.
+ *
+ * `n` may be in any rigid frame, object or view: variance is invariant under
+ * rotation, and object space is often the only frame the perturbed normal is
+ * available in early enough to reach `roughnessmap_fragment`.
+ *
+ * `sigma2` weights the variance (0.25 is the conventional half-pixel filter);
+ * `cap` bounds how much roughness a single pixel may invent, so a silhouette —
+ * where the normal genuinely flips — cannot blur the whole surface.
+ */
+export const GLSL_SPECAA = /* glsl */ `
+float audiSpecularAA(vec3 n, float roughness, float sigma2, float cap) {
+  vec3 dx = dFdx(n);
+  vec3 dy = dFdy(n);
+  float variance = sigma2 * (dot(dx, dx) + dot(dy, dy));
+  return clamp(sqrt(roughness * roughness + min(2.0 * variance, cap)), 0.0, 1.0);
+}
+`;
+
 /** Everything a fragment shader in this library might want, concatenated. */
-export const GLSL_LIB = GLSL_NOISE + GLSL_FRAME + GLSL_BUMP;
+export const GLSL_LIB = GLSL_NOISE + GLSL_FRAME + GLSL_BUMP + GLSL_SPECAA;
