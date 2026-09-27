@@ -382,15 +382,21 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
     tint.setHex(preset.groundTint).multiplyScalar(ASPHALT_ALBEDO_SCALE);
     asphalt.mat.color.copy(tint);
     // Kerb and verge, at the same reflectances the IBL's proxy ground uses —
-    // 0.35 for weathered concrete against asphalt's 0.14, 0.22 for dry
-    // late-summer grass. These substitute for `diffuseColor` after the map has
-    // been sampled, and by then it is already true albedo (the 4x baked into
-    // the map and the 0.25 in `material.color` have cancelled), so they are
-    // written as plain reflectances.
-    asphalt.patch.uKerbColor.value.setRGB(0.92, 0.91, 0.88).multiplyScalar(0.35);
-    // Straw, not green — see the matching note in ibl.ts. The verge you see
-    // and the verge the paint reflects have to be the same grass.
-    asphalt.patch.uVergeColor.value.setRGB(0.82, 0.74, 0.42).multiplyScalar(0.22);
+    // 0.197 for weathered concrete against asphalt's 0.155, 0.11 for grass.
+    // These substitute for `diffuseColor` after the map has been sampled, and
+    // by then it is already true albedo (the 4x baked into the map and the
+    // 0.25 in `material.color` have cancelled), so they are written as plain
+    // reflectances.
+    //
+    // Both were roughly double this, and the reference photograph measures
+    // them directly: road, pavement and grass inside one patch of tree shade
+    // white-balance to luminances of 102, 130 and 85, so the pavement returns
+    // 1.27x the road and the grass 0.6-0.8x. See the derivation in ibl.ts —
+    // the two files have to agree, because the verge you see and the verge
+    // the paint reflects are the same grass.
+    asphalt.patch.uKerbColor.value.setRGB(0.92, 0.91, 0.88).multiplyScalar(0.197);
+    // Straw, not green — see the matching note in ibl.ts.
+    asphalt.patch.uVergeColor.value.setRGB(0.82, 0.74, 0.42).multiplyScalar(0.11);
     asphalt.patch.uWetness.value = preset.wetness;
     asphalt.patch.uGoboStrength.value = preset.dapple;
     const azLen = Math.hypot(preset.sunDir[0], preset.sunDir[2]) || 1;

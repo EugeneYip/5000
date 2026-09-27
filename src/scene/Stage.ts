@@ -70,7 +70,14 @@ export class Stage {
     this.renderer.info.autoReset = false;
 
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.VSMShadowMap;
+    // PCF-soft rather than VSM. VSM's Chebyshev bound bleeds badly when one
+    // blur kernel straddles occluders at very different depths, and the
+    // canopy dapple the reference photograph has needs an occluder ~45 m
+    // up-sun (a 9 m crown at 11.5 degrees of sun throws 44 m). That would mix
+    // a 45 m occluder with the car's own 2 m contact shadow in one kernel and
+    // return ~1, erasing the contact shadow inside the canopy shade — the one
+    // thing that must not happen.
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = true;
 
     this.scene = new THREE.Scene();

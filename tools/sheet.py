@@ -197,6 +197,38 @@ def compare_to_photo(render_path: Path):
         dist = float("nan")
         where = "NO PAINT FOUND ON THE CAR — gate did not run"
 
+    # Second metric: the SAME PIXELS every time.
+    #
+    # The search above re-forms its top ten whenever the image changes, so it
+    # is reproducible for an identical build but not stable under small ones —
+    # it can improve while the panels get worse. Two configurations were caught
+    # scoring better here while being measurably worse on fixed patches (one
+    # greyed the zenith: gate 7.0, fixed-patch error 17.4). Composition drift
+    # is exactly the hole a metric like this leaves open.
+    #
+    # So: freeze the reference patch positions once, in this file, and read
+    # those pixels in every render. They cannot drift, so a movement is real.
+    frozen_err = float("nan")
+    frozen_hits = 0
+    # Derived once from a known-good build (renders/envfix4/photomatch.png) by
+    # taking its twelve closest qualifying patches and recording where they
+    # landed. Re-derive only if the photomatch POSE changes; do not re-derive
+    # to make a number look better, which would defeat the whole point.
+    fx_list = [(0.50, 0.48), (0.48, 0.50), (0.52, 0.60), (0.90, 0.70),
+               (0.48, 0.48), (0.88, 0.70), (0.50, 0.50), (0.40, 0.48),
+               (0.38, 0.54), (0.40, 0.50), (0.38, 0.44), (0.40, 0.54)]
+    errs = []
+    for fx, fy in fx_list:
+        y0, y1 = int(hgt * fy), int(hgt * (fy + 0.05))
+        x0, x1 = int(wid * fx), int(wid * (fx + 0.03))
+        if car_mask[y0:y1, x0:x1].mean() < 0.85:
+            continue
+        m = np.median(a[y0:y1, x0:x1].reshape(-1, 3), axis=0)
+        errs.append(float(np.sqrt(((m - tgt) ** 2).sum())))
+    if errs:
+        frozen_err = float(np.median(errs))
+        frozen_hits = len(errs)
+
     # Brightness of the car overall, which is the thing a single patch hides.
     car_px = a[car_mask]
     car_median = float(np.median(car_px)) if car_px.size else float("nan")
@@ -222,6 +254,8 @@ def compare_to_photo(render_path: Path):
     print(f"  paint distance from photograph target: {dist:.1f} (aim < 18)  [{where}]")
     print(f"  car median level {car_median:.0f} (photograph 131)   "
           f"pixels below 40: {crushed:.1f}% (photograph 3.2%)")
+    print(f"  fixed-patch error {frozen_err:.1f} over {frozen_hits}/12 frozen positions "
+          f"— cannot drift, so a movement here is real")
     return out_path
 
 

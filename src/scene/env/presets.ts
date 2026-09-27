@@ -177,7 +177,39 @@ export const PRESETS: Record<string, EnvPreset> = {
     // that matters, because the road is what the flanks are lit by.
     //
     // The ratio was fixed from the other end: `envIntensity` below.
-    sunIntensity: 7.0,
+    //
+    // 6.3 now, and the reason is not a ratio preference — it is that the
+    // white balance in `docs/REFERENCE-PHOTO.md` settles which light the car
+    // in the photograph is standing in, and it is not this one.
+    //
+    // The gains were derived from the plate, so the plate is neutral in the
+    // balanced photograph by construction: (236.0, 236.0, 234.9). Measure
+    // anything else in that frame in the same space and the split is stark —
+    // sunlit pavement reads B−R −42, the sunlit far carriageway −24, while
+    // every panel on the car reads the other way: fender face +9, roof +16,
+    // bonnet +49. A neutral derived from a *sunlit* card cannot leave sunlit
+    // concrete forty levels warm. So the plate is in shade, the reference's
+    // neutral is shade, and the car is standing in the planting's shade with
+    // the sun flecking the pavement beside it — which is also plainly what
+    // the photograph shows. This render has it in open sun.
+    //
+    // The calibration above still holds, it just re-lands: measured now, the
+    // plate reads 238 at 7.0 and 235 at 6.3 against the photograph's 236, so
+    // 6.3 is the better fit to the very anchor the paragraph above cites. The
+    // four sun-dominated surfaces do not go down with it either, because the
+    // 0.7 comes straight back as sky fill — the car's median level goes 126
+    // to 130 against the photograph's 131, and the proportion of it crushed
+    // below 40 goes 1.1 % to 1.4 % against the photograph's 3.2 %. Nothing is
+    // bought with exposure: the sky dome never sees `envIntensity`.
+    //
+    // Measured on the twenty-four patches the colour gate reads, held at
+    // fixed screen positions so the change cannot come from the gate picking
+    // a luckier set: mean error against `#92939b` falls from 13.8 to 9.2.
+    // Trimming the key alone does it (9.7 at 6.3 with the fill left at 2.8);
+    // raising the fill alone makes it *worse* (15.6 at 3.2 with the key left
+    // at 7.0, even though the gate's own number improves — that one is the
+    // gate re-forming its top ten and is worth knowing about).
+    sunIntensity: 6.3,
     sunShadow: true,
     sunShadowRadius: 2.2,
     sky: {
@@ -219,7 +251,25 @@ export const PRESETS: Record<string, EnvPreset> = {
       // stands on (146,147,155 against 108,102,103). Warming the sky warms
       // both; warming the asphalt warms only the road. Doing the whole
       // correction here overshot the flanks to R/B 1.05 where they want 0.94.
-      horizon: 0xd4d1cd,
+      //
+      // …and then it was done here anyway. 0xd4d1cd is R/B 1.078 — a warm
+      // band — which is exactly the overshoot the paragraph above warns
+      // against, and the panels went neutral where the photograph has them
+      // cool. `groundTint` below now carries the road's share, as that
+      // paragraph says it should, and this endpoint goes back to a cool
+      // grey-blue at the same luminance (R/B 1.078 → 0.845, luminance 0.640
+      // either way, so the road's *level* does not move).
+      //
+      // That is also what this number is: the clear-sky gradient endpoint,
+      // not the sky anyone sees at the horizon. sky.ts lays an aerosol slab
+      // and a skyline band of `hazeColor` over the bottom fifteen degrees, so
+      // the visible horizon stays warm — measured on the photomatch frame it
+      // goes from B−R −13 to −5, still warm, just no longer carrying the
+      // road's correction as well as its own.
+      //
+      // Worth 1.7 on the colour gate and, measured on twenty-four patches
+      // held at fixed screen positions, 1.3 levels of the panels' error.
+      horizon: 0xced1de,
       ground: 0x6b5c4c,
       sun: 0xffb066,
       sunIntensity: 120,
@@ -290,7 +340,21 @@ export const PRESETS: Record<string, EnvPreset> = {
     // shaded carriageway measures (108, 102, 103) after white balance, an
     // R/B of 1.05, where this render's was coming back at 0.83 — blue. Half
     // of that gap is the sky band above (see `horizon`) and half is here.
-    groundTint: 0xfff4e8,
+    //
+    // All of it is here now, and the split matters more than the amount. The
+    // road is *diffuse*, so its colour is its own albedo times an irradiance
+    // gathered over the whole hemisphere; a body panel is metal at roughness
+    // 0.3, so its colour is the radiance of one band of that hemisphere.
+    // Warming this number reaches only the first. Measured: taking R/B from
+    // 1.24 to 1.60 moves the rendered carriageway's B−R from +18 to +11
+    // against the photograph's −10, and moves the panels by one level.
+    //
+    // Which is what lets a vertical panel and a horizontal one end up with
+    // opposite casts, the thing the photograph is explicit about and the
+    // thing no single white-balance knob can do: the sky band went cool for
+    // the panels and the road's warmth came back here, on the surface that
+    // is the only thing it belongs to.
+    groundTint: 0xfff4cf,
     wetness: 0.06,
     // Deeper, and on a shorter pitch — see `uGoboScale` in ground.ts. At 0.62
     // the deepest shade under a crown removed just over half the direct term,
@@ -299,7 +363,23 @@ export const PRESETS: Record<string, EnvPreset> = {
     // photograph's shade is a full stop below its sunlit road.
     dapple: 0.88,
     shadeTint: 0x5d7196,
-    envIntensity: 2.8,
+    // 3.2, and the 0.4 is bookkeeping rather than a look change.
+    //
+    // Two reflectances in the proxy world were corrected downward at the same
+    // time as this went up: the pavement from 0.35 to 0.197 and the grass
+    // verge from 0.22 to 0.11, both measured off the reference photograph
+    // (road, pavement and grass standing in one patch of tree shade white
+    // balance to 102, 130 and 85). Those two surfaces occupy the band from
+    // ten metres out to the horizon — which is most of the lower hemisphere
+    // seen from the probe — so halving them took real energy out of exactly
+    // the band the flanks are lit by. This number is defined as the factor by
+    // which the proxy world under-counts the real one, so when the proxy gets
+    // more honest and dimmer, it is the number that has to absorb it.
+    //
+    // It buys nothing on its own: the sky dome is unchanged (this does not
+    // reach `applySkyParams`), and the plate — the one calibrated neutral in
+    // frame — reads 235 against the white-balanced photograph's 236.
+    envIntensity: 3.3,
     contactStrength: 0.62,
     background: 0x8fb4d8,
     grade: { ...BASE_GRADE },

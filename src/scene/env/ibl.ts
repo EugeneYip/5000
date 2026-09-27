@@ -37,9 +37,29 @@ const ROAD_ALBEDO = 0.155;
  * …and the two surfaces either side of it, which a vertical body panel
  * mirrors just as much of and which were not modelled at all. Weathered
  * concrete pavement, and dry late-summer grass.
+ *
+ * Both were about twice this and both are measurable, because the reference
+ * photograph shows all three surfaces standing in the *same* light. Sampling
+ * road, pavement and grass inside one patch of tree shade and white-balancing
+ * them gives luminances of 102, 130 and 85 — the pavement returns 1.27 times
+ * what the road does and the grass 0.6 to 0.8 times. Against asphalt's 0.155
+ * that is 0.197 and about 0.11. The file had 0.35 and 0.22, i.e. 2.26x and
+ * 1.42x, which put a pale khaki band along the horizon brighter than the
+ * carriageway in front of it — the render's verge measured 196 against the
+ * road's 121, where the photograph has the grass *darker* than the road.
+ *
+ * 0.22 for grass is the classic vegetation mistake: that is roughly its
+ * near-infrared reflectance. Leaf pigment absorbs hard right across the
+ * visible, and mown grass measures 0.10-0.13 to the eye however bright it
+ * looks on a false-colour plate.
+ *
+ * This matters here rather than anywhere else because these two surfaces sit
+ * at ten to eighteen metres, which is square in the band a vertical body
+ * panel mirrors — so the whole of that overstatement was arriving on the
+ * flanks as warm fill.
  */
-const KERB_ALBEDO = 0.35;
-const VERGE_ALBEDO = 0.22;
+const KERB_ALBEDO = 0.197;
+const VERGE_ALBEDO = 0.11;
 
 export interface IblHandle {
   /** Stable across preset changes. */
@@ -55,8 +75,10 @@ uniform vec3 uVergeColor;
 uniform vec3 uHorizonColor;
 uniform vec3 uSheenColor;
 uniform vec3 uSunAzimuth;
+uniform vec3 uShadeMul;
 uniform float uSheen;
 uniform float uGloss;
+uniform float uCanopy;
 varying vec3 vWorld;
 void main() {
   vec3 v = vWorld - cameraPosition;
@@ -80,6 +102,34 @@ void main() {
   vec3 surf = mix(uColor, uKerbColor, smoothstep(10.5, 12.5, across));
   surf = mix(surf, uVergeColor, smoothstep(15.5, 18.0, across));
 
+  // The planting's shade, on the road the car *reflects*.
+  //
+  // ground.ts has painted this on the road the car stands on since the gobo
+  // went in, but the proxy ground here was left in unbroken sunlight — so the
+  // flanks were mirroring a boulevard that does not exist, one lit by an open
+  // sky where the real one in frame is mostly in its own trees' shade. At
+  // 11.5° of solar elevation a fifteen-metre plane tree throws seventy metres
+  // of shadow and the row is seven trees deep: the reference photograph's
+  // carriageway is in shade with sun flecks punched through it, not the other
+  // way round, and that shade is both a stop down and distinctly cooler.
+  //
+  // Only the bands, not the leaf structure. This map is prefiltered by PMREM
+  // and every body panel that matters reads it at a roughness where features
+  // finer than a few degrees are already gone, so the leaf-scale detail the
+  // gobo texture carries would be integrated away — while the 13 m band pitch
+  // survives and is what actually changes the colour of the lower hemisphere.
+  // Same pitch, same sun frame and the same depth and tint as ground.ts, so
+  // the road the car stands on and the road it mirrors are one surface.
+  vec2 sunFwd = uSunAzimuth.xz;
+  float acrossSun = dot(vWorld.xz, vec2(-sunFwd.y, sunFwd.x));
+  float alongSun = dot(vWorld.xz, sunFwd);
+  // A row of trees wanders; two incommensurate periods are enough to stop the
+  // bands reading as a ruled grating once they are blurred into the map.
+  float wander = sin(alongSun * 0.071) * 1.25 + sin(alongSun * 0.0293 + 1.7) * 0.85;
+  float s = acrossSun / 13.0 + wander;
+  float shade = (1.0 - smoothstep(0.24, 0.44, abs(fract(s) - 0.5))) * uCanopy;
+  surf *= mix(vec3(1.0), uShadeMul, shade);
+
   // Schlick. A road is a dielectric, so at grazing incidence it stops being
   // asphalt and becomes a mirror — which is why the far end of a dry street
   // is pale and looks wet. What it mirrors is the sky just above the horizon
@@ -102,7 +152,9 @@ void main() {
   // down a road exactly as it does across water. This one *is* warm, because
   // it is the sun's own image; it just has no business anywhere else.
   float toSun = pow(max(dot(normalize(vec3(v.x, 0.0, v.z)), uSunAzimuth), 0.0), 8.0);
-  c += uSheenColor * uSheen * toSun * graze * 2.4;
+  // …and the streak is the sun's image, so the canopy takes it out along with
+  // everything else the sun was doing to that stretch of road.
+  c += uSheenColor * uSheen * toSun * graze * 2.4 * (1.0 - shade * 0.88);
 
   // Beyond about thirty metres the surface is veiled, and what it is veiled
   // by is the same horizon sky, so the road and the sky meet without a seam.
@@ -452,8 +504,10 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     uHorizonColor: { value: new THREE.Color(0.2, 0.24, 0.3) },
     uSheenColor: { value: new THREE.Color(1, 0.72, 0.44) },
     uSunAzimuth: { value: new THREE.Vector3(-0.82, 0, 0.58) },
+    uShadeMul: { value: new THREE.Color(1, 1, 1) },
     uSheen: { value: 0.25 },
     uGloss: { value: 0.55 },
+    uCanopy: { value: 0 },
   };
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(140, 72),
@@ -492,6 +546,7 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
 
   const albedo = new THREE.Color();
   const skyCol = new THREE.Color();
+  const shadeMul = new THREE.Color();
   const sunAz = new THREE.Vector3();
 
   const bake = (preset: EnvPreset, sunDir: THREE.Vector3): void => {
@@ -561,6 +616,25 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     sunAz.set(sunDir.x, 0, sunDir.z);
     if (sunAz.lengthSq() < 1e-6) sunAz.set(0, 0, 1);
     groundUniforms.uSunAzimuth.value.copy(sunAz.normalize());
+
+    // What the planting's shade does to the proxy road, derived the same way
+    // ground.ts derives it for the road the car stands on rather than picked
+    // again here: the canopy takes the sun off and leaves most of the sky on,
+    // so the multiplier is per-channel `(k·E_sky + 0.12·E_sun) / E_total`.
+    // Both terms are already to hand — `skyCol` is the mean sky radiance and
+    // `sunTerm · sunColor` is the sun's. 0.55 because a point under a crown
+    // has lost much of the sky as well as the sun, and 0.12 of the sun left
+    // standing for what comes through the leaves; the same two constants are
+    // in ground.ts, and if they drift apart the reflected road will stop
+    // matching the one in front of the bumper.
+    shadeMul.setHex(preset.sunColor).multiplyScalar(sunTerm);
+    shadeMul.setRGB(
+      (0.55 * skyCol.r + 0.12 * shadeMul.r) / Math.max(skyCol.r + shadeMul.r, 1e-4),
+      (0.55 * skyCol.g + 0.12 * shadeMul.g) / Math.max(skyCol.g + shadeMul.g, 1e-4),
+      (0.55 * skyCol.b + 0.12 * shadeMul.b) / Math.max(skyCol.b + shadeMul.b, 1e-4),
+    );
+    groundUniforms.uShadeMul.value.copy(shadeMul);
+    groundUniforms.uCanopy.value = preset.dapple;
 
     scene.updateMatrixWorld(true);
 
