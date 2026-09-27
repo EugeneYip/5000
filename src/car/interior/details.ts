@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { HP } from '@/car/hardpoints';
-import { CABIN, TONE } from './layout';
+import { CABIN, TONE, headlinerY } from './layout';
 import { cyl, merge, mesh, roundedBox, slab, surface, tube, type Vec3 } from './util';
 
 /**
@@ -150,21 +150,21 @@ export function buildDetails(ctx: BuildContext): THREE.Group {
     // Stowed against the headliner but never quite flat against it.
     v.rotateX(-1.40);
     v.rotateZ(sx * 0.03);
-    v.translate(sx * 0.316, CABIN.headlinerY - 0.038, HP.headerZ - 0.048);
+    v.translate(sx * 0.316, headlinerY(sx * 0.316, HP.headerZ - 0.048) - 0.038, HP.headerZ - 0.048);
     softParts.push(v);
     const rod = cyl(0.0048, 0.0048, 0.286, 8);
     rod.rotateZ(Math.PI / 2);
     rod.rotateX(-1.40);
-    rod.translate(sx * 0.316, CABIN.headlinerY - 0.018, HP.headerZ - 0.080);
+    rod.translate(sx * 0.316, headlinerY(sx * 0.316, HP.headerZ - 0.080) - 0.018, HP.headerZ - 0.080);
     metal.push(rod);
     const clip = roundedBox(0.020, 0.024, 0.016, 0.004, 1, 2);
-    clip.translate(sx * 0.176, CABIN.headlinerY - 0.026, HP.headerZ - 0.086);
+    clip.translate(sx * 0.176, headlinerY(sx * 0.176, HP.headerZ - 0.086) - 0.026, HP.headerZ - 0.086);
     darkParts.push(clip);
   }
   // Vanity mirror on the passenger visor.
   const vanity = slab(0.104, 0.052, 0.004, 0.002, 1);
   vanity.rotateX(-1.40);
-  vanity.translate(0.316, CABIN.headlinerY - 0.046, HP.headerZ - 0.042);
+  vanity.translate(0.316, headlinerY(0.316, HP.headerZ - 0.042) - 0.046, HP.headerZ - 0.042);
   metal.push(vanity);
 
   // -- rear-view mirror -----------------------------------------------------
@@ -217,10 +217,10 @@ export function buildDetails(ctx: BuildContext): THREE.Group {
   // -- lamps ----------------------------------------------------------------
   for (const [z, w] of [[HP.headerZ - 0.29, 0.128], [-2.760, 0.104]] as Array<[number, number]>) {
     const housing = roundedBox(w + 0.020, 0.012, 0.070, 0.006, 1, 2);
-    housing.translate(0, CABIN.headlinerY - 0.006, z);
+    housing.translate(0, headlinerY(0, z) - 0.006, z);
     darkParts.push(housing);
     const lensG = slab(w, 0.008, 0.052, 0.003, 1);
-    lensG.translate(0, CABIN.headlinerY - 0.014, z);
+    lensG.translate(0, headlinerY(0, z) - 0.014, z);
     group.add(mesh(lensG, ctx.materials.lens(0xf2f2ea, { opacity: 0.86 }), 'domeLamp'));
   }
 

@@ -59,6 +59,48 @@ export function at(g: THREE.BufferGeometry, x: number, y: number, z: number): TH
   return g;
 }
 
+/**
+ * Reverse a surface's winding, and with it the side it is visible from.
+ *
+ * Every panel in this stream is a one-sided sheet, so which way it is wound
+ * decides whether it exists at all: a sheet wound to face the sky is *gone*
+ * from any camera under it, and the eye then runs through it to whatever is
+ * beyond — which, for the roof, is the sky itself.
+ *
+ * Two authoring habits produce a sheet wound the wrong way, and both were in
+ * here: a `surface()` whose two parameters happen to run (i → +x, j → −z),
+ * which puts the normal at +y whether the part is a floor or a roof lining;
+ * and a part built for both sides as `side * f(x)`, which mirrors the sheet
+ * without reversing its winding, so the left-hand copy comes out inside-out.
+ * Use `mirrored()` for the second case where the part really is a mirror
+ * image, and this where the parameterisation is simply the wrong way round.
+ */
+export function flipWinding(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const idx = g.getIndex();
+  if (idx) {
+    const a = idx.array as Uint32Array | Uint16Array;
+    for (let i = 0; i < a.length; i += 3) { const t = a[i]; a[i] = a[i + 2]; a[i + 2] = t; }
+    idx.needsUpdate = true;
+  } else {
+    const p = g.getAttribute('position') as THREE.BufferAttribute;
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    for (let i = 0; i < p.count; i += 3) {
+      a.fromBufferAttribute(p, i);
+      b.fromBufferAttribute(p, i + 2);
+      p.setXYZ(i, b.x, b.y, b.z);
+      p.setXYZ(i + 2, a.x, a.y, a.z);
+    }
+    p.needsUpdate = true;
+  }
+  const n = g.getAttribute('normal');
+  if (n) {
+    for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+    n.needsUpdate = true;
+  }
+  return g;
+}
+
 /** Mirror across the centreline. Winding is flipped back so normals survive. */
 export function mirrored(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const m = g.clone();

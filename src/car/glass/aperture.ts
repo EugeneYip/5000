@@ -39,7 +39,7 @@
 import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import {
-  T, surfacePoint, surfaceNormal, dtFor,
+  T, surfacePoint, surfaceNormal, dtFor, arcLen,
 } from '@/car/body/surface';
 import { Z, tRoofOuter, tScreenEdge, aPillarLower, tDloRear, tTailgate } from '@/car/body/panels';
 import { clamp, lerp, type Sample } from './geom';
@@ -61,35 +61,34 @@ export const SIDE_THICK: number = HP.glass.sideThickness;
 export const SCREEN_T = 0.1150;
 
 /**
- * The DLO's top edge, and the black surround that defines it.
+ * The DLO's top edge, and the blackout that backs it.
  *
- * The C3 deleted the drip rail and runs a slim black finisher along the
- * roof-to-bodyside joint, continuous from the A-pillar to the D-pillar. Held at
- * a constant section level it squares the DLO's top line and is what makes the
- * greenhouse read as one dark band rather than as separate windows. It used to
- * have to do more than that — the body's A-pillar was 87 mm wide with its
- * outboard edge 49 mm below the roof skin's, and the moulding had to widen
- * across the front door to cover the step. The pillar is now slim enough that
- * its edge lands on `tRoofOuter` exactly, so the moulding can be what it is on
- * the car: one constant width.
+ * The roof-to-bodyside joint is a **pressed feature, not a painted line**: the
+ * roof skin's face stops `QUALITY.edgeRadius` short of `tRoofOuter`, rolls
+ * through that radius and returns a 16 mm flange, and the A-, B-, C- and
+ * D-pillar panels all start again at `tRoofOuter`, tangent-continuous. So there
+ * is a convex radius with a highlight on it running the whole greenhouse, and
+ * the part that belongs on it is a section with depth — the trim stream's swept
+ * bead, 22 mm across and 4.4 mm proud, straddling `tRoofOuter`.
+ *
+ * What is built here is therefore only the *blackout under* that bead: a band
+ * lying a hair inside the skin that keeps the joint dark end to end, including
+ * the stretch of the roll where the roof's face has curled away and the pillar
+ * panel has not yet begun. A flat applique standing proud on a convex radius
+ * can only z-fight it or float over it, which is what the old one did.
  */
-const smooth = (e0: number, e1: number, x: number): number => {
-  const k = clamp((x - e0) / (e1 - e0), 0, 1);
-  return k * k * (3 - 2 * k);
-};
 
 /**
- * Upper edge of the moulding. Aft of the header it laps 3 mm onto the roof
- * skin; forward it rides down the A-pillar, leaving ~70 mm of painted pillar
- * alongside the screen. The 30 mm jog between the two happens at the header,
- * which is where a real car's A-pillar finisher steps into its roof moulding.
+ * Upper edge of the blackout — 9 mm of skin inboard of the joint, so it runs
+ * 3 mm under the roof skin's own edge and well inside the bead's upper lip.
  */
 export function mouldTopT(z: number): number {
-  return lerp(0.1222, 0.1330, smooth(-1.34, -1.20, z));
+  const tro = tRoofOuter(z);
+  return tro - dtFor(z, tro, 0.009);
 }
 
 /**
- * Lower edge of the moulding, and so the DLO's visible top line.
+ * Lower edge of the blackout, and so the DLO's top line.
  *
  * Constant, and dead level along the whole flank — which is the point. It used
  * to taper 0.1300 → 0.1462, a 47 mm rise across the front door, because the
@@ -249,19 +248,29 @@ export function screenPane(): Region {
   });
 }
 
-/** Inboard edge of the tailgate's side frame: the backlight's lateral limit. */
+/**
+ * Inboard edge of the tailgate's side frame: the backlight's lateral limit.
+ *
+ * The frame is 82 mm of skin wide and the glass laps 8 mm under it, so this is
+ * 74 mm of **arc** inboard of the side shutline — and it has to be integrated,
+ * not stepped. `dtFor` is a local linearisation of ∂S/∂t, and across the tail's
+ * D-pillar roll-over ∂S/∂t collapses: at z −3.30 it runs 1.44 at t 0.15, 0.45
+ * at t 0.20 and 1.57 at t 0.30. Taking 82 mm at the shutline's own rate there
+ * asked for Δt = 0.18 for a step the section covers in 0.06, and the "edge"
+ * landed at x 0.247 — a 494 mm waist across the middle of a 1.5 m backlight,
+ * with the same collapse driving the body's `tgSideR`. Inverting `arcLen`
+ * instead is exact wherever the section is monotone, which it is here.
+ */
 export function tailgateEdgeT(z: number): number {
-  const tt = tTailgate(z);
-  return tt - dtFor(z, tt, 0.082) + dtFor(z, tt, 0.008);
-}
-
-/** The tailgate glass. `a` runs header → tail, `b` runs left → right. */
-export function tailgatePane(): Region {
-  return (a, b) => {
-    const z = lerp(Z.tgGlassTop + 0.004, -3.700, a);
-    const e = tailgateEdgeT(z);
-    return { z, t: lerp(-e, e, b) };
-  };
+  const t0 = tTailgate(z);
+  const target = arcLen(z, t0) - 0.074;
+  if (target <= 0) return 0;
+  let lo = 0, hi = t0;
+  for (let i = 0; i < 26; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (arcLen(z, mid) < target) lo = mid; else hi = mid;
+  }
+  return 0.5 * (lo + hi);
 }
 
 // ---------------------------------------------------------------------------

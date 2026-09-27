@@ -13,8 +13,10 @@
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { HP } from '@/car/hardpoints';
-import { CABIN, TONE, innerHalfW } from './layout';
-import { clamp, fbm, lerp, merge, mesh, mirrored, smoothstep, surface, type Vec3 } from './util';
+import {
+  CABIN, ROOF_FRONT_Z, ROOF_REAR_Z, TONE, headlinerShoulder, headlinerY, innerHalfW, skinHalfW,
+} from './layout';
+import { clamp, fbm, flipWinding, lerp, merge, mesh, mirrored, smoothstep, surface, type Vec3 } from './util';
 
 const TAIL = HP.tailZ;
 
@@ -116,32 +118,99 @@ function buildMats(ctx: BuildContext): THREE.Mesh {
 // ---------------------------------------------------------------------------
 // Headliner
 // ---------------------------------------------------------------------------
+//
+// This is the part that closes the cabin, and it was doing none of it. Three
+// separate faults, each of which on its own leaves the roof open to the sky:
+//
+//   1. It was wound (i → +x, j → −z), which puts the normal at +y. A one-sided
+//      sheet facing the sky is invisible from underneath — the whole 2.6 m² of
+//      it — and behind it the roof skin is another one-sided shell facing the
+//      same way, so the cabin was simply open.
+//   2. It stopped at z −3.016, 92 mm short of the tailgate hinge, leaving a
+//      full-width slot at the back of the roof.
+//   3. It was flat at `BODY.height − 0.046` while the real roof falls 77 mm
+//      over the back of the cabin, so from about z −2.9 it stood *above* the
+//      skin it was supposed to hang under.
+//
+// Rebuilt as what it is: a moulded board with a thickness, crowned across the
+// car, following the roof skin's own fall, running the full length of the
+// fixed roof, and wrapping down at each side to lap over the top of the glass
+// so there is no slot at the cant rail either. Closed in section, so it reads
+// from above as well — through the tailgate glass you are looking down onto
+// the back of it.
 
-const ROOF_HALF = 0.706;
+/** Board thickness, feathered to nothing at the two ends so the shell seals. */
+const BOARD = 0.010;
+/** How far past the shoulder the board turns down to meet the glass. */
+const CANT_DROP = 0.026;
 
-function headlinerY(x: number, z: number): number {
-  const k = clamp(Math.abs(x) / ROOF_HALF, 0, 1);
-  // Crowned across the car, and it drops away at the windscreen header.
-  const crown = CABIN.headlinerY - (CABIN.headlinerY - CABIN.headlinerEdgeY) * k * k;
-  return crown - (1 - smoothstep(HP.headerZ - 0.27, HP.headerZ - 0.01, z)) * 0.05;
+/**
+ * The lining's section at station `z`, as a half-profile from the centreline
+ * out to the bottom of the turn-down. `s` runs 0..1; the last sixth of it is
+ * the turn-down, which follows the body side rather than a straight chamfer,
+ * because above the belt the section tumbles home hard.
+ */
+function linerSection(z: number, s: number, out: THREE.Vector2): THREE.Vector2 {
+  const [xs, ys] = headlinerShoulder(z);
+  const crown = headlinerY(0, z);
+  const TURN = 0.84;
+  if (s <= TURN) {
+    const k = s / TURN;
+    return out.set(k * xs, crown - (crown - ys) * k * k);
+  }
+  const u = (s - TURN) / (1 - TURN);
+  // Ease the drop so the board leaves the crown tangentially and lands on the
+  // glass square, the way a moulded edge does.
+  const y = ys - CANT_DROP * u * u * (3 - 2 * u);
+  return out.set(Math.max(xs, skinHalfW(z, y) - 0.012), y);
 }
 
 function buildHeadliner(ctx: BuildContext): THREE.Mesh {
-  const z0 = HP.headerZ - 0.005;
-  const z1 = TAIL + 0.80;
-  const nu = 26;
-  const nv = 34;
-  const g = surface(nu, nv, false, (i, j, out) => {
-    const u = i / nu;
+  const nu = 22;            // stations across one half-section
+  const nv = 36;            // stations fore-and-aft
+  const ring = 4 * nu;      // underside both halves, then the top back again
+  const a = new THREE.Vector2();
+  const b = new THREE.Vector2();
+  const c = new THREE.Vector2();
+
+  const g = surface(ring, nv, true, (i, j, out) => {
     const v = j / nv;
-    const x = lerp(-ROOF_HALF, ROOF_HALF, u);
-    const z = lerp(z0, z1, v);
-    const edge = 1 - smoothstep(0.86, 1.0, Math.abs(x) / ROOF_HALF);
-    out.set(x, headlinerY(x, z) - (1 - edge) * 0.03 + fbm(x * 6, 11, z * 4, 2) * 0.0015, z);
+    const z = lerp(ROOF_FRONT_Z, ROOF_REAR_Z, v);
+    // Feathered at both ends, which closes the shell into the header trim at
+    // the front and the tailgate aperture at the back with no open rim.
+    const thick = BOARD * smoothstep(0, 0.022, v) * (1 - smoothstep(0.978, 1, v));
+
+    const top = i >= 2 * nu;
+    // Walk the underside left→right, then the top right→left.
+    const k = top ? (4 * nu - i) : i;
+    const s = Math.abs(k - nu) / nu;
+    const sx = k < nu ? -1 : 1;
+
+    linerSection(z, s, a);
+    let y = a.y;
+    if (top) {
+      // Offset along the section normal, so the board keeps its thickness
+      // round the turn-down instead of shearing to nothing.
+      linerSection(z, Math.max(0, s - 0.03), b);
+      linerSection(z, Math.min(1, s + 0.03), c);
+      const dx = c.x - b.x;
+      const dy = c.y - b.y;
+      const len = Math.hypot(dx, dy) || 1;
+      out.set(sx * (a.x + (dy / len) * thick * sx * sx), a.y - (dx / len) * thick, z);
+      // Sign of the offset: the underside's outward normal points down, so
+      // the top face is the same section pushed the other way.
+      out.x = sx * (a.x - (dy / len) * thick);
+      out.y = a.y + (dx / len) * thick;
+      return;
+    }
+    // Moulded board, not cloth over foam: a shallow, slow undulation only.
+    y += fbm(a.x * 6, 11, z * 4, 2) * 0.0012;
+    out.set(sx * a.x, y, z);
   });
-  // Moulded board, not cloth-over-foam: a light grey so the cabin reads as a
-  // space with air in it rather than a black hole behind the glass.
-  return mesh(g, ctx.materials.fabric({ color: 0x8c8e93 }), 'headliner');
+
+  // Wound underside-first, so the sheet the cabin sees faces down.
+  flipWinding(g);
+  return mesh(g, ctx.materials.fabric({ color: TONE.light }), 'headliner');
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +292,10 @@ function buildPillars(ctx: BuildContext): THREE.Mesh {
       const z = lerp(HP.headerZ - 0.02, TAIL + 0.80, j / 22);
       const prof: Array<[number, number]> = [[0, 0], [0.018, -0.014], [0.030, -0.034], [0.030, -0.052]];
       const q = prof[i];
-      out.set(s * (ROOF_HALF - q[0]), headlinerY(s * ROOF_HALF, z) + q[1] + 0.004, z);
+      // The headliner's own shoulder, not a fixed half-width: a constant here
+      // would drift away from the surface the rail is supposed to sit on.
+      const xs = headlinerShoulder(z)[0];
+      out.set(s * (xs - q[0]), headlinerY(s * xs, z) + q[1] + 0.004, z);
     });
     parts.push(rail);
   }

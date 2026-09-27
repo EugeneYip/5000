@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import { QUALITY } from '@/spec';
 import type { BuildContext } from '@/types';
-import { placeOnSkin, sideNormal, sidePoint, skinFrame, roofEdgeNormal, roofEdgePoint, type SkinFrame } from './bodyref';
+import { placeOnSkin, sideNormal, sidePoint, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
 import { badgeText } from './glyphs';
 import {
   at, clamp, dish, framesFrom, lathe, lerp, merge, mesh, mirrorX, offsetPolyline,
@@ -234,16 +234,28 @@ export function buildSides(ctx: BuildContext): THREE.Group {
   }
 
   // --- roof-to-bodyside moulding, in place of a drip rail (§2.2) ----------
+  //
+  // Swept on `roofOuterPoint`, the joint itself, so the 22 mm section straddles
+  // it — 11 mm up on the roof skin, 11 mm down onto the daylight opening, which
+  // is where the glazing's blackout runs underneath. Swept on `roofEdgePoint`
+  // it sat wholly inboard and its outboard lip only just reached the joint.
+  //
+  // It runs the body's continuous DLO top line end to end: the tailgate hinge
+  // aft, where the tailgate shutline leaves `tRoofOuter` and rakes down across
+  // the D-pillar, and z −0.700 forward, where the A-pillar's lower edge leaves
+  // it and drops to the beltline (`aPillarLower`'s smoothstep in
+  // `body/panels.ts`). Short of either end the bead stops in mid-air on a line
+  // the eye follows right past it.
   {
     const pts: THREE.Vector3[] = [];
     const nor: THREE.Vector3[] = [];
-    const z0 = HP.roof.dPillarZ;
-    const z1 = -1.24;
-    const n = 40;
+    const z0 = HP.rear.tailgateHingeZ;
+    const z1 = -0.700;
+    const n = 64;
     for (let i = 0; i <= n; i++) {
       const z = lerp(z0, z1, i / n);
-      pts.push(roofEdgePoint(z));
-      nor.push(roofEdgeNormal(z));
+      pts.push(roofOuterPoint(z));
+      nor.push(roofOuterNormal(z));
     }
     const frames = framesFrom(pts, nor);
     const sec: Pt[] = [

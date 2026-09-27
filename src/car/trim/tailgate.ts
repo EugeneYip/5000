@@ -21,6 +21,9 @@
  * Every dimension below is derived from `HP.rear.lamp*` rather than written
  * down, so that when the lamp aperture moves the panel still meets it. One of
  * those hardpoints does not agree with the photograph — see the stream report.
+ *
+ * The moulding is now genuinely recessed: the body stream has cut the aperture
+ * this panel drops into. See `APERTURE` and `PANEL_RECESS` below.
  */
 
 import * as THREE from 'three';
@@ -32,36 +35,59 @@ import { DEG, merge, mesh, roundedBox, sweep, type Frame, type Pt } from './util
 
 const R = HP.rear;
 
-/** Centre of the lamp band: the plate is centred on it on every reference. */
-const CENTER_Y = (R.lampTopY + R.lampBottomY) / 2;
+/**
+ * The hole in the tailgate's lower face, as `body.ts` cuts it: lamp to lamp in
+ * width, from 20 mm above the tailgate's bottom shutline (so that edge
+ * survives) up to the top of the lamp. 330 × 248 mm about y 0.796.
+ *
+ * Mirrored here rather than imported because `body.ts` keeps the two y limits
+ * local. Everything below is sized to out-cover it, so if that cut moves these
+ * three have to move with it — the over-cover assertions are the only thing
+ * standing between a recess and a hole straight through the car.
+ */
+const APERTURE = {
+  halfW: R.lampInnerX,
+  loY: R.tailgateBottomY + 0.020,
+  hiY: R.lampTopY,
+} as const;
+
+/** Centre of the aperture: panel, ribs and plate are all centred in it. */
+const CENTER_Y = (APERTURE.loY + APERTURE.hiY) / 2;
 
 /**
- * Lamp edge to lamp edge, tucked a few millimetres under each aperture so no
- * painted sliver survives between panel and lens. The floor keeps the plate
- * from touching the ribs if the lamp aperture ever closes in further.
+ * Panel half-width. Wide enough to out-cover the aperture by 17.5 mm a side —
+ * which lands under the lamp, since the hole's edge *is* `lampInnerX` and the
+ * tailgate has no skin outboard of it at this height — and never narrower than
+ * the plate plus 30 mm of ribbing.
  */
-const HALF_W = Math.max(R.lampInnerX + 0.005, PLATE.widthM / 2 + 0.030);
-/** 60 mm of ribbing above and below the plate, per `US-R`. */
-const HALF_H = PLATE.heightM / 2 + 0.060;
+const HALF_W = Math.max(APERTURE.halfW + 0.0175, PLATE.widthM / 2 + 0.030);
+/**
+ * Panel half-height: 60 mm of ribbing above and below the plate per `US-R`,
+ * and never less than 12 mm of over-cover on the aperture. As built the two
+ * agree at 136 mm, which leaves 48 mm of ribbing showing through the hole
+ * above and below the plate — see the stream report on growing the aperture.
+ */
+const HALF_H = Math.max((APERTURE.hiY - APERTURE.loY) / 2 + 0.012, PLATE.heightM / 2 + 0.060);
 
 /**
- * The real moulding is *recessed* into the tailgate. This one is applied on
- * top of it, standing 1.5 mm proud, because the body stream's tailgate skin is
- * solid across this span — there is no aperture to recess into, and a pocket
- * cut relative to the analytic rear surface is simply buried behind the sheet
- * metal. (That is not hypothetical: the first version of this file built the
- * recess correctly and every rib in it was invisible, hidden 10 mm inside the
- * panel, with only the plate poking through.) Reported — the proper fix is an
- * aperture in `tailgatePanel`, after which these four numbers flip sign.
+ * Depths, all measured IN from the painted skin — at the tail, +z is into the
+ * car. The moulding is recessed, which is what the real one does and what the
+ * aperture now allows: floor 18 mm in, rib crests 11.5 mm in, the plate on
+ * pads 7 mm in so its embossed characters still clear the skin by 1.5 mm.
+ *
+ * Before the aperture existed this panel was applied *on top of* a solid
+ * tailgate, and these numbers were the other way round — a pocket cut relative
+ * to the analytic rear surface is simply buried behind the sheet metal, and
+ * every rib in it was invisible with only the plate poking through.
  */
-const PANEL_PROUD = 0.0015;
-/** How far the moulding's back is buried, so no edge gap opens on the rake. */
-const PANEL_BACK = 0.008;
-/** How far a rib stands out of the panel face, and the pitch between ribs. */
+const PANEL_RECESS = 0.018;
+/** Thickness of the slab that closes the aperture behind the ribs. */
+const PANEL_THICK = 0.009;
+/** How far a rib stands out of the panel floor, and the pitch between ribs. */
 const RIB_OUT = 0.0065;
 const RIB_PITCH = 0.026;
-/** Plate centre, out from the painted skin — clear of the rib crests. */
-const PLATE_PROUD = 0.0105;
+/** Plate mounting face, in from the skin — on pads, clear of the rib crests. */
+const PLATE_SET = 0.007;
 
 /**
  * Where the rear plate goes, and how far it has to lean to lie on the panel.
@@ -76,7 +102,7 @@ export function rearPlateMount(): { centre: [number, number, number]; tiltDeg: n
   const span = PLATE.heightM / 2;
   const dz = rearFaceZ(0, CENTER_Y + span) - rearFaceZ(0, CENTER_Y - span);
   const tiltDeg = -Math.atan2(dz, 2 * span) / DEG;
-  return { centre: [0, CENTER_Y, rearFaceZ(0, CENTER_Y) - PLATE_PROUD], tiltDeg };
+  return { centre: [0, CENTER_Y, rearFaceZ(0, CENTER_Y) + PLATE_SET], tiltDeg };
 }
 
 /**
@@ -130,10 +156,21 @@ export function buildTailgatePanel(ctx: BuildContext): TailgatePanelResult {
   const dark = ctx.materials.blackTrim();
 
   // --- the moulding itself -------------------------------------------------
-  // A soft-edged slab lying on the tailgate. Conformed vertex by vertex, so
-  // the back stays buried where the rear surface creases near this station.
-  const slab = roundedBox(HALF_W * 2, HALF_H * 2, PANEL_PROUD + PANEL_BACK, 0.004, 3);
-  slab.translate(0, CENTER_Y, (PANEL_BACK - PANEL_PROUD) / 2);
+  // The floor of the recess: a soft-edged slab sitting `PANEL_RECESS` behind
+  // the skin and lapping the aperture on all four sides, so the hole closes on
+  // the moulding rather than on daylight. Conformed vertex by vertex, because
+  // the rear surface creases near this station.
+  //
+  // `roundedBox` adds its bevel outside the extrusion, so the solid it returns
+  // is NOT centred in depth — it runs [−(d/2 + r), d/2 − r]. Placing it from
+  // its own bounds rather than assuming is the difference between a floor at
+  // 18 mm and a floor at 14; the previous code assumed, which is why the ribs
+  // read as a flat black slab: they stood 6.5 mm out of a floor buried 4 mm
+  // inside the face they were supposed to stand on.
+  const slab = roundedBox(HALF_W * 2, HALF_H * 2, PANEL_THICK, 0.004, 3);
+  slab.computeBoundingBox();
+  const front = slab.boundingBox!.min.z;
+  slab.translate(0, CENTER_Y, PANEL_RECESS - front);
   conform(slab);
   group.add(mesh('tailgateRibPanel', slab, dark));
 
@@ -155,7 +192,7 @@ export function buildTailgatePanel(ctx: BuildContext): TailgatePanelResult {
   const laid: THREE.BufferGeometry[] = [];
   for (const y of rows) {
     const g = ribGeo.clone();
-    g.translate(0, y, rearFaceZ(0, y) - PANEL_PROUD);
+    g.translate(0, y, rearFaceZ(0, y) + PANEL_RECESS);
     laid.push(g);
   }
   group.add(mesh('tailgateRibs', merge(laid), dark));
@@ -164,13 +201,15 @@ export function buildTailgatePanel(ctx: BuildContext): TailgatePanelResult {
   // Four small bosses under the plate's bolt holes, so the plate stands off the
   // ribs on something rather than floating over them.
   const pads: THREE.BufferGeometry[] = [];
-  const padH = PLATE_PROUD - PANEL_PROUD;
+  const padH = PANEL_RECESS - PLATE_SET;
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
       const y = CENTER_Y + sy * PLATE.heightM * 0.395;
-      const pad = new THREE.CylinderGeometry(0.010, 0.012, padH, 10);
+      // `rotateX` puts the cylinder's +y end at +z, i.e. into the car: the
+      // wider end is the one rooted in the floor.
+      const pad = new THREE.CylinderGeometry(0.012, 0.010, padH, 10);
       pad.rotateX(Math.PI / 2);
-      pad.translate(sx * PLATE.widthM * 0.441, y, rearFaceZ(0, y) - PANEL_PROUD - padH / 2);
+      pad.translate(sx * PLATE.widthM * 0.441, y, rearFaceZ(0, y) + PLATE_SET + padH / 2);
       pads.push(pad);
     }
   }

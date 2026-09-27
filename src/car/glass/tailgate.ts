@@ -28,22 +28,27 @@
  *
  * ## What the numbers are
  *
- * | | y | z |
- * |---|---|---|
- * | top edge, centre | 1.290 | −3.190 |
- * | roll-over, centre | 1.138 | −3.700 |
- * | bottom edge | 0.962 | −3.771 |
+ * | | y | z | half-width |
+ * |---|---|---|---|
+ * | top edge, centre | 1.284 | −3.190 | 0.619 |
+ * | roll-over, centre | 1.138 | −3.700 | 0.761 |
+ * | bottom edge | 1.010 | −3.759 | 0.712 |
  *
- * 328 mm of rise in 581 mm of run overall, but the *lower* 176 mm of it stands
- * at 22° — which is what the eye reads. Bottom edge is `HP.glass
- * .tailgateGlassBottomY`; measured off the reference rear photograph, scaled on
- * the body's own half-width at the lamps, the glass stops 87 mm above the lamp
- * tops, i.e. y = 0.980, so the hardpoint is right to within 18 mm.
+ * 274 mm of rise in 569 mm of run overall, but the *lower* 128 mm of it stands
+ * at 25° — which is what the eye reads.
  *
- * `HP.glass.tailgateGlassTopY` (1.372) is NOT reachable and is not used: the
- * tailgate's own hinge line is `HP.rear.tailgateHingeY` = 1.340 and the roof
- * skin at that station is 1.338, so no point on the tailgate can be higher.
- * The top edge here is the top of the aperture the body actually leaves.
+ * Both edges are hardpoints now. The sill is `HP.glass.tailgateGlassBottomY`,
+ * raised 48 mm to 1.010: below 0.985 it was a backlight sill under `HP.beltY`,
+ * and it left the body only 42 mm of painted band above the lamps to carry
+ * `HP.rear.badgeY`. The body's `tgFaceUpper` rail now runs 0.920 → 1.010, so
+ * the band is 90 mm and the scripts sit on sheet metal.
+ *
+ * The width is `HP.glass.tailgateGlassHalfW` — see `X_BOTTOM`.
+ *
+ * `HP.glass.tailgateGlassTopY` (1.285) is the top of the aperture the body
+ * leaves, which is what is built: the tailgate's hinge line is
+ * `HP.rear.tailgateHingeY` = 1.340 and the roof skin at that station is 1.338,
+ * so no point on the tailgate can be higher.
  */
 
 import * as THREE from 'three';
