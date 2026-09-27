@@ -49,6 +49,21 @@ export interface PrintedOptions {
   emissiveIntensity?: number;
   envMapIntensity?: number;
   /**
+   * Scale the dielectric specular lobe. 1 is the physical 4 % Fresnel floor
+   * of any non-metal; below that the surface is being told it sits somewhere
+   * light cannot reach it from.
+   *
+   * That is not a licence to fake a dark surface — an albedo knob does that
+   * and is already here. It is for a *cavity*: a patch 52 mm behind a 13.7 mm
+   * slot sees sin(atan(6.85/52)) = 0.131 of the hemisphere, and the occlusion
+   * that would tell it so is not computed anywhere. GTAO runs at half
+   * resolution behind a six-pixel denoise and cannot see an eight-pixel slot.
+   * Without this the grille aperture is albedo-limited at the Fresnel floor
+   * and cannot get below 0.18 of the licence plate, where the photograph's
+   * is 0.119.
+   */
+  specularIntensity?: number;
+  /**
    * Cast this part's shadow from its back faces.
    *
    * For a flat embossed panel — a plate — that moves the recorded depth off
@@ -71,6 +86,7 @@ export function createPrinted(map: THREE.Texture, opts: PrintedOptions = {}): TH
     emissive: new THREE.Color(opts.emissive ?? 0x000000),
     emissiveIntensity: opts.emissiveIntensity ?? 0,
     envMapIntensity: opts.envMapIntensity ?? 0.6,
+    specularIntensity: opts.specularIntensity ?? 1,
     side: THREE.FrontSide,
   });
   if (opts.backfaceShadow) m.shadowSide = THREE.BackSide;

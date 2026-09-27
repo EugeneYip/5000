@@ -536,6 +536,7 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
         o?.emissiveMap ? o.emissiveMap.uuid : '-',
         hex(o?.emissive ?? 0),
         (o?.envMapIntensity ?? 0.6).toFixed(2),
+        (o?.specularIntensity ?? 1).toFixed(2),
         o?.backfaceShadow ? 'bs' : '-',
       ].join(':');
       return shared(key, () => createPrinted(map, { ...o, roughness: r, clearcoat: cc }));

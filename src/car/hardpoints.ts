@@ -89,6 +89,18 @@ export const HP = {
 
     /** Headlamp aperture, right-hand side. Inner edge meets the grille. */
     lampInnerX: 0.37,
+    /**
+     * Not the outer edge of the aperture — the aperture runs on to the body's
+     * own half-width, as it does at the tail.
+     *
+     * Measured on the reference photograph's right front corner at 4x, the
+     * order across the face is grille, headlamp glass, amber corner lens, body
+     * edge, with nothing between them: the corner lens butts straight onto the
+     * lamp glass and wraps around the corner. So this is the boundary between
+     * the clear lens and the amber, and the 71 mm outboard of it is amber, not
+     * paint. `body.ts` panels that 71 mm (`lampSideR`) because there is sheet
+     * metal behind an indicator; the lens covers it.
+     */
     lampOuterX: 0.779,
     lampTopY: 0.820,
     lampBottomY: 0.652,

@@ -73,6 +73,8 @@ export interface MaterialLibrary {
     emissive?: number;
     emissiveIntensity?: number;
     envMapIntensity?: number;
+    /** Scale the dielectric specular lobe; below 1 only for a real cavity. */
+    specularIntensity?: number;
     /** Cast the shadow from the back faces — for a flat embossed panel. */
     backfaceShadow?: boolean;
   }): THREE.Material;
