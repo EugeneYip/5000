@@ -33,6 +33,7 @@ interface AudiDebugApi {
   setArticulation(name: string, open: number): void;
   setUiVisible(v: boolean): void;
   setMaskMode(mode: 'off' | 'car' | 'paint'): void;
+  pick(x: number, y: number): Record<string, unknown>[];
   settle(frames?: number): void;
   measureFps(frames?: number): Promise<{ fps: number; ms: number; drawCalls: number; triangles: number }>;
   elapsed(): number;
@@ -212,6 +213,50 @@ async function main(): Promise<void> {
         m.material = maskMat;
       });
     },
+    /**
+     * What mesh is at this pixel? `x` and `y` are fractions of the frame.
+     *
+     * Every review round so far has had at least one "what IS that" moment —
+     * a cream cylinder at the bumper corner, a black void beside a headlamp —
+     * and answering it by reading geometry code has been slow and twice
+     * wrong. This answers it in one call, with the node path and the material
+     * the registry issued, so a defect can be attributed before it is
+     * theorised about.
+     */
+    pick(x, y) {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(x * 2 - 1, -(y * 2 - 1)), stage.camera);
+      const path = (o: THREE.Object3D): string => {
+        const parts: string[] = [];
+        for (let n: THREE.Object3D | null = o; n && n !== stage.scene; n = n.parent) {
+          if (n.name) parts.unshift(n.name);
+        }
+        return parts.join('/');
+      };
+      const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+      return ray.intersectObject(stage.scene, true).slice(0, 8).map((h) => {
+        const m = h.object as THREE.Mesh;
+        const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+        // World normal, because the usual answer to "why is this pixel the
+        // wrong brightness" is that it is facing somewhere unexpected.
+        const n = h.normal
+          ? h.normal.clone().applyNormalMatrix(
+              new THREE.Matrix3().getNormalMatrix(m.matrixWorld)).normalize()
+          : null;
+        return {
+          name: m.name || '(unnamed)',
+          path: path(m),
+          material: `${mat?.type ?? '?'}#${mat?.name || mat?.uuid.slice(0, 6) || '?'}`,
+          distance: r3(h.distance),
+          point: h.point ? [r3(h.point.x), r3(h.point.y), r3(h.point.z)] : null,
+          normal: n ? [r3(n.x), r3(n.y), r3(n.z)] : null,
+          uv: h.uv ? [r3(h.uv.x), r3(h.uv.y)] : null,
+          receiveShadow: m.receiveShadow,
+          castShadow: m.castShadow,
+        };
+      });
+    },
+
     settle(frames = 24) {
       for (let i = 0; i < frames; i++) {
         const dt = 1 / 60;
