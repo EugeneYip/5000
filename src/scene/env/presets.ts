@@ -195,14 +195,49 @@ export const PRESETS: Record<string, EnvPreset> = {
       // which is warmer than either of these. The road now comes back at
       // `#787e92`, saturation 0.18 against the photograph's 0.27.
       zenith: 0x6e93c0,
-      horizon: 0xcbd0d2,
+      // Warm, not neutral-cool, and this one is arithmetic rather than taste.
+      //
+      // What lights a horizontal surface is the cosine-weighted hemisphere,
+      // which `skyRadiance()` models as zenith lerped 0.62 towards this band.
+      // At 0xcbd0d2 that mean came out at linear (0.433, 0.510, 0.586), and
+      // adding the sun's own (1.39, 1.02, 0.77) still left the total
+      // irradiance on the road at R/B 0.865 — measurably blue, and the
+      // rendered asphalt came back at (118, 123, 142) against the
+      // white-balanced photograph's (108, 102, 103). The hue error was
+      // mirror-imaged, which is the single loudest thing left in a wide frame:
+      // golden hour with a lilac road.
+      //
+      // 0xd4d1cd puts the mean at (0.466, 0.506, 0.579), which lands the
+      // road's irradiance at R/B 0.93 and then `groundTint` — the aggregate's
+      // own warmth, which is where the rest of it belongs — carries it the
+      // remaining 17 % to 1.09. Luminance holds to within one per cent of the
+      // old value, so nothing the car is measured on moves.
+      //
+      // Splitting it that way rather than doing it all here matters, because
+      // this band is also what a *vertical* panel mirrors, and the photograph
+      // is explicit that the fender face is a touch COOLER than the road it
+      // stands on (146,147,155 against 108,102,103). Warming the sky warms
+      // both; warming the asphalt warms only the road. Doing the whole
+      // correction here overshot the flanks to R/B 1.05 where they want 0.94.
+      horizon: 0xd4d1cd,
       ground: 0x6b5c4c,
       sun: 0xffb066,
       sunIntensity: 120,
       sunAngularRadius: 0.019,
-      mieStrength: 0.85,
-      miePower: 13,
-      gradientPower: 3.0,
+      // A broader, stronger aureole. At 11° of solar elevation the sun's
+      // forward-scatter lobe covers most of a quadrant of sky, and it is the
+      // one structure a horizontal panel can mirror that is not a flat ramp.
+      mieStrength: 1.15,
+      miePower: 9,
+      // 1.9, not 3.0. The exponent is how fast the zenith colour gives way to
+      // the horizon band, and at 3.0 the band owned everything below twenty
+      // degrees of elevation — which in a wide pose is the entire visible sky.
+      // Measured on the profile pose, the dome ran 222 at the top of frame to
+      // 225 at the bottom with a standard deviation of three levels: a flat
+      // cream card, with the blue that is supposed to be up there pushed out
+      // of frame entirely. At 1.9 the ramp is visible where the camera
+      // actually looks, which is also what a horizontal panel has to mirror.
+      gradientPower: 1.9,
       // A real aerosol layer rather than a rule drawn on the horizon.
       // `hazeHeight` is an e-folding angle in radians, so 0.034 was a band two
       // degrees thick — thinner than the sun is wide. A hazy Philadelphia
@@ -211,10 +246,18 @@ export const PRESETS: Record<string, EnvPreset> = {
       // the road itself are lit by. Widening it is what lets the road stay
       // warm while the fill comes up; leaving it at two degrees, every unit of
       // extra fill arrived as blue zenith light and turned the asphalt lilac.
-      haze: 0.65,
-      cloud: 0.7,
+      // Pulled back, and it is safe to now. This slab was carrying the whole
+      // warm cast of the low sky at 0.72 over an e-folding angle of 0.30 rad,
+      // which is a wash rather than a band — seventeen degrees of uniform
+      // cream. Two things have since taken that job properly: the thin
+      // skyline glow in sky.ts, which is what a hazy horizon actually looks
+      // like, and `groundTint`, which is where the road's warmth belongs.
+      // `skyRadiance()` never read either of these numbers, so the derived
+      // irradiance on the road is unchanged by the pull-back.
+      haze: 0.6,
+      cloud: 0.9,
       hazeColor: 0xf2d2ac,
-      hazeHeight: 0.3,
+      hazeHeight: 0.2,
       // Was 0.5, which put the sky's irradiance at 0.7× the direct sun's on a
       // horizontal surface. Measured golden hour under a hazy summer sky —
       // which is what the photograph shows — runs 0.8 to 1.3, and this is the
@@ -242,9 +285,19 @@ export const PRESETS: Record<string, EnvPreset> = {
     rim: { color: 0xbad4f0, intensity: 0.28, dir: [0.62, 0.42, -0.66] },
     fog: { density: 0.0038 },
     ground: 'asphalt',
-    groundTint: 0xf6f2ec,
+    // City asphalt is not neutral. What you read as grey road is exposed
+    // aggregate and tyre-ground dust, and both are warm; the photograph's
+    // shaded carriageway measures (108, 102, 103) after white balance, an
+    // R/B of 1.05, where this render's was coming back at 0.83 — blue. Half
+    // of that gap is the sky band above (see `horizon`) and half is here.
+    groundTint: 0xfff4e8,
     wetness: 0.06,
-    dapple: 0.62,
+    // Deeper, and on a shorter pitch — see `uGoboScale` in ground.ts. At 0.62
+    // the deepest shade under a crown removed just over half the direct term,
+    // and the direct term is only a fifth of what a road receives at 11° of
+    // solar elevation, so the deepest dapple in frame was a 12 % dip. The
+    // photograph's shade is a full stop below its sunlit road.
+    dapple: 0.88,
     shadeTint: 0x5d7196,
     envIntensity: 2.8,
     contactStrength: 0.62,

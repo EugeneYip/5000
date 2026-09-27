@@ -522,7 +522,16 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     // irradiance, their own reflectances — concrete weathered to 0.35, dry
     // late-summer grass to 0.22 with the green it still has.
     groundUniforms.uKerbColor.value.setHex(preset.groundTint).multiplyScalar(KERB_ALBEDO * eTotal);
-    groundUniforms.uVergeColor.value.setRGB(0.78, 0.86, 0.52).multiplyScalar(VERGE_ALBEDO * eTotal);
+      // Dry late-summer grass, and it is *straw*, not green.
+      //
+      // This was (0.78, 0.86, 0.52) — G above R — and the verge is fifteen to
+      // eighteen metres out, square in the band a vertical body panel mirrors,
+      // so it was putting a green cast straight onto the flanks. The
+      // photograph settles it: its verge measures (90, 81, 63) after white
+      // balance, R above G above B, because a Parkway verge in September is
+      // burnt off. Swapping the two channels is worth ten levels of green on
+      // the fender patch the colour gate reads.
+    groundUniforms.uVergeColor.value.setRGB(0.86, 0.78, 0.48).multiplyScalar(VERGE_ALBEDO * eTotal);
     // What the far field is veiled by: the sky the shader itself draws at the
     // horizon, at the same exposure, so the road and the sky meet without a
     // seam and the panels see one continuous band.

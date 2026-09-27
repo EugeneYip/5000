@@ -121,7 +121,7 @@ float cirrus(vec3 dir) {
   // Thin out towards the zenith and fade into the haze at the horizon, so the
   // deck never reads as a texture wrapped over a ball.
   float band = smoothstep(0.03, 0.22, dir.y) * (1.0 - smoothstep(0.55, 1.0, dir.y) * 0.55);
-  return smoothstep(0.52, 0.86, v) * band;
+  return smoothstep(0.42, 0.80, v) * band;
 }
 
 vec3 evalSky(vec3 dir) {
@@ -156,6 +156,58 @@ vec3 evalSky(vec3 dir) {
   vec3 hazeCol = mix(uHorizon, uHazeColor, clamp(0.46 + 0.54 * forward, 0.0, 1.0));
   col = mix(col, hazeCol, clamp(haze * uHaze, 0.0, 1.0));
 
+  // …and a second, far thinner band sitting right on the skyline. The wide
+  // slab above is an aerosol *column* and is correctly a smooth wash; what it
+  // cannot produce is the bright line a hazy city evening actually has along
+  // the horizon, where the sight line is through fifty times the air and
+  // every particle of it is forward-scattering. Without this the visible sky
+  // in a low, wide pose is one flat tone from the tree line to the top of
+  // frame — which is exactly the complaint, and it is not fixed by making the
+  // slab stronger, only flatter.
+  float skyline = exp(-abs(up) / 0.05);
+  col = mix(col, hazeCol * (1.0 + 0.34 * forward), clamp(skyline * uHaze * 0.6, 0.0, 1.0));
+
+  // Structure in the band the camera is actually pointed at.
+  //
+  // The cirrus deck below is the only thing in this model with any shape to
+  // it, and it lives above fifteen degrees of elevation — where a 200 mm lens
+  // aimed at a car never looks. Measured on the profile pose, the whole
+  // visible sky ran 221 to 225 with a standard deviation of three levels: a
+  // cream card. Every review pose has the same problem, because every one of
+  // them is looking within ten degrees of the horizon.
+  //
+  // What is there in reality is the aerosol itself. It lies in layers and a
+  // near-horizontal sight line runs *along* them for tens of kilometres, so
+  // the last few degrees of any hazy city evening are banded and blotched,
+  // with a bank of distant cloud sitting on the skyline. Sampled on the unit
+  // circle rather than on an azimuth angle, so there is no seam at due north.
+  vec2 ring = normalize(vec2(dir.x, dir.z) + vec2(1e-5));
+  // The frequencies have to be high, and that is not a taste call: a 200 mm
+  // lens covers twelve degrees of azimuth, so a feature has to be about a
+  // degree across before two of them fit in frame at all. Four cells round
+  // the whole compass is one feature per review pose, which is a tint.
+  float bankN = 0.50 * skyNoise(ring * 13.0 + vec2(1.7, up * 40.0))
+              + 0.30 * skyNoise(ring * 31.0 + vec2(5.2, up * 70.0))
+              + 0.20 * skyNoise(ring * 74.0);
+  // A soft slab a few degrees up, which is where a distant deck sits when you
+  // are standing under it.
+  float bankH = exp(-pow((up - 0.055) / 0.05, 2.0));
+  float bank = bankH * smoothstep(0.40, 0.66, bankN) * uCloud;
+  // Darker, not brighter, and that is forced by where the sky sits.
+  //
+  // The dome renders at 222 of 255. ACES is compressing hard by then, so a
+  // twenty per cent *lift* in radiance comes out as two or three levels and
+  // the structure is invisible — measured, adding it changed the frame's
+  // standard deviation by less than half a level. Downwards there is a whole
+  // stop of room, and downwards is also what is true: a deck seen from
+  // underneath at 11° of solar elevation is lit on its top and shows you its
+  // shaded base, which against a bright hazy sky reads as a grey-mauve mass.
+  col = mix(col, hazeCol * (0.62 + 0.55 * forward), clamp(bank * 0.85, 0.0, 1.0));
+  // …and the layering itself, which darkens as much as it brightens and is
+  // what stops the band reading as a painted ramp.
+  float layer = skyNoise(vec2(ring.x * 12.0 + ring.y * 8.5, up * 95.0));
+  col *= 1.0 + (layer - 0.5) * 0.34 * exp(-abs(up) / 0.16) * uHaze;
+
   // Cirrus, added before the disc so the sun can still burn through it. The
   // deck is lit from below at this solar elevation, so its underside takes
   // the haze's colour and goes gold towards the sun and pink away from it —
@@ -163,7 +215,7 @@ vec3 evalSky(vec3 dir) {
   // it is also the only thing a horizontal panel has to reflect.
   float cl = cirrus(dir) * uCloud;
   vec3 cloudLit = mix(uHazeColor, uSunColor, 0.35 * forward + 0.1);
-  col = mix(col, cloudLit * (0.72 + 0.5 * forward), clamp(cl, 0.0, 1.0));
+  col = mix(col, cloudLit * (0.62 + 0.9 * forward), clamp(cl, 0.0, 1.0));
 
   // The disc. Kept in the IBL as well as the background, because the tiny
   // sharp glint it leaves in a clearcoat is half the reason a car photograph

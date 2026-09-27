@@ -28,13 +28,12 @@
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { Stage } from './Stage';
 import type { EnvironmentHandle } from './Environment';
 import { focusDistanceFor, type Pose } from './CameraRig';
-import { AccumulationPass, DofPass, GradePass, ScaledGtaoPass } from './post/passes';
+import { AccumulationPass, DofPass, GradePass, ScaledGtaoPass, ScenePass } from './post/passes';
 
 export interface PostChain {
   render(dt: number): void;
@@ -56,28 +55,31 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   let width = Math.max(1, Math.round(stage.width * pr));
   let height = Math.max(1, Math.round(stage.height * pr));
 
-  // 2× MSAA on a half-float buffer.
+  // The composer's own ping-pong buffers carry no depth and no multisampling.
   //
-  // This was 4×, and 4× multisampling a 16-bit-float target is expensive in a
-  // way 4× multisampling an 8-bit one is not: the tile store is 32 bytes a
-  // sample, so the raster tiles shrink and the resolve moves four times the
-  // bytes. Measured on the hero frame at 1600×900 on an M2, samples 4 → 2 was
-  // worth 17 ms of a 78 ms frame, and 4 → 0 worth 31 ms.
+  // Both now live on `ScenePass`, which is the only pass that rasterises
+  // geometry; everything after it is a full-screen quad. Two samples on two
+  // half-float ping-pong targets was paying the multisample tile store and
+  // the resolve twice a frame for passes that cannot alias.
   //
-  // Almost nothing is given up. MSAA only contributes while something is
-  // moving: the moment the scene is still the accumulation pass supersamples
-  // the whole frame sixteen ways, which is better coverage than 4× MSAA and
-  // also fixes the specular crawl MSAA cannot touch. Every reviewed still is
-  // therefore identical. Two samples are kept rather than none because while
-  // the car is being driven the accumulator is reset every frame and MSAA is
-  // the only anti-aliasing left.
+  // 2× and not 4×: multisampling a 16-bit-float target is expensive in a way
+  // multisampling an 8-bit one is not — the tile store is 32 bytes a sample,
+  // so the raster tiles shrink and the resolve moves four times the bytes.
+  // Measured on the hero frame at 1600×900 on an M2, samples 4 → 2 was worth
+  // 17 ms of a 78 ms frame, and 4 → 0 worth 31 ms. Almost nothing is given up:
+  // MSAA only contributes while something is moving, because the moment the
+  // scene is still the accumulation pass supersamples the whole frame sixteen
+  // ways — better coverage than 4× MSAA, and it also fixes the specular crawl
+  // MSAA cannot touch. Two are kept rather than none because while the car is
+  // being driven the accumulator resets every frame and MSAA is all that is
+  // left.
   const target = new THREE.WebGLRenderTarget(width, height, {
     type: THREE.HalfFloatType,
     format: THREE.RGBAFormat,
     colorSpace: THREE.NoColorSpace,
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
-    samples: 2,
+    depthBuffer: false,
     stencilBuffer: false,
   });
 
@@ -86,9 +88,15 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   // handed; the sizes above are already device pixels.
   composer.setPixelRatio(1);
 
-  const renderPass = new RenderPass(scene, camera);
+  const scenePass = new ScenePass(scene, camera, width, height, 2);
 
   const gtao = new ScaledGtaoPass(scene, camera, width, height, AO_SCALE);
+  // The whole point of `ScenePass`: hand GTAO the depth the colour pass just
+  // wrote and it stops re-rendering all 307 meshes to make its own. No normal
+  // texture is supplied, so it reconstructs normals from that depth — which
+  // at half resolution, behind a 16-sample Poisson denoise, is what the pass
+  // would have blurred the real normals into anyway.
+  gtao.setGBuffer(scenePass.depthTexture);
   gtao.output = GTAOPass.OUTPUT.Default;
   gtao.updateGtaoMaterial({
     // 22 cm: the scale of a wheel arch lip and a bumper undercut. Larger and
@@ -103,14 +111,14 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   gtao.updatePdMaterial({ lumaPhi: 8, depthPhi: 1.6, normalPhi: 4, radius: 6, samples: 16 });
 
   const dof = new DofPass(camera);
-  dof.setDepth(gtao.depthTexture);
+  dof.setDepth(scenePass.depthTexture);
 
   const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.22, 0.5, 1.15);
 
   const accum = new AccumulationPass(width, height);
   const grade = new GradePass();
 
-  composer.addPass(renderPass);
+  composer.addPass(scenePass);
   composer.addPass(gtao);
   composer.addPass(dof);
   composer.addPass(bloom);
@@ -126,10 +134,11 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   // belongs on this event.
   globalThis.addEventListener('audi:materials-dirty', () => accum.reset());
 
-  // The GTAO pass re-renders the scene for its normal buffer, and every
-  // `renderer.render` re-runs the shadow maps while `autoUpdate` is on. At
-  // 4096² VSM that is a second full blur of a 16 M-texel map for nothing.
-  // Drive it manually instead: one update per frame, before the chain runs.
+  // Every `renderer.render` re-runs the shadow maps while `autoUpdate` is on,
+  // and at 4096² VSM that is two blur passes over 16 M texels. Drive it
+  // manually instead: one update per frame, before the chain runs. (This also
+  // used to be load-bearing against GTAO's own scene render, which no longer
+  // happens — see `gtao.setGBuffer` above.)
   renderer.shadowMap.autoUpdate = false;
   renderer.shadowMap.needsUpdate = true;
 
@@ -358,7 +367,8 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       width = Math.max(1, Math.round(w * renderer.getPixelRatio()));
       height = Math.max(1, Math.round(h * renderer.getPixelRatio()));
       composer.setSize(width, height);
-      dof.setDepth(gtao.depthTexture);
+      // `scenePass.depthTexture` keeps its identity across the resize, so DOF
+      // and GTAO stay pointed at it.
       accum.reset();
       prevValid = false;
     },

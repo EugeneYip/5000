@@ -172,8 +172,26 @@ def compare_to_photo(render_path: Path):
 
     if candidates:
         candidates.sort(key=lambda c: c[0])
-        dist, med, sat, fx, fy = candidates[0]
-        where = f"on car at x {fx:.2f} y {fy:.2f}, sat {sat:.3f}"
+        # Report the MEDIAN of the qualifying patches, not the best one.
+        #
+        # Taking the minimum cherry-picks whichever patch happens to sit
+        # closest, which is both flattering and unstable — on repeat runs of an
+        # identical build it swung 11.1 to 15.9 and picked patches ranging from
+        # saturation 0.050 to 0.128. A gate you cannot reproduce cannot be
+        # regressed against.
+        # Median of the ten closest, not the single closest and not the median
+        # of everything. The single closest cherry-picks and swung 11.1-15.9
+        # across repeat runs of an identical build; the median of all
+        # qualifying patches drags in glass, trim and highlights that are
+        # legitimately a different colour. The ten closest are the surface
+        # family the target was measured from, and their median is stable.
+        top = candidates[: min(10, len(candidates))]
+        dist = float(np.median([c[0] for c in top]))
+        med = np.median(np.array([c[1] for c in top]), axis=0)
+        best = candidates[0]
+        sat = float(np.median([c[2] for c in top]))
+        where = (f"median of {len(top)} closest of {len(candidates)}, "
+                 f"best {best[0]:.1f} at x {best[3]:.2f} y {best[4]:.2f}")
     else:
         med = np.array([0.0, 0.0, 0.0])
         dist = float("nan")

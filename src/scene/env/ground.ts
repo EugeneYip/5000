@@ -50,6 +50,7 @@ interface Patch {
   uGoboStrength: THREE.IUniform<number>;
   uGoboOffset: THREE.IUniform<THREE.Vector2>;
   uDriftScale: THREE.IUniform<number>;
+  uSunAz: THREE.IUniform<THREE.Vector2>;
   uShadeTint: THREE.IUniform<THREE.Color>;
   uKerbColor: THREE.IUniform<THREE.Color>;
   uVergeColor: THREE.IUniform<THREE.Color>;
@@ -59,10 +60,22 @@ function patchAsphalt(mat: THREE.MeshStandardMaterial, gobo: THREE.Texture): Pat
   const u: Patch = {
     uWetness: { value: 0 },
     uGobo: { value: gobo },
-    uGoboScale: { value: 1 / 26 },
+    // 17 m to the gobo tile, not 26.
+    //
+    // This is the framing fix. The pattern is a *canopy*, so its features are
+    // whole crowns: at a 26 m tile the shaded and lit masses were 10-14 m
+    // across and the near road in a wide frame spans about twenty, which means
+    // whether any dapple appeared at all in a given pose was a coin toss on
+    // the offset — and in the hero poses it kept landing in a lit patch and
+    // the road came back as one flat sheet. At 17 m the frame always contains
+    // a crown and a gap, which is what the photograph shows, and the leaf
+    // structure inside the mask lands at 27 cm rather than 41 — dapple rather
+    // than blotches.
+    uGoboScale: { value: 1 / 17 },
     uGoboStrength: { value: 0 },
-    uGoboOffset: { value: new THREE.Vector2(0.31, 0.62) },
+    uGoboOffset: { value: new THREE.Vector2(0.58, 0.21) },
     uDriftScale: { value: 1 / 210 },
+    uSunAz: { value: new THREE.Vector2(-0.818, 0.575) },
     uShadeTint: { value: new THREE.Color(0.42, 0.46, 0.58) },
     uKerbColor: { value: new THREE.Color(0.08, 0.08, 0.08) },
     uVergeColor: { value: new THREE.Color(0.05, 0.06, 0.03) },
@@ -89,13 +102,59 @@ uniform float uGoboScale;
 uniform float uGoboStrength;
 uniform vec2 uGoboOffset;
 uniform float uDriftScale;
+uniform vec2 uSunAz;
 uniform vec3 uShadeTint;
 uniform vec3 uKerbColor;
-uniform vec3 uVergeColor;`,
+uniform vec3 uVergeColor;
+
+// --- breaking the four-metre repeat ---------------------------------------
+//
+// The world-space drift below carries everything coarser than a metre, but it
+// cannot touch what happens *inside* a tile: the aggregate, the grit and the
+// chips repeat their exact arrangement every four metres, and in the near
+// foreground of a wide frame four metres is three hundred pixels. That is a
+// visible printed pattern, and no amount of tonal drift over the top of it
+// hides a pattern whose phase is constant.
+//
+// So the tile is sampled twice — once straight, once rotated by an angle that
+// is no fraction of a right angle and scaled by an irrational-ish factor — and
+// the two are cross-faded by a mask whose own period is 61 m, far longer than
+// any frame contains. Two taps do not remove the repeat; they remove the
+// *phase*, which is the thing the eye locks on to. Cost is one extra fetch on
+// each of two maps, on a surface that is already the cheapest thing in frame.
+const float AUDI_TILE_ROT = 1.91;
+const float AUDI_TILE_SCALE = 0.83;
+vec2 audiRot(vec2 p, float a) {
+  float c = cos(a), s = sin(a);
+  return mat2(c, -s, s, c) * p;
+}
+float audiTileMask(vec2 w) {
+  return smoothstep(0.34, 0.66, texture2D(uGobo, w * (1.0 / 61.0) + vec2(0.13, 0.77)).r);
+}
+vec2 audiTileUv2(vec2 uv) {
+  return audiRot(uv, AUDI_TILE_ROT) * AUDI_TILE_SCALE + vec2(0.37, 0.61);
+}
+vec4 audiTileColor(sampler2D t, vec2 uv, vec2 w) {
+  return mix(texture2D(t, uv), texture2D(t, audiTileUv2(uv)), audiTileMask(w));
+}
+vec3 audiTileNormal(sampler2D t, vec2 uv, vec2 w) {
+  vec3 n1 = texture2D(t, uv).xyz * 2.0 - 1.0;
+  vec3 n2 = texture2D(t, audiTileUv2(uv)).xyz * 2.0 - 1.0;
+  // The second tap's features are rotated in uv space, so its gradient has to
+  // be rotated back before the two can be blended.
+  n2.xy = audiRot(n2.xy, -AUDI_TILE_ROT);
+  return normalize(mix(n1, n2, audiTileMask(w)));
+}`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `vec3 mapN = audiTileNormal(normalMap, vNormalMapUv, vGroundXZ);
+mapN.xy *= normalScale;
+normal = normalize( tbn * mapN );`,
       )
       .replace(
         '#include <map_fragment>',
-        `#include <map_fragment>
+        `diffuseColor *= audiTileColor(map, vMapUv, vGroundXZ);
 float audiShade = 0.0;
 {
   // Low-frequency tonal drift, in WORLD space, so nothing at this scale can
@@ -143,7 +202,46 @@ float audiShade = 0.0;
   // strength roughly half of what the road returns is environment reflection,
   // so a gobo that touched the diffuse alone came out at half strength and the
   // dapple washed away exactly when the rest of the frame came right.
-  float lit = texture2D(uGobo, vGroundXZ * uGoboScale + uGoboOffset).r;
+  // Read in the *sun's* frame, stretched two to one along its azimuth.
+  //
+  // A canopy shadow is not an isotropic blob. At 11.5° of solar elevation a
+  // fifteen-metre plane throws a seventy-metre shadow, so everything the
+  // canopy casts is drawn out along the sun's bearing — which is also why the
+  // photograph's road is mostly *in* shade with sun flecks in it rather than
+  // the other way round. Sampling axis-aligned gave round blobs on a square
+  // lattice of crowns, and whether any of them landed near the car was luck.
+  vec2 sunFwd = uSunAz;
+  vec2 sunRt = vec2(-sunFwd.y, sunFwd.x);
+  float acrossSun = dot(vGroundXZ, sunRt);
+  vec2 goboUv = vec2(acrossSun, dot(vGroundXZ, sunFwd) * 0.5);
+  vec3 gb = texture2D(uGobo, goboUv * uGoboScale + uGoboOffset).rgb;
+
+  // The bands, and this is what finally made the dapple land.
+  //
+  // A noise mask alone cannot be relied on to put shade anywhere in
+  // particular: its features are whole crowns, the near field of a wide frame
+  // is a few of them across, and whether the car stood in sun or shade was
+  // decided by the texture offset. Three offsets in a row put it in full sun
+  // and the road came back as one flat sheet — which is the actual complaint.
+  //
+  // But the shade under a street planting is not a random field. The trees
+  // stand in a row at a fixed pitch and the sun is 11.5° up, so what lands on
+  // the road is a set of long parallel bands running along the sun's bearing,
+  // spaced by the row's pitch, wandering slowly as the row does — exactly what
+  // the photograph shows across the pavement. A 13 m pitch across a frame that
+  // is fifteen or twenty metres wide *cannot* miss, so the dapple is there in
+  // every pose instead of in the lucky ones.
+  float wander = texture2D(uGobo, vGroundXZ * (1.0 / 140.0) + vec2(0.27, 0.61)).r;
+  float s = acrossSun / 13.0 + wander * 2.2;
+  // abs(fract(s) - 0.5) is zero at a band's centre and 0.5 at the middle of
+  // the gap between two, so this covers half the pitch solidly and another
+  // sixth in the soft edge — a boulevard at 11.5° of solar elevation is
+  // mostly in its own planting's shade.
+  float bands = 1.0 - smoothstep(0.24, 0.44, abs(fract(s) - 0.5));
+  float canopy = clamp(max(gb.b, bands * 0.9), 0.0, 1.0);
+  // Channel g is what gets *through* a crown: the leaf, fleck and twig
+  // structure that turns a shadow into dapple.
+  float lit = mix(1.0, gb.g, canopy);
   // One tap only. A second at a coarser scale, however it was combined,
   // always won where it was darker and it carries no leaf detail at that
   // scale — so the fine structure that makes dapple read as dapple was being
@@ -189,7 +287,7 @@ reflectedLight.indirectSpecular *= 1.0 - 0.55 * audiShade;`,
       );
   };
   // Force a fresh program: onBeforeCompile is keyed on the material's cache key.
-  mat.customProgramCacheKey = () => 'audi-asphalt-v4';
+  mat.customProgramCacheKey = () => 'audi-asphalt-v8';
   return u;
 }
 
@@ -210,7 +308,7 @@ function makeAsphalt(maps: AsphaltMaps, gobo: THREE.Texture): {
     roughnessMap: maps.surface,
     roughness: 1,
     metalness: 0,
-    normalScale: new THREE.Vector2(0.5, 0.5),
+    normalScale: new THREE.Vector2(0.34, 0.34),
     dithering: true,
   });
   const patch = patchAsphalt(mat, gobo);
@@ -257,7 +355,7 @@ function makeStudioFloor(map: THREE.Texture): { mesh: THREE.Mesh; mat: THREE.Mes
 
 export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
   const maps = createAsphaltMaps(renderer, 1024);
-  const gobo = createGoboTexture(renderer, 512);
+  const gobo = createGoboTexture(renderer, 1024);
   const studio = createStudioFloorMaps(renderer, 1024);
 
   const asphalt = makeAsphalt(maps, gobo);
@@ -290,9 +388,13 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
     // the map and the 0.25 in `material.color` have cancelled), so they are
     // written as plain reflectances.
     asphalt.patch.uKerbColor.value.setRGB(0.92, 0.91, 0.88).multiplyScalar(0.35);
-    asphalt.patch.uVergeColor.value.setRGB(0.74, 0.82, 0.46).multiplyScalar(0.22);
+    // Straw, not green — see the matching note in ibl.ts. The verge you see
+    // and the verge the paint reflects have to be the same grass.
+    asphalt.patch.uVergeColor.value.setRGB(0.82, 0.74, 0.42).multiplyScalar(0.22);
     asphalt.patch.uWetness.value = preset.wetness;
     asphalt.patch.uGoboStrength.value = preset.dapple;
+    const azLen = Math.hypot(preset.sunDir[0], preset.sunDir[2]) || 1;
+    asphalt.patch.uSunAz.value.set(preset.sunDir[0] / azLen, preset.sunDir[2] / azLen);
 
     // What shade *is*, rather than what colour it was decided to be.
     //

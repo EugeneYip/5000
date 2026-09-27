@@ -37,35 +37,140 @@ export function createBackdrop(): BackdropHandle {
 
   const rnd = mulberry(0x5000a4d1);
 
-  // Smooth-shaded, and eight small lobes a crown instead of five large ones.
-  // Flat shading put a hard highlight on every one of an icosahedron's faces,
-  // which is what made the boulevard read as rocks on sticks; the silhouette
-  // was the other half of it, and more, smaller lobes fix that without paying
-  // for subdivision. 36 k triangles for the whole planting, in one draw.
   const crownGeo = new THREE.IcosahedronGeometry(1, 1);
-  const trunkGeo = new THREE.CylinderGeometry(0.26, 0.42, 1, 8, 1, true);
+  const trunkGeo = new THREE.CylinderGeometry(0.62, 1.0, 1, 7, 1, true);
+  const branchGeo = new THREE.CylinderGeometry(0.1, 0.34, 1, 5, 1, true);
   const blockGeo = new THREE.BoxGeometry(1, 1, 1);
 
-  const crownMat = new THREE.MeshStandardMaterial({ color: 0x283318, roughness: 0.95, metalness: 0 });
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x2b241d, roughness: 0.95, metalness: 0 });
+  /**
+   * `instanceColor` is a trap. The vertex chunk multiplies it into `vColor`
+   * under `USE_INSTANCING_COLOR`, but the *fragment* chunk only declares and
+   * consumes `vColor` under `USE_COLOR` — which three defines from
+   * `material.vertexColors` and from nothing else. So an InstancedMesh with an
+   * instanceColor and a material without `vertexColors` compiles, runs, and
+   * silently throws every per-instance tint away: the planting rendered at its
+   * white base colour and did not move by one level when the tints were
+   * changed by a factor of five. And `vertexColors` in turn requires a real
+   * `color` attribute, because a disabled vertex attribute reads back as
+   * (0, 0, 0) and the whole row would go black instead.
+   */
+  const unitColor = (geo: THREE.BufferGeometry): THREE.BufferGeometry => {
+    const n = geo.attributes.position.count;
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    return geo;
+  };
+  unitColor(crownGeo);
+  unitColor(trunkGeo);
+  unitColor(branchGeo);
+
+  // Base colours are white; every instance carries its own tint, so one draw
+  // covers sunlit and shaded foliage, pale and weathered bark.
+  const crownMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true,
+  });
+
+  /**
+   * The thing that actually separates foliage from a blob.
+   *
+   * No arrangement of solid lobes reads as a canopy, because a canopy's
+   * defining property is that you can see *through* it: the sky comes through
+   * in a thousand small holes, the silhouette is ragged at every scale, and
+   * the mass thins towards its edge. Solid convex lobes have a smooth
+   * silhouette at every scale and no holes at all, which is why the crowns
+   * read as a bunch of grapes however many of them there were.
+   *
+   * So the lobes are cut with a three-octave hash noise evaluated in the
+   * *tree's* frame — so neighbouring lobes cut differently and the seams
+   * between them disappear — with the cut deepening towards each lobe's own
+   * rim, which is what thins the mass at the edge. Three texture-free octaves
+   * and a discard, on geometry that is a few hundred pixels at most.
+   */
+  crownMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vLeafPos;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+#ifdef USE_INSTANCING
+vLeafPos = (instanceMatrix * vec4(position, 1.0)).xyz;
+#else
+vLeafPos = position;
+#endif`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vLeafPos;
+float leafHash(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float leafNoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(leafHash(i + vec3(0, 0, 0)), leafHash(i + vec3(1, 0, 0)), f.x),
+                 mix(leafHash(i + vec3(0, 1, 0)), leafHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(leafHash(i + vec3(0, 0, 1)), leafHash(i + vec3(1, 0, 1)), f.x),
+                 mix(leafHash(i + vec3(0, 1, 1)), leafHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+{
+  float v = 0.62 * leafNoise(vLeafPos * 3.2)
+          + 0.26 * leafNoise(vLeafPos * 7.6 + 11.0)
+          + 0.12 * leafNoise(vLeafPos * 18.0 + 31.0);
+  // Thin towards the rim of the lobe: a leaf mass has no hard edge, and a
+  // uniform cut just gives a solid ball with freckles.
+  float edge = smoothstep(0.34, 0.98, length(vObjectNormal.xy));
+  if (v < 0.40 + 0.26 * edge) discard;
+}`,
+      )
+      // `vObjectNormal` does not exist; use the interpolated view normal's
+      // lateral component, which is one at the silhouette and zero facing us.
+      .replace('length(vObjectNormal.xy)', 'length(vNormal.xy) / max(length(vNormal), 1e-3)');
+  };
+  crownMat.customProgramCacheKey = () => 'audi-canopy-v1';
+  const trunkMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: 0.92, metalness: 0, vertexColors: true,
+  });
   const blockMat = new THREE.MeshStandardMaterial({ color: 0x8d8377, roughness: 0.88, metalness: 0 });
 
-  // Two receding rows, Parkway spacing. No scattered middle-distance trees:
-  // at the 200 mm focal lengths the profile poses use, a single tree 200 m out
-  // magnifies into a readable lollipop, whereas a row reads as perspective and
-  // dissolves correctly into the haze.
-  // Spacing, setback and height are all jittered, and jittered by enough to
-  // matter. The row used to run `z = -210 + i * 16` with a ±2.6 m height
-  // spread on a ±5 m setback, which is a picket fence: identical objects,
-  // identical pitch, identical size, and the eye locks on to the rhythm
-  // instantly and calls it computer graphics. A real planting was put in over
-  // fifty years, has lost trees to storms and gained replacements, and no two
-  // of its gaps are the same. ±45 % on the pitch and a 2:1 height range is
-  // what it takes before the row stops counting itself.
-  const trees: Array<{ x: number; z: number; h: number; r: number; lean: number }> = [];
+  /**
+   * Two receding rows at Parkway spacing.
+   *
+   * The proportions were the whole problem. A crown radius of 3.4–5.4 m on a
+   * 5.4–10.6 m tree is a ball as wide as the tree is tall, sitting on a stick:
+   * a lollipop, and no amount of lobe count rescues it. A London plane on the
+   * Parkway is 14–22 m tall with a crown 7–13 m *wide* — radius a quarter to a
+   * third of its height — and it carries that crown on a clean bole for the
+   * first half of its height, which is why the photograph can see straight
+   * down the boulevard underneath the planting. Those three numbers, not the
+   * blob count, are what separates a street tree from a lollipop.
+   *
+   * The row also stood at 31 m, twice as far out as the tree row in the IBL's
+   * proxy world at 16 m — so the trees the paint reflected were not the trees
+   * in the frame. It is at 17 m now, just past the grass verge the ground
+   * shader puts at 16 m, which is where the planting actually is.
+   */
+  interface Tree {
+    x: number; z: number;
+    /** Overall height, metres. */
+    h: number;
+    /** Height at which the bole stops and the crown begins. */
+    bole: number;
+    /** Crown half-width. */
+    r: number;
+    lean: number;
+    /** Bark tone, 0 = weathered dark, 1 = freshly shed and near-white. */
+    bark: number;
+  }
+  const trees: Tree[] = [];
   const plant = (
-    side: number, z: number, xBase: number, xJit: number,
-    hLo: number, hHi: number, rLo: number, rHi: number,
+    side: number, z: number, xBase: number, xJit: number, hLo: number, hHi: number,
   ): void => {
     // A gap every so often: a felled tree, a driveway, a bus stop.
     if (rnd() < 0.14) return;
@@ -74,19 +179,18 @@ export function createBackdrop(): BackdropHandle {
       x: side * (xBase + rnd() * xJit),
       z,
       h,
-      // Crown size follows height, as a tree's does, rather than rolling free.
-      r: (rLo + rnd() * (rHi - rLo)) * (0.72 + 0.38 * (h - hLo) / Math.max(hHi - hLo, 1e-3)),
-      lean: (rnd() - 0.5) * 0.16,
+      bole: h * (0.38 + rnd() * 0.13),
+      r: h * (0.27 + rnd() * 0.11),
+      lean: (rnd() - 0.5) * 0.14,
+      bark: rnd(),
     });
   };
   for (let side = -1; side <= 1; side += 2) {
     let z = -210 + (side > 0 ? 8 : 0);
     while (z < 210) {
-      // The 46 m around the car is left clear. Trees closer than that loom
-      // over a 62 mm three-quarter and read as scenery, not surroundings —
-      // and in the photomatch pose the nearest of them used to fill a quarter
-      // of the sky behind the roof.
-      if (z < -46 || z > 50) plant(side, z, 31, 6.5, 5.4, 10.6, 3.4, 5.4);
+      // The 40 m around the car is left clear: a tree closer than that fills a
+      // quarter of the sky behind the roof in the photomatch pose.
+      if (z < -40 || z > 46) plant(side, z, 20, 5.5, 10.5, 16.5);
       z += 11 + rnd() * 10;
     }
   }
@@ -95,47 +199,103 @@ export function createBackdrop(): BackdropHandle {
   for (let side = -1; side <= 1; side += 2) {
     let z = -200 + (side > 0 ? 17 : 0);
     while (z < 200) {
-      if (z < -60 || z > 64) plant(side, z, 44, 9, 6.2, 11.8, 3.8, 6.2);
+      if (z < -56 || z > 60) plant(side, z, 32, 12, 9.5, 15.5);
       z += 24 + rnd() * 22;
     }
   }
 
-  const BLOBS = 8;
-  const crowns = new THREE.InstancedMesh(crownGeo, crownMat, trees.length * BLOBS);
+  const LOBES = 20;
+  const BRANCHES = 4;
+  const crowns = new THREE.InstancedMesh(crownGeo, crownMat, trees.length * LOBES);
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length);
+  const branches = new THREE.InstancedMesh(branchGeo, trunkMat, trees.length * BRANCHES);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
 
+  /**
+   * Per-instance shading inputs, kept so `apply` can re-tint the planting when
+   * the sun moves without rebuilding any geometry: the horizontal direction of
+   * each lobe from its own trunk (which decides whether the sun is on it), and
+   * a per-instance brightness jitter.
+   */
+  const lobeDir = new Float32Array(trees.length * LOBES * 2);
+  const lobeJit = new Float32Array(trees.length * LOBES);
+  const barkTone = new Float32Array(trees.length);
+
   const leanAxis = new THREE.Vector3(0, 0, 1);
   const spin = new THREE.Vector3(0, 1, 0);
+  const branchAxis = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0, 1, 0);
+
   trees.forEach((t, i) => {
-    pos.set(t.x, t.h * 0.45, t.z);
-    scl.set(1, t.h * 0.9, 1);
-    // A plane tree does not grow plumb. Sixteen milliradians of lean, signed
+    barkTone[i] = t.bark;
+    // Trunk radii are authored at 1 m and scaled by the tree's own girth, so a
+    // 22 m plane is not the same stick as a 13 m one.
+    const girth = 0.024 + 0.010 * t.bark;
+    pos.set(t.x, t.bole * 0.5, t.z);
+    scl.set(girth * t.h, t.bole, girth * t.h);
+    // A plane tree does not grow plumb. Fourteen milliradians of lean, signed
     // per tree, is all it takes to break the row of parallel verticals that
     // reads as a row of posts.
     q.setFromAxisAngle(leanAxis, t.lean);
     trunks.setMatrixAt(i, m.compose(pos, q, scl));
-    const tilt = Math.tan(t.lean) * t.h;
-    for (let b = 0; b < BLOBS; b++) {
-      const k = rnd();
+
+    const tiltAt = (y: number): number => Math.tan(t.lean) * y;
+
+    // Limbs. A plane forks two or three times low in the crown and the limbs
+    // carry on through it — the bare Y at the top of a bare stick is most of
+    // what made these read as posts with balls on.
+    for (let b = 0; b < BRANCHES; b++) {
+      const a = (b / BRANCHES) * Math.PI * 2 + rnd() * 1.3;
+      const y0 = t.bole * (0.82 + rnd() * 0.16);
+      const len = t.r * (0.5 + rnd() * 0.5);
+      const rise = 0.55 + rnd() * 0.5;
+      branchAxis.set(Math.cos(a), rise, Math.sin(a)).normalize();
       pos.set(
-        t.x - tilt + (rnd() - 0.5) * t.r * 1.9,
-        t.h + (rnd() - 0.4) * t.r * 1.05,
-        t.z + (rnd() - 0.5) * t.r * 1.75,
+        t.x - tiltAt(y0) + branchAxis.x * len * 0.5,
+        y0 + branchAxis.y * len * 0.5,
+        t.z + branchAxis.z * len * 0.5,
       );
+      q.setFromUnitVectors(yAxis, branchAxis);
+      scl.set(girth * t.h * 0.85, len, girth * t.h * 0.85);
+      branches.setMatrixAt(i * BRANCHES + b, m.compose(pos, q, scl));
+    }
+
+    // The crown: lobes on an irregular, flattened shell with the middle left
+    // comparatively empty, so sky shows through it. A plane's canopy is open —
+    // you read the sky between the leaf masses, and that is the difference
+    // between foliage and a solid ball.
+    const crownH = t.h - t.bole;
+    for (let b = 0; b < LOBES; b++) {
+      const a = (b / LOBES) * Math.PI * 2 + rnd() * 1.4;
+      // Radially biased outward: sqrt() would spread them evenly over the
+      // disc, and an even spread fills the centre in.
+      const rad = t.r * (0.38 + 0.62 * rnd());
+      const fy = 0.18 + 0.82 * rnd();
+      const cy = t.bole + crownH * fy;
+      const dx = Math.cos(a) * rad * (1.0 - 0.45 * fy);
+      const dz = Math.sin(a) * rad * (1.0 - 0.45 * fy);
+      pos.set(t.x - tiltAt(cy) + dx, cy, t.z + dz);
       q.setFromAxisAngle(spin, rnd() * 3);
-      // Smaller lobes, more of them: a crown is a cloud of leaf clusters, and
-      // the ragged edge that gives is most of what says "tree" at 200 m.
-      const rr = t.r * (0.46 + k * 0.34);
-      scl.set(rr, rr * 0.78, rr * 0.96);
-      crowns.setMatrixAt(i * BLOBS + b, m.compose(pos, q, scl));
+      const rr = t.r * (0.30 + 0.26 * rnd());
+      scl.set(rr, rr * 0.74, rr * 0.94);
+      crowns.setMatrixAt(i * LOBES + b, m.compose(pos, q, scl));
+      const k = i * LOBES + b;
+      const inv = 1 / Math.max(Math.hypot(dx, dz), 1e-3);
+      lobeDir[k * 2] = dx * inv;
+      lobeDir[k * 2 + 1] = dz * inv;
+      lobeJit[k] = 0.78 + rnd() * 0.44;
     }
   });
   crowns.instanceMatrix.needsUpdate = true;
   trunks.instanceMatrix.needsUpdate = true;
+  branches.instanceMatrix.needsUpdate = true;
+
+  crowns.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * LOBES * 3), 3);
+  trunks.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * 3), 3);
+  branches.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * BRANCHES * 3), 3);
 
   // A skyline, not six slabs. These sit well past the point where the
   // exponential fog has taken them — they exist to give the horizon an edge,
@@ -174,27 +334,98 @@ export function createBackdrop(): BackdropHandle {
   });
   blockMesh.instanceMatrix.needsUpdate = true;
 
-  for (const mesh of [crowns, trunks, blockMesh]) {
+  for (const mesh of [crowns, trunks, branches, blockMesh]) {
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
     group.add(mesh);
   }
 
+  const lit = new THREE.Color();
+  const shade = new THREE.Color();
+  const mixed = new THREE.Color();
+
   return {
     group,
-    apply(preset) {
+    apply(preset, sunDir) {
       group.visible = preset.ground !== 'studio';
+
+      // These proxies have no self-shadowing, so a smooth 0.04 dielectric
+      // Fresnel over the whole mass was returning the sky at full strength —
+      // measured, a trunk with a 0.007 albedo was rendering at level 122,
+      // brighter than the lit foliage beside it, because almost none of what
+      // it returned was its own colour. A real canopy occludes most of the sky
+      // from its own interior; this stands in for that.
+      crownMat.envMapIntensity = 0.22;
+      trunkMat.envMapIntensity = 0.18;
+      blockMat.envMapIntensity = 0.45;
+
       // Distant foliage in low sun goes almost black against the sky; at noon
       // it is merely dark. Tying it to elevation keeps the silhouette honest.
-      const lift = 0.3 + Math.max(preset.sunDir[1], 0) * 0.45;
-      crownMat.color.setHex(0x2a3a1c).multiplyScalar(lift);
-      trunkMat.color.setHex(0x2b241d).multiplyScalar(lift);
-      blockMat.color.setHex(0x7d766c).multiplyScalar(0.4 + lift * 0.4);
+      //
+      // The absolute level is a *self-occlusion* term, not a look knob, and
+      // that is why it had to come down so far. These proxies are convex
+      // lobes with nothing inside them: every one of them collects the entire
+      // sky hemisphere, where a patch of real canopy sees maybe a quarter of
+      // it past its own neighbours and the mass behind it. Left at face value
+      // the planting rendered at level 172 against a sky of 205 — no
+      // separation at all, where the photograph has its canopy at 78 against
+      // an open sky, a full two stops down. Bark is worse: a trunk is a
+      // vertical cylinder in a street, and most of what it can see is other
+      // trunks and the ground.
+      const up = Math.max(sunDir.y, 0);
+      const lift = 0.075 + up * 0.14;
+      const barkLift = 0.055 + up * 0.11;
+      crownMat.color.setRGB(1, 1, 1);
+      trunkMat.color.setRGB(1, 1, 1);
+      blockMat.color.setHex(0x6e6a64).multiplyScalar(0.11 + up * 0.28);
+
+      // Which side of its own trunk a lobe sits on decides whether the sun is
+      // on it. At 11° of elevation the sunward half of a plane's crown is
+      // three-quarters *transmitted* light and goes gold; the far half keeps
+      // the sky's colour through its own green. The photograph measures those
+      // two at (92, 77, 45) and (61, 55, 45) — a two-to-one warm bias and a
+      // full stop apart, where the old single flat green gave neither.
+      const az = Math.hypot(sunDir.x, sunDir.z) || 1;
+      const sx = sunDir.x / az;
+      const sz = sunDir.z / az;
+
+      const paint = (
+        mesh: THREE.InstancedMesh, i: number, k: number, litHex: number, shadeHex: number,
+        jit: number, gain: number,
+      ): void => {
+        lit.setHex(litHex);
+        shade.setHex(shadeHex);
+        mixed.copy(shade).lerp(lit, k).multiplyScalar(jit * gain);
+        mesh.instanceColor!.setXYZ(i, mixed.r, mixed.g, mixed.b);
+      };
+
+      for (let i = 0; i < trees.length * LOBES; i++) {
+        const d = lobeDir[i * 2] * sx + lobeDir[i * 2 + 1] * sz;
+        // A wide ramp, not a step: a crown is a volume, and the transition
+        // from its lit face to its shaded one takes most of its width.
+        const k = THREE.MathUtils.smoothstep(d, -0.15, 0.78);
+        paint(crowns, i, k, 0xa89a4a, 0x38492c, lobeJit[i], lift);
+      }
+      // Plane bark is the one tree in a city you can identify from a hundred
+      // metres by its trunk: it sheds in plates and reads as pale mottled
+      // cream over olive-grey, not as the near-black post it was.
+      for (let i = 0; i < trees.length; i++) {
+        const t = barkTone[i];
+        trunkMat.color.setRGB(1, 1, 1);
+        paint(trunks, i, t, 0xc6bda8, 0x443f34, 1, barkLift);
+        for (let b = 0; b < BRANCHES; b++) {
+          paint(branches, i * BRANCHES + b, t * 0.8, 0xb4ab96, 0x3c382e, 1, barkLift);
+        }
+      }
+      crowns.instanceColor!.needsUpdate = true;
+      trunks.instanceColor!.needsUpdate = true;
+      branches.instanceColor!.needsUpdate = true;
     },
     dispose() {
       crownGeo.dispose();
       trunkGeo.dispose();
+      branchGeo.dispose();
       blockGeo.dispose();
       crownMat.dispose();
       trunkMat.dispose();

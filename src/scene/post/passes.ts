@@ -34,6 +34,102 @@ function rawMaterial(fragmentShader: string, uniforms: Record<string, THREE.IUni
 }
 
 /**
+ * The scene render, into a target that keeps its depth.
+ *
+ * This exists for one reason: it lets the whole scene be drawn once a frame
+ * instead of twice. `GTAOPass` re-renders every mesh with a normal/depth
+ * override material to build its own G-buffer, which at 307 car meshes is a
+ * second full traversal — and `renderer.render` runs the transmission prepass
+ * with it, because the glazing's transmission is detected from the object's
+ * own material and not from the override. So the "one extra pass" is nearer
+ * two, and it is by far the largest single item left in the frame.
+ *
+ * `GTAOPass.setGBuffer(depthTexture)` makes it skip that render and work from
+ * a depth buffer supplied from outside, reconstructing normals from depth —
+ * which at half resolution behind a Poisson denoise is indistinguishable.
+ * What it needs is a depth *texture*, and `EffectComposer` does not provide
+ * one: it ping-pongs between two colour targets, so attaching a depth texture
+ * to the composer's buffers means whichever pass is reading that depth is
+ * eventually also writing into the target it is attached to — a feedback loop
+ * the driver is entitled to return black for.
+ *
+ * So the scene is rendered into a target of this pass's own, which nothing
+ * else ever writes to, and the result is copied into the chain. The copy is
+ * one full-screen blit against a whole scene traversal saved.
+ *
+ * Multisampling moves here with it. The composer's own buffers no longer need
+ * samples at all, because nothing after this pass rasterises geometry.
+ */
+export class ScenePass extends Pass {
+  readonly target: THREE.WebGLRenderTarget;
+  private copyMat: THREE.RawShaderMaterial;
+  private quad: FullScreenQuad;
+  private uniforms = { tDiffuse: { value: null as THREE.Texture | null } };
+
+  constructor(
+    private scene: THREE.Scene,
+    private camera: THREE.Camera,
+    width: number,
+    height: number,
+    samples = 2,
+  ) {
+    super();
+    // The chain reads this pass's output out of `readBuffer`, in place.
+    this.needsSwap = false;
+    const depth = new THREE.DepthTexture(width, height);
+    depth.format = THREE.DepthStencilFormat;
+    depth.type = THREE.UnsignedInt248Type;
+    this.target = new THREE.WebGLRenderTarget(width, height, {
+      type: THREE.HalfFloatType,
+      format: THREE.RGBAFormat,
+      colorSpace: THREE.NoColorSpace,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      samples,
+      depthBuffer: true,
+      stencilBuffer: true,
+      depthTexture: depth,
+    });
+    this.copyMat = rawMaterial(COPY_FRAG, this.uniforms);
+    this.quad = new FullScreenQuad(this.copyMat);
+  }
+
+  /** Stable across resizes, so consumers only have to be pointed at it once. */
+  get depthTexture(): THREE.DepthTexture {
+    return this.target.depthTexture as THREE.DepthTexture;
+  }
+
+  render(
+    renderer: THREE.WebGLRenderer,
+    _writeBuffer: THREE.WebGLRenderTarget,
+    readBuffer: THREE.WebGLRenderTarget,
+  ): void {
+    const autoClear = renderer.autoClear;
+    renderer.autoClear = false;
+    renderer.setRenderTarget(this.target);
+    renderer.clear(true, true, true);
+    renderer.render(this.scene, this.camera);
+    renderer.autoClear = autoClear;
+
+    // Resolving the multisampled colour happens on the target switch; this
+    // copy is what puts the frame where the rest of the chain expects it.
+    this.uniforms.tDiffuse.value = this.target.texture;
+    this.quad.material = this.copyMat;
+    renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
+    this.quad.render(renderer);
+  }
+
+  setSize(width: number, height: number): void {
+    this.target.setSize(width, height);
+  }
+
+  dispose(): void {
+    this.target.dispose();
+    this.copyMat.dispose();
+  }
+}
+
+/**
  * GTAO evaluated below the output resolution.
  *
  * `GTAOPass` costs three things: a full re-render of the scene into a

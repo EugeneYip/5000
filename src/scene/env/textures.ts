@@ -67,14 +67,29 @@ float worley(vec2 x, float period) {
   }
   return d;
 }
-/** The shared asphalt height field. Everything else is derived from it. */
+/**
+ * The shared asphalt height field. Everything else is derived from it.
+ *
+ * The aggregate ran at 64 cells across a four-metre tile — 6.25 cm stones.
+ * Surface-course aggregate is 6–10 mm nominal and reads as 1–3 cm of exposed
+ * face, so every "stone" in the road was the size of a fist. In the near
+ * foreground of a wide shot that put a 30-pixel Voronoi lattice across the
+ * whole frame, and because a Voronoi at one cell per grid square is *aligned
+ * to that grid*, it read as a printed pattern rather than as a surface.
+ *
+ * 132 cells (3.0 cm at 7.8 texels each) for the coarse face, blended with a
+ * second lattice at a mutually prime period so the stone is not all one size
+ * and the two grids never agree about where their cell walls are.
+ */
 float asphaltHeight(vec2 uv) {
-  vec2 p = uv * 64.0;
-  float agg = 1.0 - worley(p, 64.0);
-  agg = pow(clamp(agg, 0.0, 1.0), 2.2);
-  float grit = fbm(uv * 220.0, 220.0, 2);
+  float agg = 1.0 - worley(uv * 132.0, 132.0);
+  agg = pow(clamp(agg, 0.0, 1.0), 2.4);
+  float agg2 = 1.0 - worley(uv * 79.0 + 3.7, 79.0);
+  agg2 = pow(clamp(agg2, 0.0, 1.0), 3.0);
+  agg = mix(agg, agg2, 0.38);
+  float grit = fbm(uv * 300.0, 300.0, 2);
   float macro = fbm(uv * 5.0, 5.0, 4);
-  return agg * 0.62 + grit * 0.16 + macro * 0.22;
+  return agg * 0.50 + grit * 0.22 + macro * 0.28;
 }
 `;
 
@@ -148,9 +163,15 @@ void main() {
   // is two or three pixels in the near field, and at the old amplitude it
   // read as sensor noise rather than as a road surface — a quarter of the
   // frame sat below level 40 purely in the gaps between chips.
-  float chip = smoothstep(0.62, 0.95, h);
+  //
+  // The per-chip brightness came from hash1(floor(vUv * 64.0)), which is a
+  // hard 64x64 grid of flat-tinted squares laid over the whole tile — the
+  // single loudest thing in the near foreground, and dead regular. It is a
+  // smooth field now, so a chip's brightness still varies from its neighbour's
+  // without a lattice being drawn to say where one chip ends.
+  float chip = smoothstep(0.58, 0.93, h);
   vec3 c = mix(bitumen, stone, smoothstep(0.16, 0.70, h));
-  c = mix(c, pale, chip * (0.10 + 0.30 * hash1(floor(vUv * 64.0))));
+  c = mix(c, pale, chip * (0.12 + 0.24 * vnoise(vUv * 91.0, 91.0)));
   // No low-frequency drift in here. It used to carry a three-metre fbm blotch
   // *inside a four-metre tile* — so the one thing that was supposed to stop
   // the tile reading as a repeat was itself the thing repeating, in a
@@ -209,7 +230,10 @@ export function createAsphaltMaps(renderer: THREE.WebGLRenderer, size = 1024): A
   const surface = render(renderer, size, ASPHALT_SURFACE);
   const normalMap = render(renderer, size, ASPHALT_NORMAL, {
     uTexel: { value: new THREE.Vector2(1 / size, 1 / size) },
-    uStrength: { value: 2.1 },
+    // 1.2, not 2.1. The height field is now three times finer, so the slope
+    // across one texel is correspondingly steeper; holding the old strength
+    // would have traded a coarse lattice for a fine one and kept the glitter.
+    uStrength: { value: 1.2 },
   });
   for (const t of [map, surface, normalMap]) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -240,36 +264,54 @@ void main() {
   float c1 = fbm(vUv * 2.2, 2.2, 3);
   float c2 = fbm(vUv * 5.5 + 2.0, 5.5, 3);
   float c3 = fbm(vUv * 13.0 + 5.0, 13.0, 2);
-  // A narrow remap, not a wide one. Three octaves summed cluster hard about
-  // their mean, so a 0.30-0.58 window returned "about half shaded" almost
-  // everywhere and the gobo came out as a uniform dimmer rather than as
-  // dapple — measured, switching it on *reduced* the road's local standard
-  // deviation, which is the exact opposite of what shade does.
-  float canopy = smoothstep(0.38, 0.50, c1 * 0.55 + c2 * 0.3 + c3 * 0.15);
+  float c = c1 * 0.55 + c2 * 0.3 + c3 * 0.15;
+  // The window has to sit ON the distribution, not above it.
+  //
+  // Three octaves summed cluster hard about their mean, and for this
+  // combination that mean is 0.428 with a standard deviation of 0.077. The
+  // window was smoothstep(0.38, 0.50), whose upper edge is a full standard
+  // deviation above the mean: about a sixth of the ground came out fully
+  // shaded, the rest fully lit, and there was almost nothing in between —
+  // which is a stencil, not a canopy. Sitting on the distribution instead, it
+  // covers about seventy per cent of the ground with a real soft edge. Seventy
+  // and not fifty because a fifteen-metre tree at 11.5° of solar elevation
+  // throws seventy metres of shadow: the photograph's pavement and road are
+  // mostly *in* the planting's shade with sun flecks punched through it, which
+  // is the opposite of a few dark patches on a sunlit street.
+  float canopy = smoothstep(0.375, 0.47, c);
   // Leaf-scale breakup punched through the crowns: ragged edges, and sun
   // flecks in the middle of the shade.
   //
-  // Two things were wrong here and they compounded. The leaf cell ran at 26
-  // per tile, and the tile is 26 m of road, so a "leaf" shadow was a metre
-  // across — blotches, not dapple. And the darkest this map could go was 0.3,
-  // which the 0.62 dapple strength then scaled to an effective 0.70: the
-  // deepest shade under a plane tree came out three tenths of a stop down and
-  // the whole road read as one flat sheet. It is allowed to reach zero now,
-  // because what stops shade going black is the shade *colour* in ground.ts,
-  // which is a real sky-plus-bounce term — not a floor clamped in here.
-  // Three octaves of leaf structure, each pushed to high contrast. Dapple is
-  // not a soft gradient: it is a scatter of hard-edged sun flecks in a dark
-  // ground, and a smoothstep wide enough to keep it smooth is a smoothstep
-  // wide enough to make it invisible once the road is at its proper level.
-  float leaf = smoothstep(0.40, 0.56, fbm(vUv * 64.0 + 11.0, 64.0, 2));
-  float fleck = smoothstep(0.46, 0.60, fbm(vUv * 150.0 + 31.0, 150.0, 2));
-  float twig = smoothstep(0.50, 0.64, fbm(vUv * 320.0 + 7.0, 320.0, 2));
-  float light = mix(1.0, clamp(0.62 * leaf + 0.26 * fleck + 0.12 * twig, 0.0, 1.0), canopy);
-  gl_FragColor = vec4(vec3(clamp(light, 0.0, 1.0)), 1.0);
+  // Same error, and it was worse here. fbm(x, p, 2) has a mean of 0.375 and a
+  // maximum of 0.75, so smoothstep(0.40, 0.56, …) put its whole window in the
+  // top third of the range: the leaf term returned zero over most of its area
+  // and every point under a crown went to the same flat black. That is why the
+  // gobo read as soft blobs, and why every attempt to make the dapple stronger
+  // only made the blobs darker — there was no fine structure left in it to
+  // strengthen. Centred, each term now opens about a quarter to a third of the
+  // area it covers, and the three together give the scatter of hard-edged sun
+  // flecks in a dark ground that dapple actually is.
+  // Narrow windows, and deliberately so. A sun fleck is not a soft gradient:
+  // it is a hole in the canopy and the road under it is at full sun, while
+  // fifty millimetres away it is a stop down. A wide smoothstep spreads that
+  // step over a metre of road and the result reads as a dimmer.
+  float leaf  = smoothstep(0.345, 0.435, fbm(vUv * 52.0 + 11.0, 52.0, 2));
+  float fleck = smoothstep(0.345, 0.435, fbm(vUv * 115.0 + 31.0, 115.0, 2));
+  float twig  = smoothstep(0.345, 0.435, fbm(vUv * 230.0 + 7.0, 230.0, 2));
+  float open = clamp(0.55 * leaf + 0.30 * fleck + 0.15 * twig, 0.0, 1.0);
+  // It is allowed to reach zero: what stops shade going black is the shade
+  // *colour* in ground.ts, which is a real sky-plus-bounce term, not a floor
+  // clamped in here.
+  float light = mix(1.0, open, canopy);
+  // Three channels, not one. ground.ts has to recombine these itself,
+  // because the canopy mask needs a world-space term this texture cannot
+  // know about — see the shadow bands there — while the leaf transmission
+  // is a property of the foliage and belongs here.
+  gl_FragColor = vec4(clamp(light, 0.0, 1.0), open, canopy, 1.0);
 }
 `;
 
-export function createGoboTexture(renderer: THREE.WebGLRenderer, size = 512): THREE.Texture {
+export function createGoboTexture(renderer: THREE.WebGLRenderer, size = 1024): THREE.Texture {
   const t = render(renderer, size, GOBO);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
