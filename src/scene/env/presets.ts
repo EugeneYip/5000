@@ -31,6 +31,13 @@ export interface SkyParams {
   gradientPower: number;
   /** Haze hugging the horizon line. */
   haze: number;
+  /**
+   * Cirrus cover, 0-1. Not decoration: an empty upper hemisphere is a flat
+   * gradient, and a flat gradient is the only thing a bonnet or a roof has to
+   * reflect. Structure up there is what stops a horizontal panel reading as a
+   * painted ramp.
+   */
+  cloud?: number;
   hazeColor: number;
   hazeHeight: number;
   /**
@@ -156,22 +163,39 @@ export const PRESETS: Record<string, EnvPreset> = {
     name: 'goldenhour',
     sunDir: GOLDEN_SUN,
     sunColor: 0xffdec0,
-    // 5.6, down from 6.0. The sun is the one source in the rig whose level was
-    // already right — the road, the plate and the bumper all landed within a
-    // few per cent of the white-balanced photograph — so this is a trim, not a
-    // rebalance. Cutting the key further to chase a key-to-fill number takes
-    // the road down with it, and the road is the fill.
-    sunIntensity: 5.6,
+    // The key went *up*, not down, and that wants explaining, because the
+    // obvious reading of "the shaded panels are two stops dark" is that the
+    // key is too strong.
+    //
+    // It is not. The sun is the one source in this rig that was already
+    // calibrated: at 7.0, against the white-balanced photograph, the plate
+    // reads 232 to its 234, the sunlit bumper 69 to its 73, the shaded road
+    // beside the car 127 to its 123 and the lit bonnet 167 to its 165. Every
+    // one of those is a *sunlit* or sun-dominated surface and every one of
+    // them lands. Cutting the key to improve a key-to-fill ratio takes all
+    // four down with it — and takes the road down hardest, which is the one
+    // that matters, because the road is what the flanks are lit by.
+    //
+    // The ratio was fixed from the other end: `envIntensity` below.
+    sunIntensity: 7.0,
     sunShadow: true,
     sunShadowRadius: 2.2,
     sky: {
-      zenith: 0x5c8ac8,
-      // Pulled a little bluer. This colour is doing two jobs: it is the sky
-      // the horizon washes out to, and — through the IBL road's grazing
-      // Fresnel — it is what the lower half of every vertical panel's
-      // reflection is made of. A grey-green horizon put a grey-green cast on
-      // the flanks that no amount of extra light was going to remove.
-      horizon: 0xaec6dc,
+      // Both pulled back towards neutral, and the note that used to sit under
+      // `horizon` — that it was "pulled a little bluer" to stop a grey-green
+      // cast on the flanks — withdrawn. The flanks are not made of this
+      // colour. They are made of the road, which is measurable: changing this
+      // band by any amount moves a shaded flank by zero levels.
+      //
+      // What it *is* made of is every horizontal surface in the scene, and
+      // with the fill at its proper strength a saturated blue sky turned the
+      // asphalt lilac — `#6d7897` against the photograph's `#8f7969`, the hue
+      // error mirror-imaged. A hazy city evening desaturates hard: the sky in
+      // the photograph, white-balanced, reads `#9b8c6b` through the branches,
+      // which is warmer than either of these. The road now comes back at
+      // `#787e92`, saturation 0.18 against the photograph's 0.27.
+      zenith: 0x6e93c0,
+      horizon: 0xcbd0d2,
       ground: 0x6b5c4c,
       sun: 0xffb066,
       sunIntensity: 120,
@@ -179,9 +203,18 @@ export const PRESETS: Record<string, EnvPreset> = {
       mieStrength: 0.85,
       miePower: 13,
       gradientPower: 3.0,
-      haze: 0.26,
+      // A real aerosol layer rather than a rule drawn on the horizon.
+      // `hazeHeight` is an e-folding angle in radians, so 0.034 was a band two
+      // degrees thick — thinner than the sun is wide. A hazy Philadelphia
+      // evening in September carries its aerosol fifteen to twenty degrees up,
+      // which is 0.30, and that band is most of what a horizontal panel and
+      // the road itself are lit by. Widening it is what lets the road stay
+      // warm while the fill comes up; leaving it at two degrees, every unit of
+      // extra fill arrived as blue zenith light and turned the asphalt lilac.
+      haze: 0.65,
+      cloud: 0.7,
       hazeColor: 0xf2d2ac,
-      hazeHeight: 0.034,
+      hazeHeight: 0.3,
       // Was 0.5, which put the sky's irradiance at 0.7× the direct sun's on a
       // horizontal surface. Measured golden hour under a hazy summer sky —
       // which is what the photograph shows — runs 0.8 to 1.3, and this is the
@@ -289,6 +322,7 @@ export const PRESETS: Record<string, EnvPreset> = {
       miePower: 3,
       gradientPower: 0.85,
       haze: 0.7,
+      cloud: 0.0,
       hazeColor: 0xd7dbe0,
       hazeHeight: 0.16,
       exposure: 0.85,
@@ -336,6 +370,7 @@ export const PRESETS: Record<string, EnvPreset> = {
       miePower: 5,
       gradientPower: 1.7,
       haze: 0.55,
+      cloud: 0.55,
       hazeColor: 0x8a4f3c,
       hazeHeight: 0.07,
       exposure: 0.34,
@@ -399,6 +434,7 @@ export const PRESETS: Record<string, EnvPreset> = {
       miePower: 22,
       gradientPower: 2.2,
       haze: 0.22,
+      cloud: 0.35,
       hazeColor: 0xdfeaf5,
       hazeHeight: 0.1,
       exposure: 0.5,

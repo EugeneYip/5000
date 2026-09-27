@@ -230,14 +230,20 @@ export function buildSides(ctx: BuildContext): THREE.Group {
   // are four copies of one moulding and nothing needs them apart.
   {
     const flaps: THREE.BufferGeometry[] = [];
+    // A flap bolts to the OUTSIDE of the arch's trailing lip, so its outboard
+    // face has to clear `archLipX`. Sat on the tyre's outer face instead
+    // (x 0.845, which is where the tread is) the top two thirds of it end up
+    // inside the quarter panel and only the part hanging below the rocker
+    // shows — a floating blade rather than a mud flap.
+    const outboard = S.archLipX + 0.006;
     for (const axleZ of [S.archFrontCenter[2], S.archRearCenter[2]]) {
       // Just aft of where the arch opening's trailing edge meets the body, so
       // the flap reads as bolted to that lip rather than floating behind it.
-      const z = axleZ - S.archRadius - 0.014;
-      const g = roundedBox(0.200, 0.174, 0.009, 0.004, 3);
+      const z = axleZ - S.archRadius - 0.012;
+      const g = roundedBox(0.200, 0.178, 0.008, 0.004, 3);
       // Leaning back at the bottom, the way a rubber flap hangs at rest.
       g.rotateX(-7 * DEG);
-      g.translate(0.745, 0.218, z);
+      g.translate(outboard - 0.100, 0.218, z);
       flaps.push(g, mirrorX(g));
     }
     group.add(mesh('mudFlaps', merge(flaps), plastic));

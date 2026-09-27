@@ -151,11 +151,18 @@ void main() {
   float chip = smoothstep(0.62, 0.95, h);
   vec3 c = mix(bitumen, stone, smoothstep(0.16, 0.70, h));
   c = mix(c, pale, chip * (0.10 + 0.30 * hash1(floor(vUv * 64.0))));
-  // Low-frequency tonal drift stops the tile reading as a repeat.
-  c *= 0.90 + 0.20 * fbm(vUv * 3.0, 3.0, 3);
-  // A few pale scuffs and tar-seam darkening.
-  float seam = smoothstep(0.86, 0.995, fbm(vUv * 7.0 + 13.0, 7.0, 3));
-  c = mix(c, bitumen * 1.25, seam * 0.55);
+  // No low-frequency drift in here. It used to carry a three-metre fbm blotch
+  // *inside a four-metre tile* — so the one thing that was supposed to stop
+  // the tile reading as a repeat was itself the thing repeating, in a
+  // dead-straight grid across the whole foreground. Anything at that scale
+  // belongs in the world-space term in ground.ts, which never wraps; this map
+  // now carries only what is genuinely smaller than a tile.
+  //
+  // Tar seams likewise: at a 7-per-tile frequency they were a lattice of
+  // dark lines every 57 cm. Real seams are metres apart and run in one
+  // direction, so they are left to the world-space pass as well.
+  float grain = fbm(vUv * 26.0, 26.0, 2);
+  c *= 0.95 + 0.10 * grain;
   // Stored pre-scaled: asphalt albedo lives in 0.02–0.2 linear, which is
   // five to fifty in an eight-bit channel. Scaling by ALBEDO_GAIN and taking
   // it back out in the material buys two extra stops of tonal resolution in
@@ -233,13 +240,22 @@ void main() {
   float c1 = fbm(vUv * 2.2, 2.2, 3);
   float c2 = fbm(vUv * 5.5 + 2.0, 5.5, 3);
   float c3 = fbm(vUv * 13.0 + 5.0, 13.0, 2);
-  float canopy = smoothstep(0.36, 0.63, c1 * 0.55 + c2 * 0.3 + c3 * 0.15);
+  float canopy = smoothstep(0.30, 0.58, c1 * 0.55 + c2 * 0.3 + c3 * 0.15);
   // Leaf-scale breakup punched through the crowns: ragged edges, and sun
-  // flecks in the middle of the shade. Never fully dark — shade on a street
-  // is lit by the whole sky dome.
-  float leaf = smoothstep(0.34, 0.66, fbm(vUv * 26.0 + 11.0, 26.0, 2));
-  float light = mix(1.0, 0.3 + 0.55 * leaf, canopy);
-  gl_FragColor = vec4(vec3(light), 1.0);
+  // flecks in the middle of the shade.
+  //
+  // Two things were wrong here and they compounded. The leaf cell ran at 26
+  // per tile, and the tile is 26 m of road, so a "leaf" shadow was a metre
+  // across — blotches, not dapple. And the darkest this map could go was 0.3,
+  // which the 0.62 dapple strength then scaled to an effective 0.70: the
+  // deepest shade under a plane tree came out three tenths of a stop down and
+  // the whole road read as one flat sheet. It is allowed to reach zero now,
+  // because what stops shade going black is the shade *colour* in ground.ts,
+  // which is a real sky-plus-bounce term — not a floor clamped in here.
+  float leaf = smoothstep(0.30, 0.70, fbm(vUv * 96.0 + 11.0, 96.0, 2));
+  float twig = smoothstep(0.42, 0.72, fbm(vUv * 200.0 + 31.0, 200.0, 2));
+  float light = mix(1.0, 0.62 * leaf + 0.24 * twig, canopy);
+  gl_FragColor = vec4(vec3(clamp(light, 0.0, 1.0)), 1.0);
 }
 `;
 

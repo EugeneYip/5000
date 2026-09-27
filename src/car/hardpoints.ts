@@ -154,8 +154,14 @@ export const HP = {
     mirrorSize: [0.058, 0.098, 0.168] as [number, number, number],
 
     /** Side rubbing strip along the doors. */
-    rubStripY: 0.556,
-    rubStripHeight: 0.054,
+    /**
+     * 57 mm as built measured against ~97-99 mm in the blueprint and the
+     * reference photographs — the strip was nearly half width. Grown upward
+     * with its bottom edge held, which also brings its top to within 11 mm of
+     * the bumper mouldings' own strip instead of 65 mm below it.
+     */
+    rubStripY: 0.5875,
+    rubStripHeight: 0.098,
     rubStripFrontZ: 0.495,
     rubStripRearZ: TAIL + 0.398,
 
@@ -299,7 +305,8 @@ export const HP = {
      * No rear rings: the four rings on the tailgate are a Euro 100/200
      * feature, not a US 5000.
      */
-    badgeY: 0.972,
+    /** Dropped to clear the black band under the backlight. */
+    badgeY: 0.95,
     badgeAudiCenter: [-0.42, 0.972, TAIL + 0.036] as [number, number, number],
     badgeModelCenter: [0.42, 0.972, TAIL + 0.036] as [number, number, number],
 
@@ -323,7 +330,15 @@ export const HP = {
      */
     railInnerX: 0.655,
     railTopY: 1.474,
-    railBaseY: 1.408,
+    /**
+     * The rail crown used to sit 7 mm BELOW the roof's own centre crown, so in
+     * a true side elevation the rails did not break the roofline at all.
+     * Note `railTopY` 1.474 over a 1373 skin implies a 79 mm stand-off against
+     * the 50-55 mm twice derived from references — the three figures cannot
+     * all be met, so `railTopY` is now treated as a ceiling rather than a
+     * target.
+     */
+    railBaseY: 1.433,
     railFrontZ: -1.402,
     railRearZ: TAIL + 0.741,
     railWidth: 0.038,

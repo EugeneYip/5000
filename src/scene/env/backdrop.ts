@@ -54,25 +54,49 @@ export function createBackdrop(): BackdropHandle {
   // at the 200 mm focal lengths the profile poses use, a single tree 200 m out
   // magnifies into a readable lollipop, whereas a row reads as perspective and
   // dissolves correctly into the haze.
-  const trees: Array<{ x: number; z: number; h: number; r: number }> = [];
+  // Spacing, setback and height are all jittered, and jittered by enough to
+  // matter. The row used to run `z = -210 + i * 16` with a ±2.6 m height
+  // spread on a ±5 m setback, which is a picket fence: identical objects,
+  // identical pitch, identical size, and the eye locks on to the rhythm
+  // instantly and calls it computer graphics. A real planting was put in over
+  // fifty years, has lost trees to storms and gained replacements, and no two
+  // of its gaps are the same. ±45 % on the pitch and a 2:1 height range is
+  // what it takes before the row stops counting itself.
+  const trees: Array<{ x: number; z: number; h: number; r: number; lean: number }> = [];
+  const plant = (
+    side: number, z: number, xBase: number, xJit: number,
+    hLo: number, hHi: number, rLo: number, rHi: number,
+  ): void => {
+    // A gap every so often: a felled tree, a driveway, a bus stop.
+    if (rnd() < 0.14) return;
+    const h = hLo + rnd() * (hHi - hLo);
+    trees.push({
+      x: side * (xBase + rnd() * xJit),
+      z,
+      h,
+      // Crown size follows height, as a tree's does, rather than rolling free.
+      r: (rLo + rnd() * (rHi - rLo)) * (0.72 + 0.38 * (h - hLo) / Math.max(hHi - hLo, 1e-3)),
+      lean: (rnd() - 0.5) * 0.16,
+    });
+  };
   for (let side = -1; side <= 1; side += 2) {
-    for (let i = 0; i < 26; i++) {
+    let z = -210 + (side > 0 ? 8 : 0);
+    while (z < 210) {
       // The 46 m around the car is left clear. Trees closer than that loom
       // over a 62 mm three-quarter and read as scenery, not surroundings —
       // and in the photomatch pose the nearest of them used to fill a quarter
       // of the sky behind the roof.
-      const z = -210 + i * 16 + (side > 0 ? 8 : 0);
-      if (z > -46 && z < 50) continue;
-      trees.push({ x: side * (31 + rnd() * 5), z, h: 6.6 + rnd() * 2.6, r: 3.8 + rnd() * 1.4 });
+      if (z < -46 || z > 50) plant(side, z, 31, 6.5, 5.4, 10.6, 3.4, 5.4);
+      z += 11 + rnd() * 10;
     }
   }
   // A second, deeper row offset from the first, so the line reads as a planting
   // with depth rather than as a single row of cut-outs.
   for (let side = -1; side <= 1; side += 2) {
-    for (let i = 0; i < 12; i++) {
-      const z = -200 + i * 34 + (side > 0 ? 17 : 0);
-      if (z > -60 && z < 64) continue;
-      trees.push({ x: side * (44 + rnd() * 7), z, h: 7.4 + rnd() * 3.0, r: 4.2 + rnd() * 1.6 });
+    let z = -200 + (side > 0 ? 17 : 0);
+    while (z < 200) {
+      if (z < -60 || z > 64) plant(side, z, 44, 9, 6.2, 11.8, 3.8, 6.2);
+      z += 24 + rnd() * 22;
     }
   }
 
@@ -84,18 +108,25 @@ export function createBackdrop(): BackdropHandle {
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
 
+  const leanAxis = new THREE.Vector3(0, 0, 1);
+  const spin = new THREE.Vector3(0, 1, 0);
   trees.forEach((t, i) => {
     pos.set(t.x, t.h * 0.45, t.z);
     scl.set(1, t.h * 0.9, 1);
-    trunks.setMatrixAt(i, m.compose(pos, q.identity(), scl));
+    // A plane tree does not grow plumb. Sixteen milliradians of lean, signed
+    // per tree, is all it takes to break the row of parallel verticals that
+    // reads as a row of posts.
+    q.setFromAxisAngle(leanAxis, t.lean);
+    trunks.setMatrixAt(i, m.compose(pos, q, scl));
+    const tilt = Math.tan(t.lean) * t.h;
     for (let b = 0; b < BLOBS; b++) {
       const k = rnd();
       pos.set(
-        t.x + (rnd() - 0.5) * t.r * 1.7,
-        t.h + (rnd() - 0.4) * t.r * 0.95,
-        t.z + (rnd() - 0.5) * t.r * 1.6,
+        t.x - tilt + (rnd() - 0.5) * t.r * 1.9,
+        t.h + (rnd() - 0.4) * t.r * 1.05,
+        t.z + (rnd() - 0.5) * t.r * 1.75,
       );
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 3);
+      q.setFromAxisAngle(spin, rnd() * 3);
       // Smaller lobes, more of them: a crown is a cloud of leaf clusters, and
       // the ragged edge that gives is most of what says "tree" at 200 m.
       const rr = t.r * (0.46 + k * 0.34);

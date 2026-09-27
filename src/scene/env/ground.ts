@@ -91,10 +91,22 @@ uniform vec3 uShadeTint;`,
         '#include <map_fragment>',
         `#include <map_fragment>
 {
-  // Low-frequency tonal drift. Reusing the gobo texture rather than adding a
-  // fourth sampler; at 1/210 of a metre it is pure large-scale blotch.
+  // Low-frequency tonal drift, in WORLD space, so nothing at this scale can
+  // ever wrap with the four-metre albedo tile. Two octaves an order of
+  // magnitude apart and mutually prime in offset: the coarse one is the
+  // patching and wear of a whole carriageway, the finer one the sweep of
+  // traffic within a lane. Between them they carry every tonal variation the
+  // road has above a metre, which is the band the eye reads a repeat in.
   float drift = texture2D(uGobo, vGroundXZ * uDriftScale).r;
-  diffuseColor.rgb *= 0.86 + 0.28 * drift;
+  float wear = texture2D(uGobo, vGroundXZ * uDriftScale * 7.3 + vec2(0.41, 0.17)).r;
+  diffuseColor.rgb *= 0.80 + 0.30 * drift + 0.14 * wear;
+
+  // Longitudinal tar seams: metres apart, running with the road, not a
+  // lattice. One low-frequency band across x, jittered along z so it wanders
+  // the way a poured seam does.
+  float seamX = vGroundXZ.x * 0.22 + texture2D(uGobo, vGroundXZ * vec2(0.004, 0.02)).r * 2.4;
+  float seam = smoothstep(0.93, 0.995, abs(fract(seamX) * 2.0 - 1.0));
+  diffuseColor.rgb *= 1.0 - 0.34 * seam;
 
   // Standing water darkens bitumen far more than it changes its hue.
   vec4 surf = texture2D(roughnessMap, vMapUv);
@@ -200,6 +212,7 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
 
   const tint = new THREE.Color();
   const shade = new THREE.Color();
+  const sun = new THREE.Color();
 
   const apply = (preset: EnvPreset): void => {
     const useStudio = preset.ground === 'studio';
@@ -212,25 +225,56 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
     asphalt.patch.uWetness.value = preset.wetness;
     asphalt.patch.uGoboStrength.value = preset.dapple;
 
-    // Normalise the shade tint to a pure hue shift, then apply the darkening
-    // separately, so changing the colour never changes how dark shade is.
+    // What shade *is*, rather than what colour it was decided to be.
     //
-    // Normalised on *luminance*, not on the peak channel. Peak-normalising a
-    // blue tint scales by its blue and leaves red and green far below it, so
-    // `0.46` was delivering a luminance of 0.25 — shade half as bright again
-    // as it should be, and darker the bluer the tint got. Which is exactly the
-    // knob you would reach for to change the colour of shade without meaning
-    // to change its depth.
+    // Shaded road is the same road with the sun taken off it and the sky left
+    // on, so the multiplier is per-channel `E_sky / (E_sun + E_sky)` — and
+    // both of those are already in the preset. At golden hour that works out
+    // near (0.49, 0.66, 0.79): distinctly cooler than sun, a third of a stop
+    // down, and nothing like the (0.33, 0.53, 0.97) a hand-picked blue hex
+    // normalised to a target brightness produces. A hex cannot get this right
+    // because the answer moves with the sun's elevation and colour — which is
+    // precisely why the same number was wrong in all five presets at once,
+    // taking the road to a quarter of its lit value and dragging a third of
+    // every wide frame below level 40 with it.
     //
-    // And 0.52, not 0.46: shaded road is the *same* road with the sun taken
-    // off it and the sky left on. At this preset the sun delivers 1.19 of the
-    // 2.48 total irradiance on a horizontal surface, so what is left in shade
-    // is 52 % — not a number to taste. The gobo was taking the road to a
-    // quarter of its lit value and dragging a third of every wide frame under
-    // level 40 with it.
-    shade.setHex(preset.shadeTint);
-    const lum = Math.max(0.2126 * shade.r + 0.7152 * shade.g + 0.0722 * shade.b, 1e-4);
-    shade.multiplyScalar(0.52 / lum);
+    // `shadeTint` survives as a small hue nudge on top, for the reflected
+    // colour of whatever is doing the shading — leaves here, a building
+    // elsewhere — which the sky term alone cannot know about.
+    //
+    // One correction to the plain sun/sky split: this gobo is *canopy* shade,
+    // not open shade. A point under a plane tree has lost the sun and about
+    // half the sky as well, because the crown that is blocking the one is
+    // blocking much of the other. Without that factor the dapple washed out
+    // to almost nothing the moment the fill came up — the road went flat and
+    // pale and the frame read as a salt flat — and with it the shade lands
+    // near (0.27, 0.36, 0.43), which is roughly where the peak-normalised hex
+    // used to sit by accident, but correctly distributed across the channels
+    // instead of nearly all in blue.
+    const CANOPY_SKY_VIS = 0.55;
+    const eSunY = Math.max(preset.sunDir[1], 0) * preset.sunIntensity;
+    sun.setHex(preset.sunColor).multiplyScalar(eSunY);
+    shade
+      .setHex(preset.sky.zenith)
+      .lerp(tint.setHex(preset.sky.horizon), 0.62)
+      .multiplyScalar(Math.PI * preset.sky.exposure * preset.envIntensity);
+    // …and one term back the other way. A patch of shade on a boulevard at
+    // golden hour is not lit by sky alone: it is surrounded by a very large
+    // area of *sunlit* road, stone and foliage, and takes a share of the
+    // sun's energy back off all of it at one bounce. Leave that out and shade
+    // comes back lilac — sky-coloured light and nothing else — which is what
+    // the road did as soon as the fill came up, and which no real street does.
+    // 0.15 of the sun's irradiance, warm, is what a 0.15-0.35 albedo surround
+    // returns across a wide open aspect.
+    const BOUNCE_FRAC = 0.15;
+    shade.setRGB(
+      (CANOPY_SKY_VIS * shade.r + BOUNCE_FRAC * sun.r) / Math.max(shade.r + sun.r, 1e-4),
+      (CANOPY_SKY_VIS * shade.g + BOUNCE_FRAC * sun.g) / Math.max(shade.g + sun.g, 1e-4),
+      (CANOPY_SKY_VIS * shade.b + BOUNCE_FRAC * sun.b) / Math.max(shade.b + sun.b, 1e-4),
+    );
+    tint.setHex(preset.shadeTint);
+    const tLum = Math.max(0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b, 1e-4);
+    shade.lerp(tint.multiplyScalar(1 / tLum).multiply(shade), 0.25);
     asphalt.patch.uShadeTint.value.copy(shade);
   };
 

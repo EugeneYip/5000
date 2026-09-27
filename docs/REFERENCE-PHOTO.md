@@ -74,6 +74,14 @@ film grain and the shallow angle.
   > bumper's bright top strip. The strip sits at y 771-778 and the lamp aperture
   > at y 670-759 — separable, but only once you know to look.
 - Dark grey textured bumper with a rub strip, amber marker in the bumper end.
+- **The lower front apron is dark moulding on this car, not body colour.**
+  `REFERENCE-VEHICLE` §6.3 reads the brochure's "integrated body-colored bumper
+  aprons" as meaning the aprons above and below the grey moulding are paint.
+  That may well be right in general, but the white-balanced photograph measures
+  `#191f31` through the whole lower front — far darker than the `#91929b`
+  fender. This photograph is the specific car being reproduced, so it wins.
+  `frontValance` stays `bumperPlastic`; this note exists so the two documents
+  no longer disagree silently.
 - A Pennsylvania inspection sticker at the top of the windscreen, passenger side.
 - Flush glazing — the glass sits almost level with the body side.
 

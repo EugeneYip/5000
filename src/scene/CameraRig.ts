@@ -61,7 +61,10 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
   headlight: { target: [-0.56, 0.78, BODY.overhangFront - 0.02], position: [-2.0, 1.02, 3.3], focalMm: 105, aperture: 2.2 },
   // Centred on the cluster and set back behind it, not beside the car.
   taillight: { target: [-0.52, 0.79, -(WB + BODY.overhangRear) + 0.03], position: [-1.3, 0.95, -5.15], focalMm: 105, aperture: 2.2 },
-  badge:     { target: [0.2, 0.78, -(WB + BODY.overhangRear) + 0.03], position: [0.62, 0.95, -5.05], focalMm: 135, aperture: 2.0 },
+  // Aimed at the badging, which is where the scripts actually are — it had
+  // been pointed at the lamp and the plate, so the one view whose job is to
+  // show the badges did not contain them.
+  badge:     { target: [0.42, 0.95, -(WB + BODY.overhangRear) + 0.036], position: [0.72, 1.03, -4.98], focalMm: 135, aperture: 2.0 },
   platecam:  { target: [0, 0.52, BODY.overhangFront + 0.01], position: [0, 0.58, 2.05], focalMm: 135, aperture: 2.8 },
   roofrail:  { target: [-0.6, 1.42, -1.95], position: [-2.9, 2.35, -0.25], focalMm: 85, aperture: 2.8 },
 
