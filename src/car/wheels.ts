@@ -28,7 +28,6 @@ import { buildRim, SPIDER_FACE_X } from './wheels/rim';
 import { buildTyre, deflectionFor } from './wheels/tyre';
 import { buildBrakes } from './wheels/brakes';
 import { buildSpinBlurMap } from './wheels/textures';
-import { syncEnvMaps, type EnvLink } from './wheels/materials';
 import { smoothstep, triangles } from './wheels/util';
 
 const TAU = Math.PI * 2;
@@ -41,7 +40,6 @@ interface Corner {
   steer: THREE.Group;
   hub: THREE.Group;
   blur: THREE.Mesh;
-  blurMat: THREE.MeshStandardMaterial;
   front: boolean;
   /** +1 for the right of the car, −1 for the left. */
   sideSign: number;
@@ -52,14 +50,10 @@ interface Corner {
 
 export function buildWheels(ctx: BuildContext): PartResult {
   const group = new THREE.Group();
-  const envLinks: EnvLink[] = [];
 
   // --- shared parts -------------------------------------------------------
   const rim = buildRim(ctx);
-  envLinks.push(...rim.envLinks);
-
   const tyre = buildTyre(ctx);
-  envLinks.push(...tyre.envLinks);
 
   const blurGeo = new THREE.CircleGeometry(FLANGE_R * 0.995, 48);
   blurGeo.rotateY(Math.PI / 2);
@@ -69,6 +63,22 @@ export function buildWheels(ctx: BuildContext): PartResult {
     FACE.slotOuterR / FLANGE_R,
     FACE.slotSpanDeg / (360 / FACE.slots),
   );
+
+  /**
+   * One material for all four discs, from the library rather than four local
+   * `MeshStandardMaterial`s — which were four programs, and which `setEnvMap`
+   * could never reach.
+   *
+   * `printed()` is the only entry that takes a map, and it keys on the map's
+   * identity, so this instance is the wheel stream's alone; the three blending
+   * flags below are set on it because the library has no option for them. They
+   * are what the part *is* — a fade-in overlay — not a finish, and a library
+   * `printed({ transparent })` would be the right home for them.
+   */
+  const blurMat = ctx.materials.printed(blurMap, { roughness: 0.48, envMapIntensity: 0.9 });
+  blurMat.transparent = true;
+  blurMat.opacity = 0;
+  blurMat.depthWrite = false;
 
   const brakes = {
     frontRight: buildBrakes(ctx, true, false),
@@ -121,15 +131,6 @@ export function buildWheels(ctx: BuildContext): PartResult {
     tyreMesh.name = `${key}_tyre`;
     tyreMesh.customDepthMaterial = tyre.mesh.customDepthMaterial;
 
-    const blurMat = new THREE.MeshStandardMaterial({
-      map: blurMap,
-      metalness: 0.8,
-      roughness: 0.52,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      envMap: ctx.envMap,
-    });
     const blur = new THREE.Mesh(blurGeo, blurMat);
     blur.name = `${key}_spinBlur`;
     blur.visible = false;
@@ -143,7 +144,7 @@ export function buildWheels(ctx: BuildContext): PartResult {
     group.add(node);
 
     const corner: Corner = {
-      node, steer, hub, blur, blurMat,
+      node, steer, hub, blur,
       front, sideSign, baseY: p[1], angle: 0, deflect: 0,
     };
     corners.push(corner);
@@ -177,8 +178,7 @@ export function buildWheels(ctx: BuildContext): PartResult {
     group,
     nodes,
     update(dt: number, _elapsed: number, state: VehicleState): void {
-      syncEnvMaps(envLinks);
-
+      let blurPeak = 0;
       for (let i = 0; i < 4; i++) {
         const c = corners[i];
         const comp = clamp01(state.suspensionCompression?.[i] ?? 0.5);
@@ -199,8 +199,14 @@ export function buildWheels(ctx: BuildContext): PartResult {
 
         const k = smoothstep(BLUR_FROM, BLUR_TO, Math.abs(omega)) * 0.94;
         c.blur.visible = k > 0.012;
-        c.blurMat.opacity = k;
+        if (k > blurPeak) blurPeak = k;
       }
+      // One material means one opacity. Each disc still appears at its own
+      // corner's threshold; what they share is the level, taken from the
+      // fastest wheel. The four only diverge under wheelspin or a locked
+      // brake, and by then the wheel that is out of step is at the far end of
+      // the fade where a tenth of opacity is not a thing anyone can see.
+      blurMat.opacity = blurPeak;
     },
   };
 }

@@ -162,18 +162,19 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   stalks.push(stalk(-1, -0.004, 0.118, 0.0175, 0.10));
   stalks.push(stalk(1, -0.004, 0.112, 0.0175, 0.10));
   stalks.push(stalk(-1, -0.036, 0.082, 0.0135, 0.22));
-  group.add(mesh(merge(stalks), darkMat, 'stalks'));
 
   // Ignition barrel: right of the column on a left-hand-drive Audi.
-  const ign: THREE.BufferGeometry[] = [];
   const barrel = cyl(0.0205, 0.0225, 0.030, 18);
   barrel.rotateX(Math.PI / 2);
   barrel.translate(0.062, -0.014, -0.078);
-  ign.push(barrel);
+  stalks.push(barrel);
   const slot = slab(0.0125, 0.0035, 0.004, 0.001, 1);
   slot.translate(0.062, -0.014, -0.063);
-  ign.push(slot);
-  group.add(mesh(merge(ign), darkMat, 'ignition'));
+  stalks.push(slot);
+
+  // Stalks and barrel are the same moulding and both fixed to the column —
+  // only the wheel itself turns, and that is a different node.
+  group.add(mesh(merge(stalks), darkMat, 'columnControls'));
 
   // Lock-to-lock, mapped from the road-wheel angle the physics reports.
   const maxRim = STEERING.turnsLockToLock * Math.PI;

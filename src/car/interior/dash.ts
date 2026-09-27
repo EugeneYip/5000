@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { HP } from '@/car/hardpoints';
 import { CABIN, TONE, screenY, softMin } from './layout';
+import type { StaticBatch } from './batch';
 import {
   clamp, cyl, D2R, fbm, lerp, merge, mesh, mirrored, roundedBox, slab, smoothstep, surface, type Vec3,
 } from './util';
@@ -204,16 +205,14 @@ function louvre(cx: number, cy: number, w: number, h: number, blades: number, th
 
 // ---------------------------------------------------------------------------
 
-export function buildDash(ctx: BuildContext): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'dash';
+export function buildDash(ctx: BuildContext, batch: StaticBatch): void {
 
   const padMat = ctx.materials.interiorPlastic({ color: TONE.dashPad, roughness: 0.86 });
   const faceMat = ctx.materials.interiorPlastic({ color: TONE.fascia, roughness: 0.78 });
   const darkMat = ctx.materials.interiorPlastic({ color: 0x131417, roughness: 0.84 });
   const brightMat = ctx.materials.interiorPlastic({ color: TONE.bright, roughness: 0.42 });
 
-  group.add(mesh(buildMoulding(), padMat, 'dashMoulding'));
+  batch.add(padMat, buildMoulding());
 
   // Windscreen defroster: one long slotted trough along the leading edge.
   const vents: THREE.BufferGeometry[] = [];
@@ -221,9 +220,11 @@ export function buildDash(ctx: BuildContext): THREE.Group {
   // Side-window demisters, coarser and rectangular, at each outboard end.
   const side = grille(0.606, 0.742, -0.474, 0.030, 1.0535, 5, 10);
   vents.push(side, mirrored(side));
-  group.add(mesh(merge(vents), darkMat, 'dashVents'));
 
-  const dark: THREE.BufferGeometry[] = [];
+  // Everything dark and moulded on the fascia is one colour and one finish,
+  // and none of it moves: the defroster grilles, the louvres, the glovebox
+  // lid, the fuse door and the two rotaries go out as one draw.
+  const dark: THREE.BufferGeometry[] = [...vents];
   const bright: THREE.BufferGeometry[] = [];
 
   // Outboard louvres, one each side, thumbwheel inboard as on the real car.
@@ -256,7 +257,7 @@ export function buildDash(ctx: BuildContext): THREE.Group {
     const z = -0.7125 + (1.028 - y) * CABIN.fasciaRake + 0.052 * v * v + 0.010 * Math.sin(Math.PI * v);
     out.set(x, y, z - 0.004);
   });
-  group.add(mesh(bolsterG, faceMat, 'kneeBolster'));
+  batch.add(faceMat, bolsterG);
 
   const fuse = slab(0.168, 0.086, 0.012, 0.006, 1);
   fuse.rotateX(0.5);
@@ -280,8 +281,7 @@ export function buildDash(ctx: BuildContext): THREE.Group {
   hlFlat.translate(-0.632, 0.9015, -0.6745);
   bright.push(hlFlat);
 
-  group.add(mesh(merge(dark), darkMat, 'dashDetail'));
-  group.add(mesh(merge(bright), brightMat, 'dashBright'));
-  return group;
+  batch.add(darkMat, merge(dark));
+  batch.add(brightMat, merge(bright));
 }
 

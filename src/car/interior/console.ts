@@ -18,8 +18,9 @@
 import * as THREE from 'three';
 import type { BuildContext, VehicleState } from '@/types';
 import { CABIN, TONE } from './layout';
-import { canvasTexture, createPrinted, DIAL_FONT, makeCanvas } from './printed';
+import { canvasTexture, DIAL_FONT, makeCanvas } from './printed';
 import { cyl, lerp, merge, mesh, mirrored, roundedBox, surface, tube, type Vec3 } from './util';
+import type { StaticBatch } from './batch';
 
 const PANEL = { w: 256, h: 240 } as const;
 const PPMM = 6.0;
@@ -128,7 +129,7 @@ export interface ConsoleHandle {
   update(dt: number, s: VehicleState): void;
 }
 
-export function buildConsole(ctx: BuildContext): ConsoleHandle {
+export function buildConsole(ctx: BuildContext, batch: StaticBatch): ConsoleHandle {
   const group = new THREE.Group();
   group.name = 'console';
 
@@ -147,7 +148,15 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
 
   const plane = new THREE.PlaneGeometry(PANEL.w / 1000, PANEL.h / 1000);
   plane.rotateY(Math.PI);
-  panelGroup.add(mesh(plane, createPrinted(canvasTexture(drawPanel(), ctx.renderer), { roughness: 0.70 }), 'stackFace'));
+  // Library `printed()`, keyed on this canvas, so the instance is the console's
+  // own and is in the registry — the local material it replaces was not, and
+  // `setEnvMap` never reached it. `envMapIntensity` is the level the local one
+  // was authored at, carried over unchanged; no cavity correction, because the
+  // stack faces straight out into the cabin.
+  panelGroup.add(mesh(plane, ctx.materials.printed(canvasTexture(drawPanel(), ctx.renderer), {
+    roughness: 0.70,
+    envMapIntensity: 0.35,
+  }), 'stackFace'));
 
   const caps: THREE.BufferGeometry[] = [];
   const knobs: THREE.BufferGeometry[] = [];
@@ -227,9 +236,15 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
   lighter.translate(px(218), py(213), -0.006);
   knobs.push(lighter);
 
-  panelGroup.add(mesh(merge(caps), dark, 'stackKeys'));
+  // The keycaps carry no artwork and never move, so they are baked out of the
+  // panel's frame and batched with the rest of the cabin's dark mouldings.
+  batch.add(dark, merge(caps).rotateX(RAKE).translate(0, PANEL_Y, PANEL_Z));
   panelGroup.add(mesh(merge(knobs), ctx.materials.interiorPlastic({ color: 0x1b1d20, roughness: 0.66 }), 'stackKnobs'));
-  panelGroup.add(mesh(merge(marks), bright, 'stackLegends'));
+
+  // The stack legends are brightwork, and so is the shift pattern; neither
+  // moves. Bake the panel's own rake and offset into the geometry so the two
+  // can share one mesh instead of being two draws for the same finish.
+  const brightParts: THREE.BufferGeometry[] = [merge(marks).rotateX(RAKE).translate(0, PANEL_Y, PANEL_Z)];
 
   // -- console body ---------------------------------------------------------
   // Swept from the base of the stack down onto the tunnel and back between
@@ -247,7 +262,7 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
     const q = prof[i];
     out.set(q[0] * hw, drop + q[1] + (v < 0.28 ? (0.28 - v) * 0.10 : 0), z);
   });
-  group.add(mesh(body, trimMat, 'consoleBody'));
+  batch.add(trimMat, body);
 
   const sideTrim: THREE.BufferGeometry[] = [];
   const side = surface(3, 18, false, (i, j, out) => {
@@ -264,7 +279,6 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
   const duct = roundedBox(0.128, 0.042, 0.020, 0.005, 1, 3);
   duct.translate(0, 0.606, -1.516);
   sideTrim.push(duct);
-  group.add(mesh(merge(sideTrim), lowMat, 'consoleSides'));
 
   // -- shifter --------------------------------------------------------------
   const shiftZ = -1.005;
@@ -276,7 +290,7 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
     const rings = 1 + 0.055 * Math.sin(v * Math.PI * 7) * (1 - v * 0.5);
     out.set(Math.cos(a) * r * rings * 1.06, 0.640 + v * 0.104, shiftZ + Math.sin(a) * r * rings + v * 0.006);
   });
-  group.add(mesh(gaiter, leather, 'shiftGaiter'));
+  batch.add(leather, gaiter);
 
   const lever = cyl(0.0088, 0.0115, 0.048, 10);
   lever.translate(0, 0.762, shiftZ + 0.008);
@@ -285,7 +299,7 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
   knobBody.translate(0, 0.792, shiftZ + 0.009);
   const knobTop = cyl(0.0225, 0.0225, 0.003, 18);
   knobTop.translate(0, 0.8095, shiftZ + 0.009);
-  group.add(mesh(merge([lever, knobBody, knobTop]), ctx.materials.interiorPlastic({ color: 0x141517, roughness: 0.52 }), 'shiftKnob'));
+  batch.add(ctx.materials.interiorPlastic({ color: 0x141517, roughness: 0.52 }), merge([lever, knobBody, knobTop]));
 
   // Shift pattern on the knob's crown: five gates and reverse.
   const pattern: THREE.BufferGeometry[] = [];
@@ -296,7 +310,8 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
   gate([[0.000, ky, kz - 0.009], [0.000, ky, kz + 0.009]], 0.0008);
   gate([[0.010, ky, kz - 0.009], [0.010, ky, kz + 0.009]], 0.0008);
   gate([[-0.010, ky, kz], [0.010, ky, kz]], 0.0008);
-  group.add(mesh(merge(pattern), bright, 'shiftPattern'));
+  brightParts.push(merge(pattern));
+  batch.add(bright, merge(brightParts));
 
   // -- handbrake ------------------------------------------------------------
   const hbPivot = new THREE.Group();
@@ -343,8 +358,11 @@ export function buildConsole(ctx: BuildContext): ConsoleHandle {
   rest.translate(-0.614, 0.420, -0.612);
   pads.push(rest);
 
-  group.add(mesh(merge(pedals), lowMat, 'pedalArms'));
-  group.add(mesh(merge(pads), rubberMat, 'pedalPads'));
+  // Console side trim, heat duct and pedal arms are one moulding colour and
+  // all bolted to the floor — one draw, not two.
+  sideTrim.push(...pedals);
+  batch.add(lowMat, merge(sideTrim));
+  batch.add(rubberMat, merge(pads));
 
   return {
     group,

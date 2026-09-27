@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { EDGE, FACE, FLANGE_R, RIM } from './dims';
 import { circlePath, fbm3, paintVertexColors, polarCapsule, revolveX, smoothstep, type P2, mergeAll } from './util';
-import { privateClone, type EnvLink } from './materials';
+import { liftAlongNormals } from './materials';
 
 const BARREL_SEGMENTS = 72;
 const POCKET_SEGMENTS = 56;
@@ -32,7 +32,6 @@ const PLATE_INNER_R = FACE.capR + 0.0013;
 
 export interface RimResult {
   group: THREE.Group;
-  envLinks: EnvLink[];
   /** A scuffed arc for the one corner that has met a kerb. */
   kerbRash: THREE.Mesh;
 }
@@ -297,14 +296,12 @@ export function buildRim(ctx: BuildContext): RimResult {
   const group = new THREE.Group();
   group.name = 'rim';
 
-  const machinedSrc = ctx.materials.alloy({ polished: true });
-  const castSrc = ctx.materials.alloy();
-  const machined = privateClone(machinedSrc);
-  const cast = privateClone(castSrc);
-  machined.vertexColors = true;
-  cast.vertexColors = true;
-  machined.envMap = ctx.envMap;
-  cast.envMap = ctx.envMap;
+  // Straight from the library, vertex colours and all. This used to be two
+  // `privateClone`s, taken only so `vertexColors` could be switched on; the
+  // option is on `alloy()` now, and the shared instances are the ones
+  // `setEnvMap` actually reaches.
+  const machined = ctx.materials.alloy({ polished: true, vertexColors: true });
+  const cast = ctx.materials.alloy({ vertexColors: true });
 
   // Machined: everything the turning tool reaches — the face and the lip.
   const machinedGeo = grimeRim(
@@ -332,40 +329,43 @@ export function buildRim(ctx: BuildContext): RimResult {
   valve.name = 'valveStem';
   group.add(valve);
 
-  // Kerb rash: a scuffed arc of bare, bright, scratched aluminium on the
-  // outer lip. Fitted to one corner only — damage is never symmetrical.
-  const rashProf: P2[] = [
-    [0.0888, FLANGE_R + 0.0002],
-    [0.0856, FLANGE_R - 0.0011],
-    [0.0818, FLANGE_R - 0.0042],
-    [0.0795, FLANGE_R - 0.0086],
-  ];
-  const rashGeo = revolveX(rashProf, 20);
-  // Keep only a 46 degree sector of it.
-  trimSector(rashGeo, 20, 4, 9);
-  const rash = new THREE.Mesh(
-    rashGeo,
-    new THREE.MeshPhysicalMaterial({
-      color: 0xb9bcc0,
-      metalness: 1,
-      roughness: 0.52,
-      envMap: ctx.envMap,
-      envMapIntensity: 0.9,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-    }),
-  );
+  const rash = new THREE.Mesh(buildKerbRash(), machined);
   rash.name = 'kerbRash';
 
-  return {
-    group,
-    envLinks: [
-      { clone: machined, source: machinedSrc },
-      { clone: cast, source: castSrc },
-    ],
-    kerbRash: rash,
-  };
+  return { group, kerbRash: rash };
+}
+
+/**
+ * Kerb rash: a scuffed arc of bare, scratched aluminium on the outer lip.
+ * Fitted to one corner only — damage is never symmetrical.
+ *
+ * Taken off the flange's own outboard face rather than drawn as a free arc.
+ * The arc this replaced was authored at radii that put it *inside* the flange
+ * wall — up to half a millimetre under the surface at its inboard end — and it
+ * was only visible because it carried `polygonOffset`. Polygon offset is a
+ * material property, so keeping it meant keeping a private material for thirty
+ * triangles. A third of a millimetre of real standoff does the same job and
+ * lets the scuff wear the same polished `alloy()` the rim face does.
+ */
+function buildKerbRash(): THREE.BufferGeometry {
+  // The closed section runs [...tyre side, tip arc, drum side reversed, ...],
+  // so the flange tip and the outboard face just inboard of it are the seven
+  // points either side of the tip arc — the exact strip a kerb touches.
+  const closed = closedBarrelProfile();
+  const nOut = barrelOuterProfile().length;
+  const lip = closed.slice(nOut - 1, nOut + 6);
+
+  const g = liftAlongNormals(revolveX(lip, 20), 0.0003);
+  // Keep only a 46 degree sector of it.
+  trimSector(g, 20, 4, 9);
+
+  // Torn metal: bright where it was freshly exposed, grey where the road has
+  // already dulled it, streaked along the direction of the scrape.
+  return paintVertexColors(g, (p, _n, out) => {
+    const a = Math.atan2(p.z, p.y);
+    const k = 0.82 + 0.26 * fbm3(a * 34, p.x * 900, a * 7, 3);
+    out.setRGB(k, k * 0.995, k * 0.984);
+  });
 }
 
 /** Keep only columns [from, to) of a revolved geometry. */

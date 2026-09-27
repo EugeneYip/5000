@@ -50,8 +50,15 @@ python3 tools/sheet.py --compare renders/latest/photomatch.png
 ```
 
 `shoot.mjs` renders through the shipped renderer and exits non-zero if the page
-threw, so it doubles as a smoke test. Judge work by opening the PNGs, never by
-reading the code.
+threw, so it doubles as a smoke test. It also writes `<view>_mask.png` and
+`<view>_paint.png`, silhouettes of the car and of the painted panels that
+`sheet.py` reads its per-car figures through. Judge work by opening the PNGs,
+never by reading the code.
+
+In the page: `__AUDI.census()` counts geometry once (never trust
+`renderer.info`), `__AUDI.pick(x, y)` says what mesh a pixel is and where it
+faces, and `__AUDI_MAT.audit()` lists meshes wearing materials the library
+never issued.
 
 ## Environment quirk
 

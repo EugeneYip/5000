@@ -17,8 +17,9 @@
  *  3. **It is exactly 614.6 mm across.** Built from `tyreRadius()` and
  *     nothing else. The previous build added the static sag to the free
  *     radius so the hub could stay at `wheelPositions()`, which made the tyre
- *     639 mm and — because the deformation shader never actually ran, see
- *     `privateClone` — left it 12 mm inside the road as well.
+ *     639 mm and — because the deformation shader never actually ran, the
+ *     clone it was layered onto having dropped the library's `onBeforeCompile`
+ *     — left it 12 mm inside the road as well.
  *
  * ## Contact patch
  *
@@ -52,7 +53,7 @@ import {
 import { smoothstep } from './util';
 import { buildTyreNormalMap } from './textures';
 import { buildLegend } from './sidewall';
-import { layerVertex, privateClone, type EnvLink } from './materials';
+import { layerVertex } from './materials';
 
 const PITCHES = TYRE.pitches;
 
@@ -472,7 +473,6 @@ const DEFORM_NORMAL = /* glsl */ `
 
 export interface TyreResult {
   mesh: THREE.Mesh;
-  envLinks: EnvLink[];
   uniforms: {
     uSpin: THREE.IUniform<number>;
     uFreeRadius: THREE.IUniform<number>;
@@ -511,12 +511,37 @@ export function buildTyre(ctx: BuildContext): TyreResult {
     TYRE.freeR,
   );
 
-  const source = ctx.materials.rubber({ roughness: 0.93 });
-  const material = privateClone(source);
-  material.vertexColors = true;
+  // One shared library instance, asked for in the library's own terms.
+  //
+  // This used to be a `privateClone` whose `onBeforeCompile` then reached into
+  // `createRubber`'s uniforms *by name* to retune them — `uRubberParams` for
+  // the road film and `uRubberMould` for the lettering gloss — with a runtime
+  // warning for the day the library renamed them. Both are options now:
+  //
+  //  - `createRubber` is authored for weatherstrips and runs its dust blotch at
+  //    120 cells/m, an 8 mm cell. Invisible on a door seal; on a 130 mm
+  //    sidewall filling half a close-up it reads as camouflage, which is what
+  //    made the tyre look like wet cardboard. A tyre's dirt is a film, not a
+  //    pattern: finer (320 cells/m) and fainter (0.10 coverage).
+  //  - the library finds a moulded character by how sharply the surface curves,
+  //    and 1.3 mm of relief on a surface this big clears a much lower threshold
+  //    than a weatherstrip's bead does. 55 1/m, and more gloss when it clears,
+  //    is the difference between a legend you can read in a still and a smudge.
+  //
+  // Nothing else on the car asks for this option set, so the instance is the
+  // tyre's alone and `layerVertex` below may safely mutate it. Unlike the
+  // clone it is in the registry, so `setEnvMap` reaches it.
+  const material = ctx.materials.rubber({
+    roughness: 0.93,
+    dust: 0.10,
+    dustCells: 320,
+    mouldGloss: 0.46,
+    mouldCurve: 55,
+    vertexColors: true,
+  }) as THREE.MeshPhysicalMaterial;
   material.normalMap = normalMap;
   material.normalScale = new THREE.Vector2(0.62, 0.62);
-  material.envMap = ctx.envMap;
+  material.needsUpdate = true;
 
   const uniforms = {
     uSpin: { value: 0 },
@@ -535,39 +560,6 @@ export function buildTyre(ctx: BuildContext): TyreResult {
     // Keep the library's procedural grain locked to the rubber rather than
     // letting the tyre spin through a pattern fixed in object space.
     rebindObjPos: 'position',
-    tuneUniforms: (u) => {
-      // `createRubber` is tuned for weatherstrips, and its road-dust blotch
-      // runs at 120 cells/m — an 8 mm cell. On a door seal that is invisible.
-      // On a 130 mm sidewall filling half a close-up it reads as camouflage,
-      // which is what made the tyre look like wet cardboard. Same material,
-      // finer and fainter dust: a tyre's dirt is a film, not a pattern.
-      //
-      // A new uniform object, not an edit to the one that is there: the
-      // library hands the same object to every material it extends.
-      const p = u.uRubberParams?.value as THREE.Vector4 | undefined;
-      if (p && (p as THREE.Vector4).isVector4) {
-        u.uRubberParams = { value: new THREE.Vector4(p.x, p.y, 0.10, 320) };
-      }
-      // Lettering gloss. The library finds a moulded character by how sharply
-      // the surface curves, and a 1.3 mm relief on a surface this big curves
-      // hard enough to clear a much lower threshold than a weatherstrip's
-      // bead does. Letting more of the character's flank count, and asking for
-      // more gloss when it does, is the difference between a legend you can
-      // read in a still and a smudge.
-      const m = u.uRubberMould?.value as THREE.Vector4 | undefined;
-      if (m && (m as THREE.Vector4).isVector4) {
-        u.uRubberMould = { value: new THREE.Vector4(55.0, m.y, 0.46, m.w) };
-      }
-
-      // Both retunes reach into uniforms `createRubber` owns, by name. If the
-      // library renames or restructures them the tyre silently goes back to
-      // weatherstrip settings and looks like damp cardboard again, which is a
-      // horrible thing to have to rediscover from a render.
-      if (!p || !m) {
-        console.warn('[wheels] materials.rubber() no longer exposes uRubberParams/uRubberMould;'
-          + ' the tyre sidewall is running weatherstrip dust and gloss');
-      }
-    },
   });
 
   const mesh = new THREE.Mesh(geom, material);
@@ -587,7 +579,6 @@ export function buildTyre(ctx: BuildContext): TyreResult {
   const tri = geom.index!.count / 3;
   return {
     mesh,
-    envLinks: [{ clone: material, source }],
     uniforms,
     triangles: tri,
     measured: {

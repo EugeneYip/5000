@@ -17,6 +17,7 @@ import {
   CABIN, ROOF_FRONT_Z, ROOF_REAR_Z, TONE, headlinerShoulder, headlinerY, innerHalfW, skinHalfW,
 } from './layout';
 import { clamp, fbm, flipWinding, lerp, merge, mesh, mirrored, smoothstep, surface, type Vec3 } from './util';
+import type { StaticBatch } from './batch';
 
 const TAIL = HP.tailZ;
 
@@ -340,13 +341,17 @@ function buildInnerSides(ctx: BuildContext): THREE.Mesh {
 
 // ---------------------------------------------------------------------------
 
-export function buildShell(ctx: BuildContext): THREE.Group {
-  const g = new THREE.Group();
-  g.name = 'shell';
-  for (const o of buildFloor(ctx)) g.add(o);
-  g.add(buildMats(ctx));
-  g.add(buildHeadliner(ctx));
-  g.add(buildPillars(ctx));
-  g.add(buildInnerSides(ctx));
-  return g;
+/**
+ * Carpet, sill plates, mats, headliner, pillar trim, inner sides. Every one of
+ * them is screwed to the shell and none of them moves, so all six go into the
+ * cabin's static batch rather than into six meshes of their own — the sill
+ * plates and the pillar trim then share their draw with the brightwork and the
+ * moulded trim the other modules contribute.
+ */
+export function buildShell(ctx: BuildContext, batch: StaticBatch): void {
+  const parts: THREE.Mesh[] = [
+    ...(buildFloor(ctx) as THREE.Mesh[]),
+    buildMats(ctx), buildHeadliner(ctx), buildPillars(ctx), buildInnerSides(ctx),
+  ];
+  for (const m of parts) batch.add(m.material as THREE.Material, m.geometry);
 }

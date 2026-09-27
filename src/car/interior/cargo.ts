@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import type { Articulation, BuildContext } from '@/types';
 import { CABIN, TONE } from './layout';
 import { clamp, cyl, fbm, lerp, merge, mesh, mirrored, roundedBox, smoothstep, surface } from './util';
+import type { StaticBatch } from './batch';
 
 const FY = CABIN.cargoFloorY;
 const Z0 = CABIN.cargoFloorFrontZ;
@@ -29,7 +30,7 @@ function archBulge(x: number, z: number): number {
   return along * across * 0.155;
 }
 
-export function buildCargo(ctx: BuildContext): { group: THREE.Group; articulations: Articulation[] } {
+export function buildCargo(ctx: BuildContext, batch: StaticBatch): { group: THREE.Group; articulations: Articulation[] } {
   const group = new THREE.Group();
   group.name = 'cargo';
 
@@ -49,7 +50,8 @@ export function buildCargo(ctx: BuildContext): { group: THREE.Group; articulatio
       + fbm(x * 8, 5.5, z * 6, 2) * 0.0022;
     out.set(x, y, z);
   });
-  group.add(mesh(floor, carpet, 'cargoFloor'));
+  // Load floor and cabin floor are the same cut pile and the same rigid body.
+  batch.add(carpet, floor);
 
   const hard: THREE.BufferGeometry[] = [];
   const brights: THREE.BufferGeometry[] = [];
@@ -75,7 +77,7 @@ export function buildCargo(ctx: BuildContext): { group: THREE.Group; articulatio
     const door = (1 - smoothstep(0.30, 0.34, Math.abs(z + 3.20))) * smoothstep(0.05, 0.09, q[1] - FY) * (1 - smoothstep(0.20, 0.24, q[1] - FY));
     out.set(-(HW + 0.014 - q[0] - arch - door * 0.006), q[1], z);
   });
-  group.add(mesh(merge([sideTrim, mirrored(sideTrim)]), trim, 'cargoSides'));
+  batch.add(trim, merge([sideTrim, mirrored(sideTrim)]));
 
   // Lashing eyes: bright D-rings on plates, one at each rear corner.
   for (const sx of [-1, 1]) {
@@ -134,8 +136,10 @@ export function buildCargo(ctx: BuildContext): { group: THREE.Group; articulatio
   // Retracted by default: the bay is what makes the car read as an estate.
   blind.visible = false;
 
-  group.add(mesh(merge(hard), dark, 'cargoHard'));
-  group.add(mesh(merge(brights), bright, 'cargoBright'));
+  // The blind and its bar stay out of the batch: they are on the `cargoCover`
+  // articulation and have to keep moving.
+  batch.add(dark, merge(hard));
+  batch.add(bright, merge(brights));
 
   const articulations: Articulation[] = [{
     name: 'cargoCover',

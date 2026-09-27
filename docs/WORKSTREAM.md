@@ -96,29 +96,43 @@ integrates and commits. Committing concurrently will conflict.
 - Geometry helpers go in your own directory. Do not add dependencies without
   asking — Three.js and its `examples/jsm` addons are already available and
   are almost always enough.
-- Performance budget: the whole car ≤ 1.2 M triangles, ≤ 220 draw calls,
-  60 fps at 1080p. Merge static geometry. Instance repeated parts (slats,
-  bolts, tread blocks).
+- Performance.
 
-  **Read `renderer.info` carefully — it does not mean what it looks like.**
-  The scene is rendered **three times every frame**: the transmission pass
-  (three re-renders the opaque scene because the glazing and lamp lenses are
-  transmissive), the colour pass, and GTAO's normal/depth override. So both
-  counters come back at about **2.92×** the geometry actually present.
+  **Do not read `renderer.info` and do not apply a correction factor to it.**
+  Use `__AUDI.census()`, which counts the scene once by traversal and prints
+  the reported figures beside its own:
 
-  Measured at `front3q`: `renderer.info` reports 2,368,765 triangles, but the
-  visible geometry counted once is **811,714 — of which the car is 770,934,
-  comfortably inside the 1.2 M budget.** Likewise a reported 931 draws is
-  32 for the scene plus 308 car meshes at 2.92 each.
+      front3q     meshes 284 (+31 hidden)  tris 971,694  mats 67   multiplier 2.64
+      photomatch  meshes 284               tris 971,694            multiplier 1.97
+      wheel       meshes 284               tris 971,694            multiplier 1.59
+      interior    meshes 284               tris 971,694            multiplier 1.36
 
-  Also: an occasional 1237 in the readout is the one-frame-in-fifteen
-  shadow-map refresh, not the steady state.
+  The scene is rasterised more than once a frame — the transmission pass
+  re-renders the opaque scene because the glazing and the lamp lenses are
+  transmissive — so `renderer.info` comes back inflated. **The inflation is
+  not a constant.** It moves with how many passes run and with what survives
+  frustum culling in each, which is why it ranges 1.36 to 2.64 above.
 
-  So before optimising anything, check whether the number you are chasing is
-  real. Hide the car root and re-measure to get the delta, or count geometry
-  directly. `__AUDI_MAT.audit()` lists meshes wearing materials the registry
-  never issued, and `__AUDI_MAT.raw()` records every option set the library
-  was handed before quantisation.
+  This file used to say "about 2.92×" and work an example from it. That was
+  true when GTAO rendered its own normal/depth pass; it stopped doing that
+  when it was handed the colour pass's depth (`gtao.setGBuffer`), and the note
+  did not follow. A stale correction factor is worse than none: agents on this
+  project have been sent optimising geometry that was already inside budget,
+  and a later stream applying 2.92 today would conclude the car is 40 %
+  smaller than it is.
+
+  Two traps `census()` exists to close:
+
+  - **Hiding the car root and taking the delta does not give the car's draw
+    count.** It gives the car's meshes multiplied by the pass count, which is
+    the same error in a different hat.
+  - **`__AUDI_MAT.audit()` skips invisible meshes.** Thirty-one meshes are
+    hidden at rest — the spin-blur discs, several interior parts — so an audit
+    that comes back clean has not necessarily seen everything.
+
+  Budget: ≤ 1.2 M triangles counted once, ≤ 220 draws, 60 fps at 1080p. Merge
+  static geometry. Instance repeated parts (slats, bolts, tread blocks).
+
 - **Probing a node other streams attach to: use `mesh.geometry.boundingBox`
   transformed by `matrixWorld`, never `Box3.setFromObject`.** The latter
   descends into children, and several nodes are shared parents —

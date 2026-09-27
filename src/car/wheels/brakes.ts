@@ -9,15 +9,25 @@
  * where the pads sweep, and orange-brown oxide everywhere they do not — the
  * outer ledge, the inner ledge, the hat and the vanes. `materials.brakeDisc()`
  * already draws that boundary on the friction faces; the parts the pads never
- * touch get a rust material of their own, because it is a different surface,
- * not a darker version of the same one.
+ * touch wear `materials.castIron()`, because it is a different surface, not a
+ * darker version of the same one.
+ *
+ * All four finishes come from the library. `castIron()`, `caliperPaint()` and
+ * `padFriction()` are `dirtyMetal()` underneath with authored constants, so
+ * the three of them share one program — and, being registry members, they
+ * track `setEnvMap`. The local `MeshPhysicalMaterial`s they replaced did not,
+ * and held whatever IBL was current when the car was built.
+ *
+ * Each of the two groups is merged down to one mesh per finish. The rotor's
+ * parts never move relative to each other and neither do the upright's; only
+ * the two groups move relative to one another, and that is the one split that
+ * has to survive.
  */
 
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { BRAKE, RIM } from './dims';
 import { arcRevolve, fbm3, mirrorZ, paintVertexColors, radialUv, revolveX, type P2, mergeAll } from './util';
-import { createCaliperIron, createPadFriction, createRustyIron } from './materials';
 import { MOUNT_FACE_X } from './rim';
 
 const D2R = Math.PI / 180;
@@ -269,27 +279,27 @@ export function buildBrakes(ctx: BuildContext, front: boolean, mirrored: boolean
   fixed.name = 'brakeFixed';
 
   const discMat = ctx.materials.brakeDisc();
-  const rustMat = createRustyIron(ctx);
-  const ironMat = createCaliperIron(ctx);
-  const padMat = createPadFriction(ctx);
+  // Vertex colours everywhere the mesh carries a baked mottle; the pad face
+  // does not, so it asks for the plain instance.
+  const ironMat = ctx.materials.castIron({ vertexColors: true });
+  const caliperMat = ctx.materials.caliperPaint({ vertexColors: true });
+  const padMat = ctx.materials.padFriction();
 
   // --- rotor --------------------------------------------------------------
   const plates: THREE.BufferGeometry[] = [];
+  const rotorIron: THREE.BufferGeometry[] = [mottle(buildHat(rDisc, rIn), 1.0)];
   if (front) {
     const face = BRAKE.frontFaceThickness;
     const gap = thick - 2 * face;
     plates.push(frictionPlate(rIn, rDisc, RING_X + (thick - face) / 2, face));
     plates.push(frictionPlate(rIn, rDisc, RING_X - (thick - face) / 2, face));
-    const vanes = mottle(buildVanes(rIn + 0.0015, rDisc - 0.0015, gap), 0.92);
-    rotating.add(new THREE.Mesh(vanes, rustMat));
+    rotorIron.push(mottle(buildVanes(rIn + 0.0015, rDisc - 0.0015, gap), 0.92));
   } else {
     plates.push(frictionPlate(rIn, rDisc, RING_X, thick));
   }
   const discGeo = radialUv(mergeAll(plates), rDisc);
   rotating.add(new THREE.Mesh(discGeo, discMat));
-
-  const hat = mottle(buildHat(rDisc, rIn), 1.0);
-  rotating.add(new THREE.Mesh(hat, rustMat));
+  rotating.add(new THREE.Mesh(mergeAll(rotorIron), ironMat));
 
   // --- fixed to the upright ------------------------------------------------
   let caliper = buildCaliper(thick);
@@ -312,12 +322,16 @@ export function buildBrakes(ctx: BuildContext, front: boolean, mirrored: boolean
     const n = fbm3(p.x * 70, p.y * 70, p.z * 70, 3);
     const k = 0.82 + 0.34 * n;
     out.setRGB(k, k * 0.98, k * 0.95);
-  }), ironMat));
-  fixed.add(new THREE.Mesh(mottle(padBacks, 0.85), rustMat));
+  }), caliperMat));
+  // Backing plates, banjo bolt and dust shield: one oxidised casting as far as
+  // the renderer is concerned, and all bolted to the same upright.
+  fixed.add(new THREE.Mesh(mergeAll([
+    mottle(padBacks, 0.85),
+    mottle(fitting, 0.7),
+    mottle(buildDustShield(rDisc, thick), 1.05),
+  ]), ironMat));
   fixed.add(new THREE.Mesh(padFric, padMat));
   fixed.add(new THREE.Mesh(hose, ctx.materials.rubber({ roughness: 0.68 })));
-  fixed.add(new THREE.Mesh(mottle(fitting, 0.7), rustMat));
-  fixed.add(new THREE.Mesh(mottle(buildDustShield(rDisc, thick), 1.05), rustMat));
 
   return { rotating, fixed };
 }

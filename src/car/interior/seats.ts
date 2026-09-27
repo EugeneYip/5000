@@ -14,6 +14,7 @@ import type { Articulation, BuildContext } from '@/types';
 import { CABIN, TONE } from './layout';
 import { bolster, crease, dish, panel, welt, type Frame } from './soft';
 import { clamp, cyl, D2R, lerp, merge, mesh, roundedBox, roundedRect, smoothstep, surface, type Vec3 } from './util';
+import type { StaticBatch } from './batch';
 
 function frame(origin: Vec3, runTiltDeg: number): Frame {
   const r = runTiltDeg * D2R;
@@ -329,7 +330,7 @@ function benchBack(side: 1 | -1): { cloth: THREE.BufferGeometry[]; hard: THREE.B
 
 // ---------------------------------------------------------------------------
 
-export function buildSeats(ctx: BuildContext): { group: THREE.Group; articulations: Articulation[] } {
+export function buildSeats(ctx: BuildContext, batch: StaticBatch): { group: THREE.Group; articulations: Articulation[] } {
   const group = new THREE.Group();
   group.name = 'seats';
   const fabric = ctx.materials.fabric();
@@ -344,16 +345,26 @@ export function buildSeats(ctx: BuildContext): { group: THREE.Group; articulatio
   // Not mirrored: each bucket is built for the side it sits on, so the
   // recliner wheel and the height lever land outboard on both and the two
   // seats are never each other's reflection.
+  // The two buckets and the bench cushion are three meshes per finish in the
+  // scene graph and one draw each in the renderer only if they share geometry
+  // as well as material. Nothing in front articulates — the 60/40 backs below
+  // are the only seats that move — so the seat's X offset is baked in and the
+  // three velour pieces, the two frames and the two pairs of posts each go out
+  // as one mesh. Six draws become three.
+  const frontCloth: THREE.BufferGeometry[] = [merge(benchCushion().cloth)];
+  const frontHard: THREE.BufferGeometry[] = [];
+  const frontPosts: THREE.BufferGeometry[] = [];
   for (const [s, seat] of [[-1, driver], [1, pass]] as Array<[number, ReturnType<typeof frontSeat>]>) {
-    const g = new THREE.Group();
-    g.position.x = s * CABIN.seatX;
-    g.add(mesh(merge(seat.cloth), fabric, s < 0 ? 'seatClothFL' : 'seatClothFR'));
-    g.add(mesh(merge(seat.hard), hardMat, s < 0 ? 'seatFrameFL' : 'seatFrameFR'));
-    g.add(mesh(merge(seat.posts), postMat, s < 0 ? 'headrestPostsFL' : 'headrestPostsFR'));
-    group.add(g);
+    const dx = s * CABIN.seatX;
+    frontCloth.push(merge(seat.cloth).translate(dx, 0, 0));
+    frontHard.push(merge(seat.hard).translate(dx, 0, 0));
+    frontPosts.push(merge(seat.posts).translate(dx, 0, 0));
   }
-
-  group.add(mesh(merge(benchCushion().cloth), fabric, 'benchCushion'));
+  // The buckets and the bench cushion are bolted down; only the 60/40 backs
+  // below fold, and those keep their own meshes under their pivots.
+  batch.add(fabric, merge(frontCloth));
+  batch.add(hardMat, merge(frontHard));
+  batch.add(postMat, merge(frontPosts));
 
   for (const side of [1, -1] as Array<1 | -1>) {
     const b = benchBack(side);

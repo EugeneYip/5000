@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import type { Articulation, BuildContext, PartResult, VehicleState } from '@/types';
 
+import { StaticBatch } from './interior/batch';
 import { buildShell } from './interior/shell';
 import { buildDash } from './interior/dash';
 import { buildSeats } from './interior/seats';
@@ -38,10 +39,18 @@ export function buildInterior(ctx: BuildContext): PartResult {
   const articulations: Articulation[] = [];
   const updaters: Array<(dt: number, t: number, s: VehicleState) => void> = [];
 
-  group.add(buildShell(ctx));
-  group.add(buildDash(ctx));
+  /**
+   * Everything in the cabin that is bolted down goes through one batch and
+   * comes out as one mesh per material. Five finishes were arriving as
+   * thirty-two meshes across six modules for want of somewhere to put them;
+   * see `interior/batch.ts` for what is and is not allowed in.
+   */
+  const batch = new StaticBatch();
 
-  const seats = buildSeats(ctx);
+  buildShell(ctx, batch);
+  buildDash(ctx, batch);
+
+  const seats = buildSeats(ctx, batch);
   group.add(seats.group);
   articulations.push(...seats.articulations);
 
@@ -55,16 +64,23 @@ export function buildInterior(ctx: BuildContext): PartResult {
   nodes.cluster = cluster.group;
   updaters.push((dt, _t, s) => cluster.update(dt, s));
 
-  const console_ = buildConsole(ctx);
+  const console_ = buildConsole(ctx, batch);
   group.add(console_.group);
   updaters.push((dt, _t, s) => console_.update(dt, s));
 
+  // Door cards keep their own meshes: the body stream articulates the doors
+  // and the cards are the one region that will have to follow them.
   group.add(buildDoors(ctx));
-  group.add(buildDetails(ctx));
+  buildDetails(ctx, batch);
 
-  const cargo = buildCargo(ctx);
+  const cargo = buildCargo(ctx, batch);
   group.add(cargo.group);
   articulations.push(...cargo.articulations);
+
+  const cabin = new THREE.Group();
+  cabin.name = 'cabinStatic';
+  batch.flush(cabin);
+  group.add(cabin);
 
   // The cabin's share of the car's triangle budget. Kept as a live check
   // rather than a comment because every one of these surfaces is parametric:

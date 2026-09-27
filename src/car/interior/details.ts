@@ -13,7 +13,8 @@ import * as THREE from 'three';
 import type { BuildContext } from '@/types';
 import { HP } from '@/car/hardpoints';
 import { CABIN, TONE, headlinerY } from './layout';
-import { cyl, merge, mesh, roundedBox, slab, surface, tube, type Vec3 } from './util';
+import { cyl, merge, roundedBox, slab, surface, tube, type Vec3 } from './util';
+import type { StaticBatch } from './batch';
 
 /**
  * A flat woven ribbon along a path. Frenet frames twist unpredictably on a
@@ -130,9 +131,7 @@ function rearBelt(sx: number): { web: THREE.BufferGeometry; hard: THREE.BufferGe
   return { web, hard };
 }
 
-export function buildDetails(ctx: BuildContext): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'cabinDetails';
+export function buildDetails(ctx: BuildContext, batch: StaticBatch): void {
 
   const soft = ctx.materials.interiorPlastic({ color: TONE.fascia, roughness: 0.84 });
   const dark = ctx.materials.interiorPlastic({ color: 0x131417, roughness: 0.80 });
@@ -188,7 +187,7 @@ export function buildDetails(ctx: BuildContext): THREE.Group {
   const face = slab(0.232, 0.050, 0.004, 0.002, 1);
   face.rotateX(0.10);
   face.translate(-0.012, my - 0.0535, mz - 0.0525);
-  group.add(mesh(face, mirrorGlass, 'rearViewGlass'));
+  batch.add(mirrorGlass, face);
 
   // -- grab handles ---------------------------------------------------------
   // Above the front passenger door and both rear doors; never above the
@@ -215,14 +214,18 @@ export function buildDetails(ctx: BuildContext): THREE.Group {
   handleAt(-1, -2.120);
 
   // -- lamps ----------------------------------------------------------------
+  // Front and rear dome lens are the same moulding in the same material and
+  // neither moves; one mesh.
+  const lampLenses: THREE.BufferGeometry[] = [];
   for (const [z, w] of [[HP.headerZ - 0.29, 0.128], [-2.760, 0.104]] as Array<[number, number]>) {
     const housing = roundedBox(w + 0.020, 0.012, 0.070, 0.006, 1, 2);
     housing.translate(0, headlinerY(0, z) - 0.006, z);
     darkParts.push(housing);
     const lensG = slab(w, 0.008, 0.052, 0.003, 1);
     lensG.translate(0, headlinerY(0, z) - 0.014, z);
-    group.add(mesh(lensG, ctx.materials.lens(0xf2f2ea, { opacity: 0.86 }), 'domeLamp'));
+    lampLenses.push(lensG);
   }
+  batch.add(ctx.materials.lens(0xf2f2ea, { opacity: 0.86 }), merge(lampLenses));
 
   // -- coat hooks and the rear pull straps ----------------------------------
   for (const sx of [-1, 1]) {
@@ -244,11 +247,10 @@ export function buildDetails(ctx: BuildContext): THREE.Group {
     webs.push(r.web);
     darkParts.push(...r.hard);
   }
-  group.add(mesh(merge(webs), webbing, 'seatBelts'));
+  batch.add(webbing, merge(webs));
 
-  group.add(mesh(merge(softParts), soft, 'cabinSoftDetail'));
-  group.add(mesh(merge(darkParts), dark, 'cabinDarkDetail'));
-  group.add(mesh(merge(metal), bright, 'cabinBrightDetail'));
-  return group;
+  batch.add(soft, merge(softParts));
+  batch.add(dark, merge(darkParts));
+  batch.add(bright, merge(metal));
 }
 

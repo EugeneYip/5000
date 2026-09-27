@@ -16,7 +16,7 @@ import { ENGINE } from '@/spec';
 import { HP } from '@/car/hardpoints';
 import { TONE } from './layout';
 import { ARROWS, DIALS, FACE, SPEEDO_MAX, SWEEP, TACHO_MAX, drawCluster, shortSweep, tileCentre } from './dials';
-import { canvasTexture, createLens, createPrinted } from './printed';
+import { canvasTexture, createLens } from './printed';
 import { clamp, cyl, D2R, lerp, merge, mesh } from './util';
 
 const C = HP.interior.clusterCenter;
@@ -100,7 +100,32 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
   const art = drawCluster();
   const faceTex = canvasTexture(art.face, ctx.renderer);
   const litTex = canvasTexture(art.lit, ctx.renderer);
-  const faceMat = createPrinted(faceTex, { roughness: 0.74, emissiveMap: litTex, emissive: 0xffffff });
+  /**
+   * The dial print, from the library rather than a local `MeshStandardMaterial`
+   * — which was outside the registry, so `setEnvMap` never reached it.
+   *
+   * `specularIntensity` is the cavity correction, and this is the case it was
+   * added for. The face sits at the back of the binnacle: its mouth is the
+   * hood lip at z −0.713 and the lower bezel edge at y 0.977, 138 mm away and
+   * 79 mm of aperture across a 160 mm-wide cluster. The cosine-weighted form
+   * factor of that rectangle is 0.167 of the hemisphere, and what fills the
+   * other 0.83 is the hood's own matte black interior at perhaps 5 % — so the
+   * print is lit by about 0.2 of open sky. Nothing in the renderer knows that:
+   * interior meshes do not cast shadows (`Car` opts them out), and GTAO runs at
+   * half resolution behind a six-pixel denoise. Without this the dial blacks
+   * sit at the 4 % Fresnel floor as if they faced the sky, which on a cluster
+   * you look *into* is the difference between print and painted-on grey.
+   *
+   * It is not doubling for an albedo knob, and the one hard reflection the
+   * pack does have is not lost — it comes off the lens a centimetre in front.
+   */
+  const faceMat = ctx.materials.printed(faceTex, {
+    roughness: 0.74,
+    emissiveMap: litTex,
+    emissive: 0xffffff,
+    envMapIntensity: 0.35,
+    specularIntensity: 0.2,
+  }) as THREE.MeshPhysicalMaterial;
 
   // The printed face. Built facing +Z then turned about Y, which puts the
   // canvas the right way round for an eye on the driver's side of it.
@@ -135,13 +160,12 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
     ring.translate(lx(d.x), ly(d.y), -0.0016);
     trim.push(ring);
   }
-  group.add(mesh(merge(trim), black, 'clusterBezel'));
 
   // Odometer reset knob, protruding at the lower left of the speedometer.
   const knob = cyl(0.0034, 0.0042, 0.010, 10);
   knob.rotateX(Math.PI / 2);
   knob.translate(lx(DIALS.speedo.x - 24), ly(DIALS.speedo.y + 27), -0.0065);
-  group.add(mesh(knob, black, 'odoReset'));
+  trim.push(knob);
 
   // -- needles --------------------------------------------------------------
   const needleMat = ctx.materials.interiorPlastic({ color: 0xd8501c, roughness: 0.38 });
@@ -149,7 +173,6 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
 
   interface Needle { pivot: THREE.Group; shadow: THREE.Group; a0: number; a1: number; }
   const needles: Record<string, Needle> = {};
-  const bosses: THREE.BufferGeometry[] = [];
 
   const makeNeedle = (key: string, d: { x: number; y: number; r: number }, big: boolean, a0: number, a1: number): void => {
     const pivot = new THREE.Group();
@@ -157,10 +180,11 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
     const blade = needleBlade(lw(d.r) - (big ? 0.0062 : 0.0046), big ? 0.0034 : 0.0026, big ? 0.0011 : 0.0009, big ? 0.0072 : 0.0052, 0.0009);
     pivot.add(mesh(blade, needleMat, `${key}Needle`));
     group.add(pivot);
+    // The boss does not turn with the needle, so it joins the fixed trim.
     const boss = cyl(big ? 0.0042 : 0.0032, big ? 0.0046 : 0.0036, 0.0035, 14);
     boss.rotateX(Math.PI / 2);
     boss.translate(lx(d.x), ly(d.y), -0.0076);
-    bosses.push(boss);
+    trim.push(boss);
 
     // Its shadow: the same blade, flat on the dial, offset as if the cluster
     // were lit from above and slightly outboard.
@@ -178,7 +202,10 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
   makeNeedle('tacho', DIALS.tacho, true, SWEEP.start, SWEEP.end);
   makeNeedle('temp', DIALS.temp, false, ss.start, ss.end);
   makeNeedle('fuel', DIALS.fuel, false, ss.start, ss.end);
-  group.add(mesh(merge(bosses), black, 'needleBosses'));
+
+  // Surround, bezel rings, reset knob and the four pivot bosses: one satin
+  // black moulding, and nothing in it moves relative to anything else in it.
+  group.add(mesh(merge(trim), black, 'clusterTrim'));
 
   // -- warning lamps --------------------------------------------------------
   const red = ctx.materials.emissive(0xff2a18, 2.4);
@@ -218,7 +245,8 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
   }
   lensGeom.rotateY(Math.PI);
   lensGeom.translate(0, 0, -0.0108);
-  const lens = mesh(lensGeom, createLens(), 'clusterLens');
+  const lensMat = createLens();
+  const lens = mesh(lensGeom, lensMat, 'clusterLens');
   lens.castShadow = false;
   lens.receiveShadow = false;
   lens.renderOrder = 2;
@@ -239,6 +267,17 @@ export function buildCluster(ctx: BuildContext): ClusterHandle {
     group,
     update(dt: number, s: VehicleState) {
       const step = Math.min(dt, 1 / 30);
+
+      // The lens is the cabin's one hard reflection and the only material here
+      // outside the registry, so `setEnvMap` cannot reach it. Follow one that
+      // is in the registry until the library grows a `clearCover()` entry —
+      // see `printed.ts`. Costs a pointer compare per frame; the rebuild only
+      // happens when the environment actually changes.
+      const ref = black as THREE.MeshPhysicalMaterial;
+      if (lensMat.envMap !== ref.envMap) {
+        lensMat.envMap = ref.envMap;
+        lensMat.needsUpdate = true;
+      }
 
       const mph = Math.abs(s.speed) * MPS_TO_MPH;
       [st.speed, st.speedV] = spring(st.speed, st.speedV, mph, 70, 15, step);

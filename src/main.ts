@@ -34,6 +34,7 @@ interface AudiDebugApi {
   setUiVisible(v: boolean): void;
   setMaskMode(mode: 'off' | 'car' | 'paint'): void;
   pick(x: number, y: number): Record<string, unknown>[];
+  census(): Record<string, number>;
   settle(frames?: number): void;
   measureFps(frames?: number): Promise<{ fps: number; ms: number; drawCalls: number; triangles: number }>;
   elapsed(): number;
@@ -255,6 +256,48 @@ async function main(): Promise<void> {
           castShadow: m.castShadow,
         };
       });
+    },
+
+    /**
+     * Geometry counted ONCE, by traversal, beside what `renderer.info` says.
+     *
+     * The two differ by however many times the scene is rasterised in a
+     * frame, and that number is not a constant anyone can write down: it
+     * depends on which passes re-render (the transmission pass does, GTAO
+     * stopped when it was handed the colour pass's depth) and on what
+     * survives frustum culling in each. A fixed correction factor written
+     * into a document goes stale silently, and this project has already sent
+     * agents optimising a car that was inside budget twice over, once in each
+     * direction. So: measure it, do not remember it.
+     *
+     * `hidden` is counted separately because `renderer.info` will not see it,
+     * and the spin-blur discs and several interior parts are invisible at
+     * rest — hiding the car root and taking the delta gives the car's meshes
+     * times the pass count, not the car's meshes.
+     */
+    census() {
+      let meshes = 0, hidden = 0, tris = 0, materials = 0;
+      const seen = new Set<string>();
+      stage.scene.traverse((o) => {
+        const m = o as THREE.Mesh & { isInstancedMesh?: boolean; count?: number };
+        if (!m.isMesh) return;
+        let up: THREE.Object3D | null = o;
+        for (; up; up = up.parent) if (!up.visible) break;
+        if (up) { hidden++; return; }
+        meshes++;
+        const g = m.geometry;
+        const n = g.index ? g.index.count / 3 : (g.attributes.position?.count ?? 0) / 3;
+        tris += n * (m.isInstancedMesh ? (m.count ?? 1) : 1);
+        for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+          if (mat && !seen.has(mat.uuid)) { seen.add(mat.uuid); materials++; }
+        }
+      });
+      const info = stage.renderer.info.render;
+      return {
+        meshes, hidden, triangles: Math.round(tris), materials,
+        reportedCalls: info.calls, reportedTriangles: info.triangles,
+        passMultiplier: meshes ? Math.round((info.calls / meshes) * 100) / 100 : 0,
+      };
     },
 
     settle(frames = 24) {

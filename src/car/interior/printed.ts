@@ -1,17 +1,16 @@
 /**
- * The one material this stream makes for itself, and the canvas plumbing
- * behind it.
+ * Canvas plumbing for the cabin's drawn artwork, and the one material the
+ * library still has no entry for.
  *
- * `src/materials` has an entry for every *surface* in the cabin — grained
- * plastic, woven cloth, cut-pile carpet — and this stream uses those and
- * nothing else for them. What the library has no entry for is a **printed**
- * surface: a dial face, a switch pictogram, a radio fascia legend. Those need
- * a map, the library takes none, and its instances are memoised and shared, so
- * assigning a map to one would repaint it on every other caller.
+ * The printed surfaces — the dial faces, the centre-stack legend — now come
+ * from `materials.printed(map)`, which keys on the map's own identity, so a
+ * caller with its own canvas gets its own instance and cannot repaint anyone
+ * else's. That was the gap this file was opened for and it is closed.
  *
- * The same gap was found and documented by the trim stream in
- * `src/car/trim/printed.ts`. Both should collapse into a `printed(map)` entry
- * in `src/materials` next time that stream is open; see the stream report.
+ * `createLens` is what is left, and it is here under protest: see its own
+ * comment. It is the only mesh in this stream not in the material registry,
+ * which means `setEnvMap` does not reach it — `buildCluster` follows a
+ * registry material by hand to make up for it.
  */
 
 import * as THREE from 'three';
@@ -59,30 +58,29 @@ export function canvasTexture(h: CanvasHandle, renderer: THREE.WebGLRenderer, sr
  */
 export const DIAL_FONT = "'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', sans-serif";
 
-/** Matte printed surface: a dial face, a switch legend, a radio fascia. */
-export function createPrinted(map: THREE.Texture, opts: { roughness?: number; emissiveMap?: THREE.Texture; emissive?: number } = {}): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
-    map,
-    color: 0xffffff,
-    metalness: 0,
-    roughness: opts.roughness ?? 0.62,
-    emissiveMap: opts.emissiveMap ?? null,
-    emissive: new THREE.Color(opts.emissive ?? 0x000000),
-    emissiveIntensity: 0,
-    envMapIntensity: 0.35,
-    side: THREE.FrontSide,
-  });
-}
-
 /**
- * The cluster lens.
+ * The cluster lens — the one finish in this stream with no library entry.
  *
  * The only glossy thing in the cabin: a thin acrylic cover a few millimetres
  * off the dial faces, which is what gives an instrument pack its depth and
- * its one hard reflection. Deliberately *not* a transmissive material — a
- * transmission pass for 30 cm^2 of acrylic would cost more than the whole
- * rest of the interior, and a near-clear layer with a sharp specular lobe is
- * indistinguishable at any angle you can actually see the cluster from.
+ * its one hard reflection. What it needs is a **non-transmissive, alpha-blended
+ * dielectric cover**: near-clear, sharp specular, no refraction.
+ *
+ * Nothing in the library is that. `glass()` and `lens()` are both
+ * `transmission: 1`, which would put 30 cm^2 of acrylic into the transmission
+ * pass and make the driver read the dial through a 0.6-scale copy of it;
+ * `printed()` needs a map and floors its roughness on a three-rung ladder at
+ * 0.34, and there is no artwork on a lens to key it on anyway;
+ * `interiorPlastic()` is opaque and its lowest rung is 0.40.
+ *
+ * So it stays local, and it is reported rather than quietly forked further:
+ * the entry it wants is roughly
+ *
+ *   clearCover(opts?: { tint?: number; opacity?: number; roughness?: number;
+ *                       clearcoat?: number; clearcoatRoughness?: number })
+ *
+ * which would also serve any other moulded cover — a clock bezel, a switch
+ * window. Until then `buildCluster` keeps its env map in step by hand.
  */
 export function createLens(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
