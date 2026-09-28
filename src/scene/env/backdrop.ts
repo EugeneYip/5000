@@ -18,6 +18,25 @@ import type { EnvPreset } from './presets';
 export interface BackdropHandle {
   group: THREE.Group;
   apply(preset: EnvPreset, sunDir: THREE.Vector3): void;
+  /** Crown instances, and how many of them stand in the shading rank. */
+  casterCount(): { crowns: number; shadeRank: number; trees: number };
+  /** Probe only: stop the planting writing into the sun's depth pass. */
+  setCasting(on: boolean): void;
+  /** How much of the sun the crowns hold back, and at what grain. */
+  setDepthCut(cut: { freq?: number; base?: number; rim?: number }): {
+    freq: number; base: number; rim: number;
+  };
+  /** Probe only: scale the shading row's pitch across the sun. */
+  setSpread(s: number): number;
+  /**
+   * Ground footprint of the shading rank's own shadow, in metres from the
+   * subject, in the sun's frame — `across` its bearing and `along` it. Null
+   * when no rank is standing. This is what lets the painted gobo hand over to
+   * the real cast shadow where it falls and keep the road everywhere else;
+   * feeding it the *frustum* extent instead, which is what the previous round
+   * did, suppresses the gobo over the whole frame.
+   */
+  shadeFootprint(): { across: number; along: number; height: number } | null;
   dispose(): void;
 }
 
@@ -175,6 +194,49 @@ vLeafPos = position;
    * cut itself is finer and deeper, for the reason set out where it is
    * substituted below.
    */
+  /**
+   * What the canopy holds back, and at what grain.
+   *
+   * `uLeafFreq` is in multiples of the colour pass's own 0.31 m wavelength.
+   * 15.0 puts the holes at about 2 cm on the crown, which the sun's 5:1
+   * projection at 11.5° stretches to 2 x 10 cm on the ground — at or below
+   * the 7.8 mm shadow texel over most of it, which is the condition for the
+   * PCF kernel to average them into a level instead of printing them. Below
+   * about 8 the features outrun the kernel and the result is camouflage.
+   *
+   * `uLeafBase` is the level the three-octave noise has to clear to write
+   * depth at all, so it sets the transmission: the noise is concentrated
+   * about 0.5, so 0.5 is roughly half-open, and every 0.05 above that is
+   * worth about a tenth of the sun. `uLeafRim` grades that threshold up
+   * towards the rim of each lobe, so a crown thins at its margins instead of
+   * ending — which is the *only* thing giving the band's edge a penumbra
+   * wider than one shadow texel, and 0.26 is the figure the visible cut
+   * already uses for the same reason.
+   *
+   * 0.56 / 0.26, and this pair is the round's one tuned number. Swept in
+   * eight steps against the photograph on `photomatch`, holding everything
+   * else, reading the tone-profile gate and the colour witnesses together:
+   *
+   *     base/rim   tone   bumper   dRGB   plate   road mid
+   *     off        14.6    87.3    53.5    224    2.19 / 11.7 %
+   *     0.64/0.15  16.2    80.6    44.2    210    2.16 / 12.0 %
+   *     0.56/0.26  15.6    73.2    36.6    202    2.15 / 12.3 %
+   *     0.56/0.15  22.1    63.4    25.4    193    2.10 / 12.8 %
+   *     0.50/0.15  29.3    51.5    17.9    180    2.08 / 13.8 %
+   *     photograph    —    74.8       —    235    2.23 /  9.6 %
+   *
+   * The bumper lands on the photograph's number to a level and a half, and it
+   * is the last setting that does so without the tone profile going. Deeper
+   * shade keeps improving the paint's colour all the way down — dRGB 36.6 to
+   * 17.9 — and that is real, but it is buying it with the whole histogram:
+   * see the note in `Environment.ts` on what the bright end cannot do.
+   */
+  const depthCut = {
+    uLeafFreq: { value: 15.0 },
+    uLeafBase: { value: 0.56 },
+    uLeafRim: { value: 0.26 },
+  };
+
   const crownDepthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   crownDepthMat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -194,34 +256,48 @@ vLeafN = normalize(normalMatrix * normal);
 #endif`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vLeafPos;\nvarying vec3 vLeafN;\n${LEAF_NOISE}`)
+      .replace(
+        '#include <common>',
+        `#include <common>\nvarying vec3 vLeafPos;\nvarying vec3 vLeafN;\n`
+        + `uniform float uLeafFreq;\nuniform float uLeafBase;\nuniform float uLeafRim;\n${LEAF_NOISE}`,
+      )
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${LEAF_CUT}`)
       .replace('LEAF_EDGE', 'length(vLeafN.xy) / max(length(vLeafN), 1e-3)')
-      // Finer, deeper, and with the rim term damped — and every one of those
-      // three is paying for a penumbra this renderer cannot draw.
+      // Uniforms rather than substituted constants, because these three are
+      // the only handle there is on what a canopy shadow *is* — how much of
+      // the sun it holds back and at what grain — and the answer is not the
+      // same for a rank sixty metres up-sun of the subject as for the row
+      // behind the camera. They are also the only way to sweep the setting
+      // without a shader recompile per step, which is how the numbers below
+      // were arrived at.
       //
       // The crowns that shade the car stand fifty to seventy metres up-sun.
       // The sun's disc subtends 0.53°, so its penumbra at that range is half a
       // metre: what actually reaches the car is not shadow-or-sun but a
       // *partially transmitting* shade, the gaps averaged away. A depth map is
-      // binary and `PCFSoftShadowMap` blurs over a fixed ±2 texels, so it
-      // cannot express that — at the colour pass's own threshold the layer is
-      // opaque and a third of the car's pixels fell below level 40 against the
-      // photograph's 11.5 %, for a car the photograph plainly shows standing
-      // in that same shade.
+      // binary and `PCFSoftShadowMap` blurs over a fixed ±2 texels, so the
+      // only way it can express a partial transmission is to put the holes
+      // *below* the blur kernel and let the kernel average them.
       //
-      // So the transmission is bought by cutting harder (0.625) and the grain
-      // it arrives in is set by the frequency. Both ends of that were tried.
-      // At the visible frequency what gets discarded is whole thin lobes and
-      // the shade lands as metre-wide camouflage; at 3.5x it is centimetre
-      // flecks at full shadow contrast, which reads as dirt. 2.4x puts the
-      // features at about 15 cm, which the 31 mm shadow kernel (see the
-      // frustum floor in Environment.ts) softens into shade.
-      .replace(/LEAF_FREQ/g, '2.4')
-      .replace('LEAF_BASE', '0.625')
-      .replace('LEAF_RIM', '0.15');
+      // 2.4 did not do that. A 0.31 m base wavelength at 2.4x is 13 cm on the
+      // crown, and the sun's 5:1 projection at this elevation drags it to a
+      // quarter of a metre on the ground — twenty times the 7.8 mm texel and
+      // eight times the kernel, so nothing averaged anything and what landed
+      // on the car was quarter-metre blotches. Measured against the same frame
+      // with the planting's `castShadow` off, that is exactly the defect
+      // `CRITIQUE-3` calls dapple on the car: the whole grove was taking 14 %
+      // off the front bumper and taking it off in patches. Measured across
+      // the bumper face, the residual after a running-mean detrend falls from
+      // 12.1 % at 2.4 to 0.9 % at 15, against the photograph's 4.7 % — the
+      // 7.3x over-modulation that review found is gone, and slightly past
+      // gone. What is left of the photograph's 4.7 % is film grain and real
+      // surface, neither of which belongs in a shadow map.
+      .replace(/LEAF_FREQ/g, 'uLeafFreq')
+      .replace('LEAF_BASE', 'uLeafBase')
+      .replace('LEAF_RIM', 'uLeafRim');
+    Object.assign(shader.uniforms, depthCut);
   };
-  crownDepthMat.customProgramCacheKey = () => 'audi-canopy-depth-vB';
+  crownDepthMat.customProgramCacheKey = () => 'audi-canopy-depth-vC';
 
   const trunkMat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.92, metalness: 0, vertexColors: true,
@@ -323,6 +399,73 @@ vLeafN = normalize(normalMatrix * normal);
     }
   }
 
+  /**
+   * The rank of the grove that actually shades the car — and where it stands
+   * is worked out from the sun, not from the seed.
+   *
+   * Everything above is planted at build time in world space, so whether
+   * anything at all occupies the corridor that shadows a car at the origin is
+   * a dice roll on `mulberry(0x5000a4d1)`. Measured by A/B against the same
+   * frame with the planting's `castShadow` off, that roll came up nearly no:
+   * the whole grove was taking 14 % off the front bumper, in quarter-metre
+   * patches. A car is either under the trees or it is not, and which of those
+   * it is should not depend on a hash.
+   *
+   * At 11.5° of solar elevation a crown whose centre is y metres up throws
+   * its shadow y / tan(elev) ≈ 4.9 y metres down-sun of itself, so the rank
+   * that shades the origin is a specific fifty-to-seventy-metre arc of the
+   * grove — around x −48, z +34 for this sun, which is inside the grove's own
+   * footprint and reads as more of it.
+   *
+   * **It has to be a band and not a blanket, and that is the whole finding of
+   * this round.** Six trees on three columns at a 7.5 m pitch was the previous
+   * shape, and with a 4–7 m crown radius it closed up into thirty-six metres
+   * of solid shade across the sun — which at this pose is every pixel of road
+   * in frame. Measured, that took the tone profile from 15.1 to 32.2, the
+   * licence plate from 226 to 181 against the photograph's 236, and the car's
+   * own cast shadow to nothing at all, because a shadow laid into shade has
+   * no contrast to show. The photograph is explicit that this is wrong: it has
+   * the car in shade *and* sunflecks on pavement twenty metres away in the
+   * same frame, so the shadow it stands in has a visible edge.
+   *
+   * So: a single row of three across the sun, pitch 6.4 m, which with the
+   * crowns' own radius gives a core about fourteen metres wide and a soft
+   * margin either side. One rank rather than two, because the 5:1 projection
+   * at this elevation smears a single crown thirty metres down-sun and a
+   * second rank only adds opacity — which is `uLeafBase`'s job, where it can
+   * be measured.
+   */
+  const shadeFrom = trees.length;
+  const shadeTargets: Array<[number, number]> = [];
+  /** Half-extent of the rank's own trunk positions across the sun, metres. */
+  let shadeSpanAcross = 0;
+  /** Crown radius and centroid height of the tallest of them. */
+  let shadeCrownR = 0;
+  let shadeCrownY = 0;
+  for (const u of [-6.4, 0, 6.4]) {
+    const h = 13.5 + rnd() * 4.5;
+    const bole = h * (0.40 + rnd() * 0.10);
+    const r = h * (0.30 + rnd() * 0.09);
+    trees.push({
+      // Placed in `apply`, from the sun. Planted at the origin here so the
+      // instance matrices carry the tree's own internal offsets and nothing
+      // else, and `apply` only has to add a translation.
+      x: 0,
+      z: 0,
+      h,
+      bole,
+      r,
+      lean: (rnd() - 0.5) * 0.14,
+      bark: rnd(),
+    });
+    const ju = u + (rnd() - 0.5) * 2.2;
+    shadeTargets.push([ju, (rnd() - 0.5) * 5]);
+    shadeSpanAcross = Math.max(shadeSpanAcross, Math.abs(ju));
+    shadeCrownR = Math.max(shadeCrownR, r);
+    shadeCrownY = Math.max(shadeCrownY, bole + (h - bole) * 0.55);
+  }
+  const SHADE_COUNT = trees.length - shadeFrom;
+
   const LOBES = 20;
   const BRANCHES = 4;
   const crowns = new THREE.InstancedMesh(crownGeo, crownMat, trees.length * LOBES);
@@ -412,6 +555,81 @@ vLeafN = normalize(normalMatrix * normal);
   trunks.instanceMatrix.needsUpdate = true;
   branches.instanceMatrix.needsUpdate = true;
 
+  /**
+   * The shading rank's instance translations as composed above — i.e. each
+   * part's offset within its own tree, the tree itself still at the origin.
+   * `placeShadeRank` adds the up-sun translation to these rather than
+   * accumulating on the live matrices, which would drift every time the
+   * preset changed.
+   */
+  const shadeBase = {
+    crowns: new Float32Array(SHADE_COUNT * LOBES * 3),
+    trunks: new Float32Array(SHADE_COUNT * 3),
+    branches: new Float32Array(SHADE_COUNT * BRANCHES * 3),
+  };
+  const snapshot = (mesh: THREE.InstancedMesh, from: number, n: number, out: Float32Array): void => {
+    for (let j = 0; j < n; j++) {
+      const e = (from + j) * 16;
+      out[j * 3] = mesh.instanceMatrix.array[e + 12];
+      out[j * 3 + 1] = mesh.instanceMatrix.array[e + 13];
+      out[j * 3 + 2] = mesh.instanceMatrix.array[e + 14];
+    }
+  };
+  snapshot(crowns, shadeFrom * LOBES, SHADE_COUNT * LOBES, shadeBase.crowns);
+  snapshot(trunks, shadeFrom, SHADE_COUNT, shadeBase.trunks);
+  snapshot(branches, shadeFrom * BRANCHES, SHADE_COUNT * BRANCHES, shadeBase.branches);
+
+  /**
+   * Stand the rank up-sun of the origin, or park it out of the world.
+   *
+   * `on` is false wherever an up-sun rank is not what the preset is
+   * describing, and the gate is the arithmetic itself rather than a taste
+   * call: at noon 4.9 y metres down-sun is four metres, so the tree that
+   * shades the car would be standing in the middle of the road. Parked trees
+   * go 500 m down, under a four-kilometre ground plane, which is cheaper than
+   * rebuilding the instance buffers and leaves the counts alone.
+   *
+   * `spread` scales the row's pitch across the sun, so the width of the band
+   * can be swept without a rebuild — see `__AUDI_ENV.band`.
+   */
+  let shadeSpread = 1;
+  /** tan(solar elevation) the rank was last placed for. */
+  let shadeTanElev = 1;
+  const placeShadeRank = (sunDir: THREE.Vector3, on: boolean): void => {
+    const az = Math.hypot(sunDir.x, sunDir.z) || 1e-3;
+    const sx = sunDir.x / az;
+    const sz = sunDir.z / az;
+    const tanElev = sunDir.y / az;
+    shadeTanElev = tanElev;
+    const move = (
+      mesh: THREE.InstancedMesh, from: number, per: number, base: Float32Array,
+    ): void => {
+      for (let i = 0; i < SHADE_COUNT; i++) {
+        const t = trees[shadeFrom + i];
+        const [u, v] = shadeTargets[i];
+        // The crown's own centroid height is what decides how far up-sun it
+        // has to stand: the bole casts nothing that matters.
+        const yCrown = t.bole + (t.h - t.bole) * 0.55;
+        const run = on ? yCrown / Math.max(tanElev, 1e-3) : 0;
+        const us = u * shadeSpread;
+        const ox = on ? -sz * us + sx * (v + run) : 0;
+        const oz = on ? sx * us + sz * (v + run) : 0;
+        for (let j = 0; j < per; j++) {
+          const k = i * per + j;
+          const e = (from + k) * 16;
+          mesh.instanceMatrix.array[e + 12] = base[k * 3] + ox;
+          mesh.instanceMatrix.array[e + 13] = base[k * 3 + 1] + (on ? 0 : -500);
+          mesh.instanceMatrix.array[e + 14] = base[k * 3 + 2] + oz;
+        }
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    };
+    move(crowns, shadeFrom * LOBES, LOBES, shadeBase.crowns);
+    move(trunks, shadeFrom, 1, shadeBase.trunks);
+    move(branches, shadeFrom * BRANCHES, BRANCHES, shadeBase.branches);
+  };
+  placeShadeRank(new THREE.Vector3(0, 1, 0), false);
+
   crowns.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * LOBES * 3), 3);
   trunks.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * 3), 3);
   branches.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * BRANCHES * 3), 3);
@@ -475,11 +693,66 @@ vLeafN = normalize(normalMatrix * normal);
   const lit = new THREE.Color();
   const shade = new THREE.Color();
   const mixed = new THREE.Color();
+  let shadeRankOn = false;
 
   return {
     group,
+    casterCount: () => ({
+      crowns: crowns.count,
+      shadeRank: shadeRankOn ? SHADE_COUNT : 0,
+      trees: trees.length,
+    }),
+    setCasting(on) {
+      crowns.castShadow = on;
+      trunks.castShadow = on;
+      branches.castShadow = on;
+    },
+    setDepthCut(cut) {
+      if (cut.freq !== undefined) depthCut.uLeafFreq.value = cut.freq;
+      if (cut.base !== undefined) depthCut.uLeafBase.value = cut.base;
+      if (cut.rim !== undefined) depthCut.uLeafRim.value = cut.rim;
+      return { freq: depthCut.uLeafFreq.value, base: depthCut.uLeafBase.value, rim: depthCut.uLeafRim.value };
+    },
+    setSpread(s) {
+      shadeSpread = s;
+      return shadeSpread;
+    },
+    shadeFootprint() {
+      if (!shadeRankOn) return null;
+      // Across the sun the shadow is as wide as the row plus a crown either
+      // side: the projection at a low sun is along the bearing only and does
+      // not widen anything.
+      const across = shadeSpanAcross * shadeSpread + shadeCrownR;
+      // Along it, the crown's own vertical extent is what sets the length —
+      // its top edge lands 2r / tan(elev) further down-sun than its bottom
+      // edge, and at 11.5° that is the ten metres of crown stretched to fifty.
+      // Half of that reaches past the origin, which is the figure the ground
+      // needs: beyond it there is no cast shadow and the painted gobo is the
+      // only thing that can keep the far carriageway banded.
+      const along = shadeCrownR / Math.max(shadeTanElev, 1e-3) + 4;
+      return { across, along, height: shadeCrownY };
+    },
     apply(preset, sunDir) {
       group.visible = preset.ground !== 'studio';
+
+      // Is the sun low enough that the planting shading this road is up-sun
+      // of it rather than on top of it? That is the whole gate, and it is the
+      // arithmetic rather than a taste call: at noon 4.9 y metres down-sun is
+      // four metres, so the tree that shades the car would be standing in the
+      // middle of the road. Only `goldenhour` passes — `noon` and `overcast`
+      // are at 70°, `dusk` is below the horizon — which is why the other four
+      // frames are untouched by any of this.
+      //
+      // Deliberately not gated on `canopy`: that number says what is
+      // *overhead*, which decides what a bonnet mirrors, and this one says
+      // what is up-sun, which decides whether there is a shadow. The
+      // photograph is explicit that they are different — the car stands in
+      // the planting's shade with open sky and sunlit buildings above and to
+      // the right of it — and tying them together makes one untestable
+      // without the other.
+      shadeRankOn = preset.sunShadow && preset.ground !== 'studio'
+        && sunDir.y > 0.06 && sunDir.y < 0.45;
+      placeShadeRank(sunDir, shadeRankOn);
 
       // These proxies have no self-shadowing, so a smooth 0.04 dielectric
       // Fresnel over the whole mass was returning the sky at full strength —

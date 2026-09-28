@@ -39,6 +39,21 @@ const STUDIO_FLOOR_SIZE = 90;
 export interface GroundHandle {
   group: THREE.Group;
   apply(preset: EnvPreset): void;
+  /**
+   * Where the sun's own cast shadow is authoritative, so the painted gobo can
+   * hand over to it instead of compounding with it: the subject's position,
+   * the sun's bearing, and the half-extents of the shading rank's shadow in
+   * the sun's own frame — `across` its bearing and `along` it, in metres.
+   *
+   * These are the **shadow's** extents, not the shadow frustum's. The frustum
+   * has to stay wide for penumbra reasons that have nothing to do with where
+   * the trees are (see the floor in `Environment.ts`), so passing it here
+   * silences the gobo over ground that has no cast shadow on it at all.
+   * `across <= 0` means there is no cast shadow to defer to.
+   */
+  setCastFootprint(
+    centre: THREE.Vector3, sunDir: THREE.Vector3, across: number, along: number,
+  ): void;
   update(elapsed: number): void;
   dispose(): void;
 }
@@ -51,6 +66,9 @@ interface Patch {
   uGoboOffset: THREE.IUniform<THREE.Vector2>;
   uDriftScale: THREE.IUniform<number>;
   uSunAz: THREE.IUniform<THREE.Vector2>;
+  uCastCentre: THREE.IUniform<THREE.Vector2>;
+  /** x: half-extent across the sun, y: along it. Zero = no cast shadow. */
+  uCastHalf: THREE.IUniform<THREE.Vector2>;
   uShadeTint: THREE.IUniform<THREE.Color>;
   uKerbColor: THREE.IUniform<THREE.Color>;
   uVergeColor: THREE.IUniform<THREE.Color>;
@@ -76,6 +94,8 @@ function patchAsphalt(mat: THREE.MeshStandardMaterial, gobo: THREE.Texture): Pat
     uGoboOffset: { value: new THREE.Vector2(0.58, 0.21) },
     uDriftScale: { value: 1 / 210 },
     uSunAz: { value: new THREE.Vector2(-0.818, 0.575) },
+    uCastCentre: { value: new THREE.Vector2(0, 0) },
+    uCastHalf: { value: new THREE.Vector2(0, 0) },
     uShadeTint: { value: new THREE.Color(0.42, 0.46, 0.58) },
     uKerbColor: { value: new THREE.Color(0.08, 0.08, 0.08) },
     uVergeColor: { value: new THREE.Color(0.05, 0.06, 0.03) },
@@ -103,6 +123,8 @@ uniform float uGoboStrength;
 uniform vec2 uGoboOffset;
 uniform float uDriftScale;
 uniform vec2 uSunAz;
+uniform vec2 uCastCentre;
+uniform vec2 uCastHalf;
 uniform vec3 uShadeTint;
 uniform vec3 uKerbColor;
 uniform vec3 uVergeColor;
@@ -239,6 +261,53 @@ float audiShade = 0.0;
   // mostly in its own planting's shade.
   float bands = 1.0 - smoothstep(0.24, 0.44, abs(fract(s) - 0.5));
   float canopy = clamp(max(gb.b, bands * 0.9), 0.0, 1.0);
+
+  // …and then handed over, where the grove's own cast shadow falls.
+  //
+  // The gobo was painted on because the trees that shade this road could not
+  // be in the frustum. They are now, and where both are running they are the
+  // same shadow counted twice: a painted 40 % laid over a cast 65 % took the
+  // car two stops under, which is why the preset's dapple had to be cut to
+  // 0.45 and why the road it is still responsible for came back at a 1.35
+  // sun/shade ratio against the photograph's 2.9.
+  //
+  // So the two divide the ground between them instead of sharing it, and
+  // uCastHalf is the **shading rank's own shadow footprint**, not the
+  // shadow frustum's. Those are different by a factor of four across the
+  // sun's bearing and by twenty along it, and the previous round passed the
+  // frustum: it suppressed the gobo over sixty metres by a hundred and fifty,
+  // which is every pixel of road in this pose. Measured, that is most of the
+  // 15.1 -> 32.2 tone regression — not because the painted shade was missed,
+  // but because with the bands gone the road had no *lit* reference left in
+  // frame and the whole lower half of the histogram collapsed into one bucket.
+  //
+  // The frame is the sun's: lx runs across its bearing and ly along it, so
+  // the crossfade follows the band's long axis rather than a circle drawn
+  // around the car.
+  float handover = 1.0;
+  if (uCastHalf.x > 0.0) {
+    vec2 d = vGroundXZ - uCastCentre;
+    float lx = abs(dot(d, vec2(-uSunAz.y, uSunAz.x)));
+    float ly = abs(dot(d, uSunAz));
+    // Zero in the core, one outside — and the ramp starts inside the band
+    // rather than at its edge, because the shadow map's own penumbra is
+    // already softening the boundary from the other side and two ramps that
+    // meet exactly produce a visible seam. Measured on the plan view, a
+    // crossfade centred on the edge left a straight line across the road.
+    handover = max(smoothstep(0.55, 1.15, lx / uCastHalf.x),
+                   smoothstep(0.55, 1.15, ly / uCastHalf.y));
+  }
+  // What the gobo is standing in for differs on the two sides of that ramp,
+  // and this is the distinction that was missing. Inside the band it is
+  // standing in for nothing — the cast shadow is there. Outside it, it is
+  // standing in for the *same canopy* beyond the rank's reach, so it should
+  // carry that canopy's depth rather than the halved strength the preset had
+  // to adopt while the two were compounding: at 0.45 the paint took 40 % off
+  // the sun wherever it fell, so the road it owned could not exceed a 1.4:1
+  // sun/shade ratio however the texture was cut, against the photograph's
+  // 2.2–2.9:1. Coverage and opacity are different quantities and multiplying
+  // them into one number is what limited it to a dimmer.
+  float deferring = uCastHalf.x > 0.0 ? handover : 0.0;
   // Channel g is what gets *through* a crown: the leaf, fleck and twig
   // structure that turns a shadow into dapple.
   float lit = mix(1.0, gb.g, canopy);
@@ -246,7 +315,23 @@ float audiShade = 0.0;
   // always won where it was darker and it carries no leaf detail at that
   // scale — so the fine structure that makes dapple read as dapple was being
   // replaced by a smooth blob over most of the near field.
-  float shadeAmt = (1.0 - lit) * uGoboStrength;
+  //
+  // The deferring term above carries the strength back up over the same ramp the
+  // handover comes in on, so the two are one crossfade rather than two: the
+  // gobo arrives at full canopy depth exactly where it stops overlapping the
+  // cast band. The doubling is the thing to delete the day the preset's
+  // dapple goes back to 0.9 — and where there is no cast shadow at all to
+  // defer to, coverage and opacity stay conflated exactly as they were,
+  // because the four presets in that position are calibrated on it.
+  float cover = mix(uGoboStrength, min(1.0, uGoboStrength * 2.0), deferring);
+  float shadeAmt = (1.0 - lit) * cover * handover;
+  // Not attempted twice: giving the band back the gobo's *fine* channel, on
+  // the reasoning that the shadow map owns the coverage and its sub-texel
+  // holes cannot own the grain. The road beside the car is smoother than the
+  // photograph — residual 6.8 % against 9.8 % — and that term is the obvious
+  // way to close it. It does not: swept 0 to 1.4x it moved the residual by
+  // 0.3 of a point, because the gobo's leaf channel only has amplitude
+  // *inside* its own crown mask and the mask is low over the band.
   // Only a hue filter here — light that has come through leaves is greener.
   // The *depth* of the shade is not an albedo change and must not be done as
   // one: darkening the albedo scales the sun and the sky together, which is a
@@ -292,7 +377,7 @@ reflectedLight.indirectSpecular *= 1.0 - 0.24 * audiShade;`,
       );
   };
   // Force a fresh program: onBeforeCompile is keyed on the material's cache key.
-  mat.customProgramCacheKey = () => 'audi-asphalt-v9';
+  mat.customProgramCacheKey = () => 'audi-asphalt-v11';
   return u;
 }
 
@@ -468,6 +553,12 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
   return {
     group,
     apply,
+    setCastFootprint(centre, sunDir, across, along) {
+      asphalt.patch.uCastCentre.value.set(centre.x, centre.z);
+      const azLen = Math.hypot(sunDir.x, sunDir.z) || 1e-3;
+      asphalt.patch.uSunAz.value.set(sunDir.x / azLen, sunDir.z / azLen);
+      asphalt.patch.uCastHalf.value.set(across, along);
+    },
     update: () => {},
     dispose() {
       maps.dispose();

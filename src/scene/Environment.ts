@@ -83,6 +83,83 @@ const SHADOW_BIAS_RANGE = 12;
 const BASE_SHADOW_BIAS = -0.00008;
 
 /**
+ * Lateral half-extent floor on the sun's frustum, metres — see `fitSunShadow`.
+ *
+ * Wide only at a sun low enough for the planting to be up-sun of the subject
+ * rather than on top of it — the same gate `backdrop` uses to decide whether
+ * to stand its shading rank up at all, and for the same reason.
+ *
+ * ±30 m puts a texel at 14.6 mm and `PCFSoftShadowMap`'s fixed ±2-texel
+ * kernel at 59 mm, which is about the penumbra the sun's own 0.53° disc puts
+ * on the car's contact shadow at this elevation.
+ *
+ * It is **not** independent of `uLeafBase`, and that is worth knowing before
+ * anyone sweeps one of them alone. The canopy's holes are deliberately cut at
+ * or below one texel, so how many of them the depth pass resolves — and
+ * therefore how much sun gets through — moves with the texel size. Measured,
+ * the same cut at ±16 passes noticeably more light than at ±30: bumper 77.9
+ * against 72.7, plate 222 against 202, tone 14.5 against 15.6. ±16 scores
+ * better and is still the wrong choice: at 31 mm the holes start printing
+ * rather than averaging, and the mottle that puts back on the valance is the
+ * exact defect this round exists to remove. So the frustum is set by the
+ * penumbra it owes the car's own contact edge, and the transmission is then
+ * set by `uLeafBase` against the photograph's bumper — in that order.
+ *
+ * Nothing here decides *what stands in shade*. That is wherever the rank's
+ * crowns are, which is a band about fourteen metres wide across the sun, and
+ * `backdrop.shadeFootprint()` is what reports it. A previous round passed
+ * this figure to the ground as the footprint and silenced the painted gobo
+ * over sixty metres by a hundred and fifty — the whole frame — which cost the
+ * tone profile fifteen points.
+ *
+ * ---
+ *
+ * How deep the grove's shade can go, and why it stops where it does — read
+ * this before reaching for `uLeafBase` in `backdrop.ts` again.
+ *
+ * `CRITIQUE-3` and commit 4cf9778 both conclude the car is in shade and both
+ * bracket it at the photograph's own 0.35 shade-to-sunfleck ratio. Delivered
+ * as a real cast shadow, that ratio scores **29.3** on the tone-profile gate
+ * against a hold of 15.8, and no amount of fill brings it back. Swept at the
+ * deep setting:
+ *
+ *     base 0.50 +        tone   median   below 40   above 224   plate
+ *     as shipped         29.3     62       27.3 %      2.7 %     180
+ *     proxyGain 4.6      21.5     80        9.4 %      5.2 %     193
+ *     proxyGain 6.0      22.1     97        4.4 %      7.0 %     203
+ *     sky.exposure 1.8   24.6     94        5.6 %      6.3 %     199
+ *     hemi 1.0           28.7     64       25.7 %      2.7 %     183
+ *     photograph            0     94.8     11.5 %     10.3 %     236
+ *
+ * Fill moves the median and the shadow tail and will not move the highlight
+ * tail: nothing tried puts more than 7 % of the car above 224 where the
+ * photograph has 10.3 %, and the licence plate — the calibrated neutral, and
+ * a large part of that tail in this pose — tops out near 203 in shade where
+ * the photograph's reads **236 in shade**. That is an albedo ceiling, not a
+ * lighting one. Our plate reads 226 in full sun; the photograph's is ten
+ * levels brighter than that with no sun on it at all.
+ *
+ * So the order of work is: raise the bright end first — the plate's
+ * reflectance in `src/materials`, and the headlamp lenses and chrome with it
+ * — and only then take the shade deeper. Doing it the other way round is
+ * what produced a 32.2 and a black car. Not tried and worth trying: the
+ * photograph's plate may simply be retroreflective sheeting, which returns
+ * the camera's own axis and is not a Lambertian albedo at all.
+ *
+ * Also disproved this round: that `canopy: 1.0` now double-counts, the
+ * overhead canopy being redundant once the shade is cast for real. It does
+ * not. Cutting it to 0.5 raises the median but takes dRGB from 36.6 to 76.9
+ * — the bonnet stops mirroring a broken canopy and starts mirroring a bright
+ * warm sky, which is the one thing the paint's colour cannot survive. Leave
+ * it at 1.0: what is overhead and what is up-sun are different questions and
+ * the photograph answers them differently.
+ */
+function shadowFloorFor(p: EnvPreset, sunDir: THREE.Vector3): number {
+  const lowSun = p.sunShadow && p.ground !== 'studio' && sunDir.y > 0.06 && sunDir.y < 0.45;
+  return lowSun ? 30 : 16;
+}
+
+/**
  * Size the sun's orthographic shadow frustum to the subject, the patch of road
  * its shadow falls on, and the column of air up-sun of both that whatever is
  * shading it has to be standing in. Anything looser spends shadow texels on
@@ -93,7 +170,9 @@ const BASE_SHADOW_BIAS = -0.00008;
  * occluder that shadows the car is by definition at the car's own light-space
  * x and y — so the 4096² stays where it was and the texel size does not move.
  */
-function fitSunShadow(light: THREE.DirectionalLight, sunDir: THREE.Vector3, box: THREE.Box3): void {
+function fitSunShadow(
+  light: THREE.DirectionalLight, sunDir: THREE.Vector3, box: THREE.Box3, floor: number,
+): void {
   const centre = box.getCenter(new THREE.Vector3());
   const pts: THREE.Vector3[] = [];
   for (let i = 0; i < 8; i++) {
@@ -144,13 +223,24 @@ function fitSunShadow(light: THREE.DirectionalLight, sunDir: THREE.Vector3, box:
   // metres puts a texel at 7.8 mm and the kernel at 31 mm, which is about
   // where the car's own contact edge should sit, and it is enough to start
   // averaging the canopy's speckle into shade rather than camouflage.
-  const FLOOR = 16;
+  //
+  // `floor` is that number, and it is a preset's call rather than a constant
+  // because what it is worth depends on what is casting. Under a canopy the
+  // leaf-scale gaps have to be averaged into a level rather than printed, so
+  // wider is better up to the point where the car's own contact edge goes
+  // soft. At a high sun there is no canopy shadow to soften and the only
+  // thing a wide frustum does is blur that edge, which at noon should be
+  // nearly hard.
+  //
+  // It is *not* a statement about how much ground is shaded. That is decided
+  // by where the crowns are, and it is reported separately — see
+  // `pushCastFootprint`.
   const cx = (cam.left + cam.right) * 0.5;
   const cy = (cam.bottom + cam.top) * 0.5;
-  cam.left = Math.min(cam.left, cx - FLOOR);
-  cam.right = Math.max(cam.right, cx + FLOOR);
-  cam.bottom = Math.min(cam.bottom, cy - FLOOR);
-  cam.top = Math.max(cam.top, cy + FLOOR);
+  cam.left = Math.min(cam.left, cx - floor);
+  cam.right = Math.max(cam.right, cx + floor);
+  cam.bottom = Math.min(cam.bottom, cy - floor);
+  cam.top = Math.max(cam.top, cy + floor);
   // View space looks down −z, so the near plane is the *largest* z.
   cam.near = Math.max(0.1, -hi.z - pad - SHADOW_REACH);
   cam.far = -lo.z + pad;
@@ -251,10 +341,23 @@ export async function buildEnvironment(
   let preset: EnvPreset = resolvePreset(DEFAULT_PRESET);
   let revision = 0;
   let bounds = specBounds();
+  let shadowFloor = 16;
+  /** Probe only: pin the frustum floor while sweeping it. */
+  let floorOverride: number | null = null;
   let frame = 0;
   let boundsAge = 999;
 
   const tmpColor = new THREE.Color();
+  const castCentre = new THREE.Vector3();
+  /**
+   * Hand the ground the shading rank's shadow footprint. Called after every
+   * `backdrop.apply` and after every bounds change, because the footprint
+   * depends on where the rank stands and the crossfade is centred on the car.
+   */
+  const pushCastFootprint = (): void => {
+    const fp = backdrop.shadeFootprint();
+    ground.setCastFootprint(castCentre, sunDirection, fp?.across ?? 0, fp?.along ?? 0);
+  };
   const hideForCapture: THREE.Object3D[] = [dome, ground.group, contact.mesh, backdrop.group];
   /** Last car pose the occlusion pool was captured for; NaN forces a capture. */
   let poolSig = NaN;
@@ -270,7 +373,8 @@ export async function buildEnvironment(
     sun.intensity = p.sunIntensity;
     sun.castShadow = p.sunShadow;
     sun.shadow.radius = p.sunShadowRadius;
-    fitSunShadow(sun, sunDirection, bounds);
+    shadowFloor = floorOverride ?? shadowFloorFor(p, sunDirection);
+    fitSunShadow(sun, sunDirection, bounds, shadowFloor);
 
     hemi.color.setHex(p.hemi.sky);
     hemi.groundColor.setHex(p.hemi.ground);
@@ -333,7 +437,13 @@ export async function buildEnvironment(
     scene.environmentIntensity = p.envIntensity;
 
     ground.apply(p);
+    // `backdrop` first, then the ground: the footprint the gobo defers over
+    // is the shading rank's, and only the backdrop knows where it just stood
+    // the rank up. At a high sun there is no rank, the footprint is null, and
+    // the four presets calibrated on the painted gobo alone are untouched.
     backdrop.apply(p, sunDirection);
+    bounds.getCenter(castCentre);
+    pushCastFootprint();
     contact.setStrength(p.contactStrength);
     ibl.bake(p, sunDirection);
     scene.environment = ibl.texture;
@@ -412,6 +522,68 @@ export async function buildEnvironment(
     return s;
   };
 
+  /**
+   * Probe surface, alongside `__AUDI` and `__AUDI_MAT`.
+   *
+   * "Is this patch of ground standing in the sun?" is the question the last
+   * two review rounds turned on, and there was no way to ask it: the answer
+   * had to be inferred from the car's own colour, and it was inferred wrong
+   * once in each direction. `ab()` re-applies the current preset with fields
+   * overridden, so the painted gobo and the real cast shadow can be separated
+   * by rendering the same frame twice — which is the only honest way to find
+   * out which of them is doing the work. It does not write to the preset, so
+   * nothing leaks into the four other streams that read the same object.
+   */
+  (globalThis as unknown as { __AUDI_ENV: unknown }).__AUDI_ENV = {
+    info: () => ({
+      preset: preset.name,
+      sun: sunDirection.toArray().map((v) => Math.round(v * 1000) / 1000),
+      elevationDeg: Math.round(Math.asin(sunDirection.y) * 57.2958 * 100) / 100,
+      sunIntensity: sun.intensity,
+      shadow: {
+        left: sun.shadow.camera.left, right: sun.shadow.camera.right,
+        bottom: sun.shadow.camera.bottom, top: sun.shadow.camera.top,
+        near: sun.shadow.camera.near, far: sun.shadow.camera.far,
+        bias: sun.shadow.bias,
+        texelMm: Math.round(
+          ((sun.shadow.camera.right - sun.shadow.camera.left) / QUALITY.shadowMapSize) * 1e5,
+        ) / 100,
+      },
+      bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() },
+      skyParams: preset.sky,
+      grade: preset.grade,
+      canopyCasters: backdrop.casterCount(),
+    }),
+    ab: (patch: Record<string, unknown>) => {
+      applyPreset({ ...preset, ...patch } as EnvPreset);
+      return preset.name;
+    },
+    cast: (on: boolean) => backdrop.setCasting(on),
+    cut: (c: { freq?: number; base?: number; rim?: number }) => {
+      const r = backdrop.setDepthCut(c);
+      // The post chain accumulates until something moves, and a shadow map
+      // that changes under a stationary camera moves nothing — so without
+      // this the sweep reads a converged buffer of the *previous* setting.
+      // Same event `Post.ts` already listens for, and the same trap that
+      // once made the paint picker look one click behind.
+      globalThis.dispatchEvent(new Event('audi:materials-dirty'));
+      return r;
+    },
+    floor: (m: number | null) => {
+      floorOverride = m;
+      applyPreset(preset);
+      return shadowFloor;
+    },
+    /** Scale the shading row's pitch across the sun, and re-hand the ground. */
+    band: (s: number) => {
+      backdrop.setSpread(s);
+      applyPreset(preset);
+      return backdrop.shadeFootprint();
+    },
+    footprint: () => backdrop.shadeFootprint(),
+    reset: () => applyPreset(PRESETS[preset.name] ?? preset),
+  };
+
   return {
     envMap: ibl.texture,
     sunDirection,
@@ -442,8 +614,10 @@ export async function buildEnvironment(
         const before = bounds.clone();
         measureBounds();
         if (!before.equals(bounds)) {
-          if (preset.sunShadow) fitSunShadow(sun, sunDirection, bounds);
+          if (preset.sunShadow) fitSunShadow(sun, sunDirection, bounds, shadowFloor);
           bounds.getCenter(centre);
+          castCentre.copy(centre);
+          pushCastFootprint();
           const size = bounds.getSize(new THREE.Vector3());
           contact.fit(centre, Math.max(size.x, size.z) * 0.62 + 0.8);
         }
