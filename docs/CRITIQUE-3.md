@@ -53,12 +53,38 @@ panel is the definition of a stain.
 none.** Pavement under the canopy measures sun/shade 2.91 with residual σ 25.4 %;
 the render's road manages 1.25–1.56 and 0.8–1.6 %. **17× too flat.**
 
-And the premise itself is wrong. The road *beside the car* in the photograph is
-flat to 1.9 % with a 1.35 spread, while pavement twenty metres away under the
-same trees is at 25.4 % and 2.91. `presets.ts` states the premise the canopy
-work was built on — *"the car is in the planting's shade with the sun flecking
-the pavement"* — and the frame says **the car is standing in open, unbroken
-light**.
+And the premise itself is wrong — but **not in the direction this round
+claimed**, and the correction matters.
+
+The measurement stands: the road beside the car is flat to 1.9 % with a 1.35
+spread, while pavement twenty metres away under the same trees is at 25.4 %
+and 2.91. The *inference* does not. Flat means unbroken; it does not mean
+sunlit. Measured in the same white-balanced space, colour settles it, because
+in this photograph sun and shade have opposite casts:
+
+| | level | B − R |
+|---|---|---|
+| pavement sunfleck (p85) | 147.2 | **−52.7** warm |
+| pavement shade (p15) | 50.6 | **+4.1** neutral |
+| road beside the car | 107.2 | **−2.5** |
+| road in the foreground right | 103.9 | **−6.0** |
+| road under the front bumper | 63.4 | **+10.3** |
+| woman's skirt, camera-right face | 219.5 | **−1.1** |
+
+The ground around the car carries the *shade* signature, not the sunfleck one,
+and so does the white skirt of a person leaning on it. That is the same
+argument the white balance already made: the balance was derived from the
+licence plate, so anything sharing the plate's illumination reads neutral —
+and sunlit concrete twenty metres away reads **fifty levels warm**. A neutral
+derived from a sunlit card cannot do that.
+
+**So the car and the people are in shade, and the sunflecks are elsewhere in
+the frame.** `presets.ts`'s premise was right. What is wrong is that our car,
+standing in that premise, still receives the full key: scaling the key alone
+to the photograph's own 0.35 shade ratio takes dRGB 38.8 → 21.4 and the shaded
+plastics from B−R −12.5 to −1.2. The fix is a real cast shadow over the car
+from the grove, which keeps the road's sunflecks; cutting `sunIntensity` would
+take those with it.
 
 ## 1. The key is ~3.5× too weak against the fill
 
@@ -80,7 +106,21 @@ against the photograph's 27–30 at matched scale, and the histogram piles **30 
 of the car into one 32-level band** while missing both ends. Not a car that is
 too dark or too light — a car shot with a 0.5 : 1 key.
 
-## 2. The fill is orange and comes from underneath
+## 2. The fill is orange and comes from underneath — `DISPROVED as the cause`
+
+The light-rig stream A/B'd it: switching `env:bounce` off changes the shaded
+bumper by nothing either way (87, B−R −11.9 both), and the front door and
+bonnet by nothing. Its entire footprint is a thin band on the rub strip, arch
+lips and rear valance — mean 0.53 of a level over the whole `side` frame. It
+was cut anyway, because it is an orange rim the photograph has no trace of and
+it double-counts a road bounce the cubemap already carries. But the 31-level
+hue error is direct sun on a car that should be in shade, not this light.
+
+Worth someone's attention separately: goldenhour's `bounce.dir` has a positive
+y and the other four presets have negative — four of the five "bounce" lights
+shine *downward*, which is a second key from above, not a bounce.
+
+### As originally reported
 
 `env:bounce` is a DirectionalLight at intensity **2.2**, colour `0xd4a173`,
 direction `[0.3, 0.55, 0.62]` — *pointed up* — against a key of 6.3. A
