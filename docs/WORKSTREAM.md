@@ -154,3 +154,15 @@ every stream running at once, not per-stream. Two streams both wrote
 - Nothing in a real car is a perfectly sharp edge. Every visible edge gets a
   radius (`QUALITY.edgeRadius`). This single habit does more for realism than
   any texture.
+- **Relief is only drawn where a vertex lands in it.** A 22 mm stitch trough on
+  a 13 mm station pitch needs a station *inside* the trough, and authoring the
+  seam at a parametric `v` does not make one: a seam at v 0.755 on a 44-station
+  loft falls between rows 33 and 34, so the deepest point of every stitch line
+  in the car was a place with no vertex in it. Snap features to the nearest
+  station or ring before evaluating them. The same trap explains relief that
+  "does not show up" at any amplitude.
+- **A texture authored in object space has a physical pitch — do not rescale it
+  per part.** The cabin weave is 620 yarns/m of object-space position, i.e. a
+  1.6 mm yarn, which is what a real cloth has. If one part reads as sackcloth
+  and another as fine cloth, the parts are the wrong size or the wrong material,
+  not the texture.
