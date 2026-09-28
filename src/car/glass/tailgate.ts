@@ -40,8 +40,11 @@
  * Both edges are hardpoints now. The sill is `HP.glass.tailgateGlassBottomY`,
  * raised 48 mm to 1.010: below 0.985 it was a backlight sill under `HP.beltY`,
  * and it left the body only 42 mm of painted band above the lamps to carry
- * `HP.rear.badgeY`. The body's `tgFaceUpper` rail now runs 0.920 → 1.010, so
- * the band is 90 mm and the scripts sit on sheet metal.
+ * `HP.rear.badgeY`. That sill is now SETTLED — 994 mm measured against 1010
+ * built. The body's `tgFaceUpper` rail runs `lampTopY` → the sill, which the
+ * re-derived elevation made 0.888 → 1.010 (it was 0.920 → 1.010), so the
+ * band-plus-strip stack is 122 mm against 107 measured and the scripts sit on
+ * sheet metal.
  *
  * The width is `HP.glass.tailgateGlassHalfW` — see `HALF_W`.
  *
@@ -73,11 +76,21 @@ export const TG_BOTTOM_Y = HP.glass.tailgateGlassBottomY;
  * between features in the same plane of the rear photograph — backlight
  * aperture against a taillamp band whose ends coincide with the body silhouette
  * — the true half-width is 0.710–0.717, and the body has since narrowed the
- * tail to match. The two no longer fight: `rearHalfWidth(1.010)` is 0.789, so
- * the hardpoint leaves a 77 mm painted reveal at the sill against the 82 mm
- * frame the body carries above the roll-over. Deriving the margin is therefore
- * pointless as well as fragile — the hardpoint *is* the margin, and it is the
- * number the photograph was measured for.
+ * tail to match. Deriving the margin is therefore pointless as well as
+ * fragile — the hardpoint *is* the margin, and it is the number the
+ * photograph was measured for.
+ *
+ * ⚠ The RATIO survived the re-derivation; the ABSOLUTE did not. 0.843 × the
+ * old `lampOuterX` 0.850 is 0.717; 0.843 × the corrected 0.750 is **0.632**,
+ * and measuring the aperture directly on `bat_rear_straight_b.jpg` at the
+ * corrected 1.324 mm/px gives 946 px across at the sill row and 965 at the
+ * frit's bottom — **0.626 to 0.639**. So the knock-on `HP.glass`'s comment
+ * records is confirmed by direct measurement and not only by inheritance.
+ * It is a hardpoint, so it is reported rather than changed here; and it
+ * must not be applied on its own. `rearHalfWidth(1.010)` is 0.82 on the
+ * built body against 0.688 measured on the photograph, so narrowing the
+ * glass without narrowing the tail turns a 56 mm painted reveal into a
+ * 190 mm one and the backlight reads as a letterbox.
  */
 const HALF_W: number = HP.glass.tailgateGlassHalfW;
 

@@ -38,7 +38,9 @@ const R = HP.rear;
 /**
  * The hole in the tailgate's lower face, as `body.ts` cuts it: lamp to lamp in
  * width, from 20 mm above the tailgate's bottom shutline (so that edge
- * survives) up to the top of the lamp. 330 × 248 mm about y 0.796.
+ * survives) up to the top of the lamp. 304 × 216 mm about y 0.780 since the
+ * rear elevation was re-derived (`lampInnerX` 0.165 → 0.152, `lampTopY`
+ * 0.920 → 0.888); it was 330 × 248 about 0.796.
  *
  * Mirrored here rather than imported because `body.ts` keeps the two y limits
  * local. Everything below is sized to out-cover it, so if that cut moves these
@@ -63,9 +65,10 @@ const CENTER_Y = (APERTURE.loY + APERTURE.hiY) / 2;
 const HALF_W = Math.max(APERTURE.halfW + 0.0175, PLATE.widthM / 2 + 0.030);
 /**
  * Panel half-height: 60 mm of ribbing above and below the plate per `US-R`,
- * and never less than 12 mm of over-cover on the aperture. As built the two
- * agree at 136 mm, which leaves 48 mm of ribbing showing through the hole
- * above and below the plate — see the stream report on growing the aperture.
+ * and never less than 12 mm of over-cover on the aperture. The `US-R` term
+ * governs now at 136 mm — the aperture shrank to 216 mm when `lampTopY` came
+ * down — leaving 32 mm of ribbing showing through the hole above and below
+ * the plate, which is what the photograph shows.
  */
 const HALF_H = Math.max((APERTURE.hiY - APERTURE.loY) / 2 + 0.012, PLATE.heightM / 2 + 0.060);
 
@@ -78,9 +81,10 @@ const HALF_H = Math.max((APERTURE.hiY - APERTURE.loY) / 2 + 0.012, PLATE.heightM
  * the built scene: crest 12.4, plate field 5.0, characters 1.5.
  *
  * The rib field out-covers the aperture on its own (±173.5 mm against the
- * hole's ±165; y 0.6665…0.9265 against 0.672…0.920), so it is the RIBS the eye
- * reads as the floor of the recess. The slab behind them is a backstop for
- * oblique angles, and is never seen head-on.
+ * hole's ±152; y 0.644…0.916 against 0.672…0.888 — measured on the built
+ * scene, not assumed), so it is the RIBS the eye reads as the floor of the
+ * recess. The slab behind them is a backstop for oblique angles, and is never
+ * seen head-on.
  *
  * Before the aperture existed this panel was applied *on top of* a solid
  * tailgate, and these numbers were the other way round — a pocket cut relative

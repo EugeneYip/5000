@@ -24,15 +24,19 @@ import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import { LIGHTS, QUALITY } from '@/spec';
 import type { BuildContext } from '@/types';
+import { rearFaceZ, rearHalfWidth } from './bodyref';
 import {
   at, clamp, framesXZ, lathe, lerp, merge, mesh, offsetPolyline, profileStrip,
   roundedBox, smoothstep, sweep, type Frame, type Pt,
 } from './util';
 
 /**
- * Plan-form of the moulding, as (half-width, distance back from the face) —
- * flat across the middle, then wrapping hard round the corner and running aft
- * to die into the wing just ahead of the wheel arch.
+ * Plan-form of the NOSE moulding, as (half-width, distance back from the
+ * face) — flat across the middle, then wrapping hard round the corner and
+ * running aft to die into the wing just ahead of the wheel arch.
+ *
+ * ⚠ This is the nose's plan and only the nose's. It was used for the tail too
+ * and the tail is a completely different shape: see `tailPlan`.
  */
 const PLAN: ReadonlyArray<readonly [number, number]> = [
   [0.000, 0.000], [0.140, 0.0015], [0.280, 0.006], [0.400, 0.015],
@@ -66,6 +70,64 @@ function spine(faceZ: number, sign: 1 | -1, samples = 6): Array<[number, number]
   return [...left, ...half];
 }
 
+/**
+ * Plan-form of the TAIL moulding: the tail's own rear face, carried aft by the
+ * standoff `HP.rear.bumperZ` asks for at the centreline.
+ *
+ * The nose's `PLAN` was being swept at both ends of the car and the two
+ * plan-forms are nothing like each other. The nose falls away from the
+ * centreline almost at once — 30 mm by half-width 0.520 — while the tail's
+ * rear face is flat to |x| ≈ 0.55 and then wraps hard. Swept at the tail,
+ * `PLAN` put the moulding 38 mm forward of its own crown at x 0.569 where the
+ * body had moved 3 mm, so everything outboard of about half-width sat *behind*
+ * the sheet metal and `body.ts`'s `rearLower` occluded it. `__AUDI.pick`
+ * straight at the bumper returned `rearLower` first and `rearBumper` 16 mm
+ * behind it from |x| ≈ 0.5 outwards.
+ *
+ * It survived three reviews because the old moulding was 244 mm tall: the
+ * middle metre of it still read as a black bar and nobody asked why the ends
+ * faded. At the re-derived 113 mm there is not enough left to hide the fault.
+ *
+ * Built from `rearFaceZ` rather than written down, so the moulding wraps
+ * exactly where the body does and a change to the tail's section cannot leave
+ * it buried again.
+ */
+function tailPlan(midY: number, samples = 40): Array<[number, number]> {
+  // Constant along the span, and set by the hardpoint: at the centreline the
+  // crown lands on `HP.rear.bumperZ` exactly, as it did before.
+  const standoff = rearFaceZ(0, midY) - HP.rear.bumperZ;
+  const xEnd = rearHalfWidth(midY) - 0.006;
+  const half: Array<[number, number]> = [];
+  for (let i = 0; i <= samples; i++) {
+    const x = (xEnd * i) / samples;
+    // The last eighth of the span gives the standoff back, so the moulding
+    // dies into the quarter panel instead of ending in the silhouette.
+    const k = 1 - smoothstep(clamp((x / xEnd - 0.875) / 0.125, 0, 1));
+    half.push([x, rearFaceZ(x, midY) - standoff * k]);
+  }
+  const left = half.slice(1).reverse().map(([x, z]) => [-x, z] as [number, number]);
+  return [...left, ...half];
+}
+
+/**
+ * Height of the tail's bright cap strip.
+ *
+ * It was `HP.front.rubStripHeight`, 46 mm, because one `rubStrip` serves both
+ * ends of the car and only the nose had a figure. That is a hard-coded
+ * equivalent of a moved hardpoint: it did not move when
+ * `HP.rear.bumperTopY`/`bumperBottomY` cut the tail moulding from 244 mm to
+ * 113 mm, so the strip went from a fifth of the part to two-fifths of it and
+ * the render's tail acquired a chrome band the width of the car.
+ *
+ * On `bat_rear_straight_b.jpg` the bright line measures 8.5 px at x 1450 and
+ * 10 px at x 880 — 11 to 13 mm at 1.324 mm/px — against ~100 mm of black
+ * below it, and the two together are the 113 mm the hardpoints allow. The
+ * strip caps the moulding's top roll, so the dead-astern band is roughly
+ * `stripHeight` less the 12 mm of roll above the face: 24 mm here projects
+ * as ~12. `HP.rear` wants its own `rubStripHeight` — reported.
+ */
+const REAR_STRIP_HEIGHT = 0.024;
+
 /** 0 at the centreline, 1 at the very tip of the wrap. */
 function wrapK(x: number): number {
   return smoothstep(clamp((Math.abs(x) - 0.60) / 0.30, 0, 1));
@@ -78,6 +140,16 @@ export interface BumperSpec {
   /** +1 for the nose (the moulding faces +Z), −1 for the tail. */
   sign: 1 | -1;
   valanceBottomY: number;
+  /**
+   * Height of the bright cap strip down the moulding's top edge.
+   *
+   * Per end, because the two are not the same part and were sharing
+   * `HP.front.rubStripHeight`. 46 mm is a fifth of the nose's 246 mm moulding
+   * and two-fifths of the tail's re-derived 113 mm — see `REAR_STRIP_HEIGHT`.
+   */
+  stripHeight: number;
+  /** Plan-form, as (half-width, z). The nose's `PLAN` is not reusable here. */
+  plan: Array<[number, number]>;
 }
 
 /** How far the face falls back from its crown at height `y`. */
@@ -122,7 +194,7 @@ function section(s: BumperSpec, depth: number): Pt[] {
 }
 
 function buildMoulding(s: BumperSpec): { geo: THREE.BufferGeometry; frames: Frame[] } {
-  const pts = spine(s.faceZ, s.sign);
+  const pts = s.plan;
   const frames = framesXZ(pts, 0).map((f) => (s.sign > 0 ? f : { ...f, r: f.r.clone().negate() }));
   const geo = sweep(
     (j) => section(s, lerp(0.255, 0.062, wrapK(pts[j][0]))),
@@ -141,7 +213,7 @@ function rubStrip(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
     [-0.0125, t + 0.0050],
     [-0.0055, t + 0.0002],
     [-0.0032, t - 0.0062],
-    ...profileStrip(t - 0.013, t - HP.front.rubStripHeight + 0.004, 4, (y) => crown(s, y)),
+    ...profileStrip(t - 0.013, t - s.stripHeight + 0.004, 4, (y) => crown(s, y)),
   ];
   const lifted = offsetPolyline(along, -0.0017);
   return sweep(lifted, frames, { flip: s.sign > 0, uvScale: 0.06 });
@@ -184,6 +256,117 @@ function valance(s: BumperSpec, frames: Frame[], spinePts: Array<[number, number
   );
 }
 
+// ---------------------------------------------------------------------------
+// The rear apron
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the tail's apron stops being a face and turns under.
+ *
+ * Measured off `bat_rear_straight_b.jpg` on the taillamp band's own scale
+ * (`lampTopY`−`lampBottomY` = 184 mm over the 139 px between the two gasket
+ * minima, so 1.324 mm/px): body colour runs unbroken from the moulding's
+ * lower edge at y 905 px — 0.496, `HP.rear.bumperBottomY` to 1 mm — down to
+ * the underbody cut at y 1010–1020 px depending on station, i.e. 0.344 to
+ * 0.357. So the apron is **145 mm**, not the ~104 the old `bumperBottomY`
+ * 0.392 suggests: 0.392 is the *old* hardpoint, and there is no edge there.
+ * The face is one gently convex panel with a broad highlight across its
+ * middle and no crease anywhere in it. `HP.rear` has no hardpoint for the
+ * bottom edge — reported.
+ *
+ * Built at 0.340 rather than the measured 0.350, and that is deliberate:
+ * `body.ts` ends `rearLower` at 0.338, so a lip at 0.350 left 12 mm of the
+ * body's own bottom edge showing *under* it, and that edge faces astern and
+ * catches sky — a bright sliver exactly where the photograph is black. The
+ * apron therefore ends where the panel behind it does, 10 mm low.
+ */
+const APRON_KNEE_Y = 0.340;
+
+/** How far the apron's face stands proud of the painted tail behind it. */
+const APRON_PROUD = 0.009;
+/** …and how far its top and bottom edges are let in behind that tail. */
+const APRON_BURY = 0.026;
+
+/**
+ * The tail's body-coloured apron.
+ *
+ * `bumpers.ts` builds `bumperTopY`→`bumperBottomY` as the black moulding, and
+ * the re-derived hardpoints cut that from 244 mm to 113 mm. On the photograph
+ * the 131 mm that came off is not a gap: it is apron, in body colour, and it
+ * carries the lower third of the rear elevation. The crop at (380,600)–
+ * (1720,1100) reads, top to bottom, lamps / body colour and the plate recess /
+ * a bright strip / a *narrow* black moulding / a large body-coloured apron.
+ *
+ * `body.ts`'s `rearLower` does put paint across this band already, but as an
+ * unbroken face from 0.338 to the tailgate shutline with no edge anywhere in
+ * it, which is why the render's lower tail reads as one bland mass where the
+ * photograph has a lit apron over a shadowed undercut. So this is a part, not
+ * a region: 9 mm proud of that face, gently convex, with a defined lower lip
+ * at `APRON_KNEE_Y` whose underside faces the road.
+ *
+ * There is deliberately NO valance below it, unlike the nose. Two shapes were
+ * tried and both came out *brighter* than the bare gap they replaced: a
+ * convex roll down to `valanceBottomY` reads the horizon, and even at 76° off
+ * vertical it takes enough ground bounce to lift a 30 mm strip from L 45 to
+ * L 90 where the photograph is black. What the photograph actually shows
+ * under the apron's lip is the underbody in shadow, which is what is there.
+ *
+ * Conformed per point to `rearFaceZ` rather than swept at a constant depth —
+ * the tail face comes forward 47 mm over the half-span and another 29 mm over
+ * the apron's own height, and a section that ignored either would float off
+ * the body at the corners. Same construction as `spoiler.ts`'s black band.
+ */
+function rearApron(s: BumperSpec): THREE.BufferGeometry {
+  const top = s.bottomY;
+  const knee = APRON_KNEE_Y;
+  const midY = (top + knee) / 2;
+  // Just inside the silhouette, so the apron never becomes the body's edge.
+  const halfW = rearHalfWidth(midY) - 0.010;
+
+  const n = 48;
+  const xs: number[] = [];
+  const frames: Frame[] = [];
+  for (let i = 0; i <= n; i++) {
+    const x = lerp(-halfW, halfW, i / n);
+    xs.push(x);
+    frames.push({
+      o: new THREE.Vector3(x, midY, rearFaceZ(x, midY)),
+      r: new THREE.Vector3(0, 0, -1),
+      u: new THREE.Vector3(0, 1, 0),
+    });
+  }
+
+  // (absolute height, how far proud of the skin), walked top → bottom down the
+  // outer face and back along a buried return. Top → bottom and NOT flipped,
+  // for the reason spelled out in `spoiler.ts`: the winding follows the
+  // direction the section walks, and the same axes swept the other way round
+  // need the opposite setting.
+  const shape: Array<readonly [number, number]> = [
+    [top + 0.010, -APRON_BURY],
+    [top + 0.004, -0.004],
+    [top - 0.008, APRON_PROUD * 0.62],
+    [top - 0.024, APRON_PROUD * 0.92],
+    // Crown of the convex face, a little above mid-height: that is where the
+    // photograph puts the highlight band.
+    [lerp(top, knee, 0.42), APRON_PROUD],
+    [lerp(top, knee, 0.76), APRON_PROUD * 0.86],
+    [knee + 0.012, APRON_PROUD * 0.52],
+    [knee, APRON_PROUD * 0.18],
+    // The lip's underside: 22 mm of depth in 5 mm of height, so it faces the
+    // road and reads as the shadow line the photograph has here.
+    [knee - 0.005, -0.013],
+    [knee - 0.007, -APRON_BURY],
+  ];
+
+  const section = (j: number): Pt[] => {
+    const x = xs[j];
+    const z0 = rearFaceZ(x, midY);
+    return shape.map(([y, out]) => [z0 - rearFaceZ(x, y) + out, y - midY] as Pt);
+  };
+
+  return sweep(section, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.18 });
+}
+
 /** Frame nearest a given half-width, for hanging a marker or a towing eye on. */
 function frameAt(frames: Frame[], x: number): Frame {
   let best = frames[0];
@@ -215,12 +398,11 @@ export interface BumperResult {
 }
 
 function build(s: BumperSpec): BumperResult {
-  const pts = spine(s.faceZ, s.sign);
   const { geo, frames } = buildMoulding(s);
   return {
     moulding: geo,
     bright: rubStrip(s, frames),
-    valance: valance(s, frames, pts),
+    valance: s.sign > 0 ? valance(s, frames, s.plan) : rearApron(s),
     frames,
     spec: s,
   };
@@ -268,6 +450,8 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     bottomY: HP.front.bumperBottomY,
     sign: 1,
     valanceBottomY: HP.front.valanceBottomY,
+    stripHeight: HP.front.rubStripHeight,
+    plan: spine(HP.front.bumperZ, 1),
   };
   const rear: BumperSpec = {
     faceZ: HP.rear.bumperZ,
@@ -276,6 +460,8 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     sign: -1,
     // No rear valance figure is published; carry the front's drop across.
     valanceBottomY: HP.rear.bumperBottomY - (HP.front.bumperBottomY - HP.front.valanceBottomY),
+    stripHeight: REAR_STRIP_HEIGHT,
+    plan: tailPlan((HP.rear.bumperTopY + HP.rear.bumperBottomY) / 2),
   };
 
   const f = build(front);
@@ -321,6 +507,8 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
   // describes the bumper position and is no longer read by anything.
   group.add(mesh('rearBumper', merge(rearExtras), plastic));
   group.add(mesh('rearRubStrip', r.bright, strip));
+  // `rearApron`, not the front's `valance` — see the two functions. The name
+  // stays `rearValance` because other streams probe it by name.
   group.add(mesh('rearValance', r.valance, paint));
 
   void QUALITY;

@@ -49,6 +49,28 @@ export interface LensOptions {
   /** Moulded prism fluting on the inner face. */
   prismatic?: boolean;
   opacity?: number;
+  /**
+   * **Cat's-eye return.** How much brighter than a Lambertian surface of the
+   * same colour the *whole aperture* reads when the sun stands behind the
+   * camera. `0`, the default, adds no code to the shader and is what a lamp
+   * with no reflector behind it should use.
+   *
+   * This is the headlamp's equivalent of the licence plate's sheeting, and it
+   * is a different mechanism with the same signature. See `LENS_RETRO`.
+   */
+  retroGain?: number;
+  /** Cosine power of that return's lobe. See `LENS_RETRO`. */
+  retroLobe?: number;
+  /**
+   * Extra roughness applied to the **transmitted** image only.
+   *
+   * A fluted lens is a cylindrical-lens array: it spreads what is behind it
+   * across the aperture. Without this the bowl behind a clear lens arrives as
+   * a mirror image and the sun lands on it as a single hot lobe per chamber.
+   * Does not touch the surface's own specular, which is a moulded finish and
+   * is set by `roughness`.
+   */
+  spread?: number;
 }
 
 /** Acrylic. */
@@ -62,6 +84,8 @@ uniform vec4 uLensOptics;
 // x absorption passes  y bulk scatter  z facet roughness  w cross-prism ratio
 uniform vec4 uLensBody;
 uniform float uLensIor;
+// x cat's-eye gain  y its lobe power  z transmitted-image spread
+uniform vec3 uLensRetro;
 
 ${GLSL_LIB}
 ${GLSL_SURFACE}
@@ -408,6 +432,7 @@ vec3 audiLensSigma = -log(clamp(uLensColor, vec3(0.0015), vec3(0.999))) / max(au
 vec3 audiLensAbsorb = exp(-audiLensSigma * audiLensPath * uLensBody.x);
 
 vec3 audiLensGlint = vec3(0.0);
+vec3 audiLensRetro = vec3(0.0);
 // Scale factor handed to the transmission volume: true slab path, lengthened
 // again wherever the prism is cut deepest. The colour itself comes from the
 // attenuation over that distance, not from a tint on the surface.
@@ -469,10 +494,87 @@ const LENS_GLINT = /* glsl */ `
 }
 `;
 
+/**
+ * The cat's-eye return, spliced into the directional-light loop.
+ *
+ * ## Why a headlamp is a retroreflector, and why it is a flat block
+ *
+ * A paraboloid collimates whatever sits at its focus. Run that backwards:
+ * collimated light entering the aperture — the sun — converges on the focus,
+ * and in an H4 lamp the focus is *occupied*. The filament, its shield, the
+ * black-tipped envelope and the collar are all sitting there, and they
+ * scatter. Whatever leaves the focus is then re-collimated back out along the
+ * lamp's axis, i.e. back towards where it came from. Lens in front, mirror
+ * behind, scatterer between: that is the cat's-eye, the same construction as
+ * a road stud, and it is why walking towards a parked car with a torch lights
+ * its headlamps up.
+ *
+ * The consequence that matters here is not the brightness but the **shape**.
+ * Every point of the paraboloid maps to the *same* focus, so the return does
+ * not depend on where in the aperture you look: the lamp reads as one flat
+ * block, edge to edge, rather than as a mirror with the sun's image somewhere
+ * on it. Measured on the reference photograph across the lamp's whole width,
+ * 228-243 with no falloff at either end. A mirror bowl cannot do that — a
+ * mirror has one point whose normal bisects the sun and the eye, so it
+ * returns one hot lobe per chamber, which is exactly what this render did:
+ * 249 at two lobe centres, 218-226 in the troughs between and beside them.
+ *
+ * So this term is added flat across the aperture, and the lobes it replaces
+ * are taken down by `spread`.
+ *
+ * ## The divergence is broadened, as the plate's is, and for the same reason
+ *
+ * The cat's-eye's own divergence is set by the scatterer's size against the
+ * focal length: ~10 mm of bulb hardware at f = R²/4D ≈ 27 mm is a lobe some
+ * 10° wide. In the `photomatch` pose the sun stands **47°** off the view axis
+ * at the near lamp and **63°** at the far one, so at the true divergence this
+ * would be identically zero in the one frame it exists to reproduce. As with
+ * `materials/printed.ts`, `retroLobe` is a broadened stand-in and is a tuning
+ * parameter, not a photometric figure.
+ *
+ * Broadening it is less of a lie here than it is for sheeting, because the
+ * cat's-eye is not the only return path. The bowl, the shelf, the housing and
+ * the dividers are all vacuum-aluminised — `headlamp.ts` says why — so the
+ * lamp is also a partially-diffusing cavity of 88 % mirror, and a cavity
+ * returns light over a wide cone weighted towards the way it came in.
+ *
+ * ## Two cosines on the entrance angle
+ *
+ * One is the plain projected irradiance: this is added outside `RE_Direct`,
+ * so nothing else applies it. The second is the aperture's own vignetting —
+ * a 52 mm deep box seen through a 168 mm slot loses its far wall quickly as
+ * it turns away from the light, and the paraboloid stops re-collimating what
+ * it does collect.
+ *
+ * That pair is also what keeps the other presets out of this, which is the
+ * whole test of whether a retro term is honest: on a near-vertical lamp face
+ * `noon` and `overcast` stand at 70° of solar elevation, so the squared
+ * cosine is 3.2x smaller than at golden hour before the lobe is even asked.
+ *
+ * ## Tinted by the dye, not by a white Fresnel
+ *
+ * The return crosses the lens body twice — in, off the optic, out — which is
+ * exactly the two passes `uLensBody.x` already describes, so it is applied
+ * through `audiLensAbsorb` in `LENS_APPLY` like the glint and the internal
+ * reflection. That is deliberate and it is the reason this is not
+ * `specularIntensity`: a front-surface Fresnel term is untinted by
+ * construction, and buying level with it is what put white into the red
+ * taillamp and made the cluster read as switched on. An amber section returns
+ * amber light; a water-clear section returns the sun.
+ */
+const LENS_RETRO = /* glsl */ `
+{
+  float audiRetroObs = dot(geometryViewDir, directionalLight.direction);
+  float audiRetroEnt = max(dot(geometryNormal, directionalLight.direction), 0.0);
+  audiLensRetro += uLensRetro.x * pow(max(audiRetroObs, 0.0), uLensRetro.y)
+                 * audiRetroEnt * audiRetroEnt * RECIPROCAL_PI * directionalLight.color;
+}
+`;
+
 const LENS_APPLY = /* glsl */ `
 {
   float audiBlaze = max(audiTir, audiWall);
-  vec3 audiInternal = audiLensGlint;
+  vec3 audiInternal = audiLensGlint + audiLensRetro;
   #ifdef USE_ENVMAP
     // What a pixel holds once the flutes go sub-pixel is a *distribution* of
     // facet normals, not one of them. Surrendering the spread to roughness —
@@ -510,6 +612,9 @@ const LENS_APPLY = /* glsl */ `
  */
 export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhysicalMaterial {
   const prismatic = opts.prismatic === true;
+  const retroGain = Math.max(opts.retroGain ?? 0, 0);
+  const retroLobe = opts.retroLobe ?? 2;
+  const spread = Math.max(opts.spread ?? 0, 0);
   const tint = new THREE.Color().setHex(color, THREE.SRGBColorSpace);
 
   const uniforms = {
@@ -563,6 +668,7 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
     // eye: two, for the reflector return.
     uLensBody: { value: new THREE.Vector4(2.0, 0.09, 0.07, 0.64) },
     uLensIor: { value: LENS_IOR },
+    uLensRetro: { value: new THREE.Vector3(retroGain, retroLobe, spread) },
   };
 
   const material = new THREE.MeshPhysicalMaterial({
@@ -648,7 +754,11 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
   });
 
   extend(material, {
-    key: `audi-lens-${prismatic ? 'prism' : 'smooth'}-v5`,
+    // The retro and the spread are different *programs*, not different
+    // settings — each splices GLSL of its own — so they have to key apart or
+    // a headlamp and a taillamp would collapse onto one compiled program and
+    // wear each other's optics.
+    key: `audi-lens-${prismatic ? 'prism' : 'smooth'}${retroGain > 0 ? '-retro' : ''}${spread > 0 ? '-spread' : ''}-v6`,
     uniforms,
     defines: prismatic ? { AUDI_PRISMATIC: 1 } : undefined,
     expandChunks: ['lights_fragment_begin', 'transmission_fragment'],
@@ -661,7 +771,33 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
         replace: `$&\n${LENS_GLINT}`,
         all: true,
       },
+      // The sun only. `getDirectionalLightInfo` is the one call site with the
+      // unshadowed light struct and the geometry in scope at once, and it is
+      // reached exactly once, by the directional loop — spliced at `RE_Direct`
+      // instead, like the glint above, the lamp's own beam spotlight would
+      // sit a centimetre in front of its lens at `cosObs` 1.0 and the term
+      // would fire at full strength the moment the headlights were switched
+      // on, which is the one state it must never contribute to.
+      //
+      // Unshadowed for the reason `materials/printed.ts` sets out at length
+      // for the plate: what the cat's-eye returns is an integral over a broad
+      // cone about the *view* axis, and the shadow map answers a question
+      // about the sun's disc alone. The photograph settles it — its plate and
+      // its headlamp both read ~236 in the same shade.
+      ...(retroGain > 0 ? [{
+        find: 'getDirectionalLightInfo( directionalLight, directLight );',
+        replace: `$&\n${LENS_RETRO}`,
+      }] : []),
       { find: '#include <lights_fragment_end>', replace: `$&\n${LENS_APPLY}` },
+      // A fluted lens spreads what is behind it. Applied here rather than to
+      // `material.roughness` itself because the outer face's own sheen is a
+      // moulded finish and is measured; only the transmitted image is
+      // scattered. Safe at this point in the shader — `transmission_fragment`
+      // runs after all the lighting has been accumulated.
+      ...(spread > 0 ? [{
+        find: 'vec3 n = transformNormalByInverseViewMatrix( normal, viewMatrix );',
+        replace: '$&\n\tmaterial.roughness = min( 1.0, material.roughness + uLensRetro.z );',
+      }] : []),
       {
         // True slab path, plus the extra depth of a prism valley. A lens is
         // banded light-to-dark at prism pitch because of this, not because of
@@ -680,6 +816,10 @@ totalDiffuse += (irradiance + iblIrradiance) * RECIPROCAL_PI * audiLensAbsorb * 
       },
     ],
   });
+
+  // Only lenses whose program actually carries the splices, so a sweep that
+  // reports a change has made one.
+  if (retroGain > 0 || spread > 0) lensLive.push(uniforms.uLensRetro);
 
   return material;
 }
@@ -723,3 +863,35 @@ export function createEmissive(color: number, intensity: number): THREE.MeshStan
 
   return material;
 }
+
+/**
+ * Live cat's-eye uniforms, in the house style of `__AUDI_RETRO`:
+ *
+ *   __AUDI_LENS.read()                     gain, lobe and spread per lens
+ *   __AUDI_LENS.set(gain, lobe, spread)    sweep them live
+ *
+ * Here for the same reason the plate's is: these three are not independent of
+ * how deep the grove's shade is or of how bright the reflector bowl behind
+ * the lens comes out, and neither of those is this file's to set. Whoever
+ * moves either has to re-read the lamp against the photograph's 228-243, and
+ * without this that is a rebuild per sample.
+ *
+ * `set` announces `audi:materials-dirty` because it has to: the post chain's
+ * accumulation buffer only drops when something *moves*, and a uniform change
+ * moves nothing, so a sweep without it reads a blend of the previous fifteen
+ * frames at the old value.
+ */
+const lensLive: Array<THREE.IUniform<THREE.Vector3>> = [];
+
+(globalThis as Record<string, unknown>).__AUDI_LENS = {
+  read: () => lensLive.map((u) => ({ gain: u.value.x, lobe: u.value.y, spread: u.value.z })),
+  set: (gain: number, lobe?: number, spread?: number) => {
+    for (const u of lensLive) {
+      u.value.x = gain;
+      if (lobe !== undefined) u.value.y = lobe;
+      if (spread !== undefined) u.value.z = spread;
+    }
+    globalThis.dispatchEvent?.(new Event('audi:materials-dirty'));
+    return lensLive.length;
+  },
+};

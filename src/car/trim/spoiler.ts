@@ -37,9 +37,12 @@
  * the photograph. Air comes over the roof and *down* the backlight here, so
  * the leading edge is the upper one and the lip is the lower one.
  *
- * The 53 % break is itself a symptom: see the stream report on
- * `HP.glass.tailgateGlassBottomY`, which is ~50 mm too low and shortens the
- * whole backlight.
+ * The 53 % break was read as a symptom of `HP.glass.tailgateGlassBottomY`
+ * being ~50 mm low. It is not: that sill is SETTLED at 1.010 against 994
+ * measured. What actually shortens the backlight is the other end —
+ * `HP.glass.tailgateGlassTopY` 1.285 against ~1.350 measured, blocked by a
+ * `tailgateHingeY` that is itself ~25 mm low. Both are reported, not applied.
+ * Everything in this file is a fraction of the aperture, so it follows them.
  */
 
 import * as THREE from 'three';
@@ -185,16 +188,24 @@ function buildSpoiler(): THREE.BufferGeometry {
  *   | black band       | 539→564 px = 41 mm | 373→413 px = 44 mm |
  *   | painted strip    | 565→627 px = 98 mm | 414→502 px = 96 mm |
  *
- * So the real band is **42 mm** and the real painted strip **97 mm** — the
- * band is the SMALLER of the two, at 0.30 of the 139 mm between the backlight
- * and the lamp tops. `CRITIQUE-3.md` §4 has these the other way round (93 mm
- * of band over 83 mm of strip); neither figure reproduces on either frame.
+ * The band is the SMALLER of the two, at 0.30 of the gap between the
+ * backlight and the lamp tops. `CRITIQUE-3.md` §4 has these the other way
+ * round (93 mm of band over 83 mm of strip); neither figure reproduces on
+ * either frame.
  *
- * ⚠ The hardpoints leave only **90 mm** for a stack the photograph measures at
- * 139 mm, so both parts here are 35 % short in absolute terms however they are
- * split. Fixing that means raising `HP.glass.tailgateGlassBottomY` — see the
- * stream report. Holding the split as a fraction rather than a height is what
- * makes this file correct itself when that lands.
+ * Re-measured after the rear elevation was re-derived, on the corrected
+ * 1.324 mm/px (the lamp band's own 139 px for 184 mm) rather than the
+ * 1810-at-the-lamp-band scale the table above used: at x 780 px the clear
+ * glass ends at row 539, the band at 563 and the lamp gasket at 620, so the
+ * stack is **24 px of band over 57 px of strip = 32 mm over 75 mm**, a split
+ * of **0.296 / 0.704**. The 0.30 held here is right to half a percent.
+ *
+ * The 90-mm-versus-139 shortfall this note used to carry is gone: with
+ * `lampTopY` at 0.888 the hardpoints leave 122 mm against the 107 measured,
+ * so the band builds at 37 mm and the strip at 85 — 15 % long rather than
+ * 35 % short, and all of that residue is the 16 mm by which
+ * `tailgateGlassBottomY` 1.010 exceeds the 994 measured. Holding the split as
+ * a fraction is what made it self-correct.
  */
 const BAND_TOP_Y = HP.glass.tailgateGlassBottomY;
 const BAND_GAP = BAND_TOP_Y - HP.rear.lampTopY;

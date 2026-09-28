@@ -35,6 +35,8 @@ import {
 } from './shapes';
 import { FILAMENT, fluteHorizontal, type Glow, type GlowFactory } from './optics';
 import type { BeamGeometry } from './beam';
+import { audiMaterials } from '@/materials/library';
+import type { LensOptions } from '@/materials/lamp';
 
 const F = HP.front;
 const FACE = noseFaceZ;
@@ -52,6 +54,67 @@ const SEAL = 0.006;
 const BEZEL = 0.009;
 /** Acrylic body thickness. Matches the lens shader's own optical thickness. */
 const LENS_BODY = 0.0042;
+
+/**
+ * What makes the unlit lamp one flat sheet rather than two lobes with a seam.
+ *
+ * ## The lamp's *level* was already right. Its *shape* was not.
+ *
+ * Read on the tight glass rectangle, this render against the white-balanced
+ * photograph, before any of this:
+ *
+ *                       photo      render L    render R
+ *   mean                232.3       236.0       235.0
+ *   p90                 243.0       248.7       248.7
+ *   above 240           27.7 %      38.5 %      38.4 %
+ *   192-224             12.1 %       7.7 %      17.7 %
+ *
+ * So the aperture was not dark and did not want lifting — it was already a
+ * couple of levels *over*. What it had instead was the signature of a mirror:
+ * scanned across, the two chambers came out as two lobes peaking at 249 with
+ * **218-226 troughs** between and beside them, where the photograph runs
+ * 228-243 corner to corner with no falloff at either end. A mirror cannot do
+ * anything else — with the sun and the eye both effectively at infinity the
+ * half-vector is constant over the whole bowl, so exactly one point of a
+ * paraboloid is aimed right and the rest of the aperture is off-peak.
+ *
+ * `retroGain` is the one term that is flat across the aperture, because every
+ * point of a paraboloid maps to the same focus and the focus is what returns
+ * the light — see `LENS_RETRO` in `materials/lamp.ts` for the mechanism. So
+ * it is set to fill the troughs and no further: 0.5 takes the 192-224 share
+ * of the glass from 7.7/17.7 % to 3.4/5.2 % while moving `above 240` by less
+ * than two points.
+ *
+ * **It is deliberately small, and the sweep is why.** At 0.8 the glass goes
+ * to 238-240 and the amber corner to 177 against the photograph's 162; at
+ * 1.2, 239-242 and 183; at 2.2 the lamp is 242-247 and simply blown. The
+ * whole-car tone profile is flat across all of it — 15.4 before, 15.1-15.2
+ * anywhere in 0.4-0.8, 15.3 by 1.2 — so the *only* thing distinguishing
+ * these settings is the lamp's own numbers, and they say 0.5.
+ *
+ * `spread` is the fluted lens scattering the bowl's mirror image, which is
+ * the other half of the same physics and takes the lobe down rather than
+ * filling around it. It is held at 0.05 because past about 0.1 it stops being
+ * the lens and starts being the renderer: three's transmission is a
+ * screen-space buffer, so a wide blur on a 120 px lens pulls the dark grille
+ * and bumper in around the edges. At 0.22 that cost the glass 14 levels and
+ * dragged the *whole car's* median from 95 to 81 through the bloom pass.
+ *
+ * Neither figure belongs in `spec.ts`: they are not factory numbers. The
+ * model and the units are in `materials/lamp.ts`; the measurement is in
+ * `docs/REFERENCE-PHOTO.md`.
+ *
+ * Typed through `LensOptions` rather than written inline at the call because
+ * `src/types.ts` carries its own copy of the lens option list and that copy
+ * does not know about either option yet — the same stopgap `trim/plate.ts`
+ * uses for the sheeting, and it comes out when the contract catches up.
+ */
+const OPTIC: LensOptions = {
+  prismatic: true,
+  retroGain: 0.5,
+  retroLobe: 2,
+  spread: 0.05,
+};
 
 /**
  * The aperture the body pressing leaves for the lamp.
@@ -142,8 +205,9 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   // lengthen by half as much again. That is 12-15 % off the brightest element
   // on the car, to model a tint moulded acrylic does not have. The faint green
   // people see in a headlamp lens is soda-lime *glass*, and this one is PMMA.
-  const clearLens = ctx.materials.lens(0xffffff, { prismatic: true });
-  const amberLens = ctx.materials.lens(LIGHTS.indicatorColor, { prismatic: true });
+  const lenses = audiMaterials(ctx.materials);
+  const clearLens = lenses.lens(0xffffff, OPTIC);
+  const amberLens = lenses.lens(LIGHTS.indicatorColor, OPTIC);
   // A bulb envelope has to be OPAQUE. Three renders transmissive surfaces
   // against the opaque back buffer, so anything transparent inside the lens is
   // simply absent when you look through it — and the point of the whole

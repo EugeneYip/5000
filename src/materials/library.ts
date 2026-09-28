@@ -65,7 +65,7 @@ import {
   type DirtyMetalOptions, type CastIronOptions,
 } from './metals';
 import { createBlackTrim, createBumperPlastic, createRubber, type RubberOptions } from './trim';
-import { createLens, createEmissive } from './lamp';
+import { createLens, createEmissive, type LensOptions } from './lamp';
 import { createInteriorPlastic, createFabric, createCarpet } from './interior';
 import { createPrinted, type PrintedOptions } from './printed';
 
@@ -113,6 +113,14 @@ export interface AudiMaterialLibrary extends MaterialLibrary {
   caliperPaint(opts?: { color?: number; vertexColors?: boolean }): THREE.Material;
   /** Sintered brake friction material. */
   padFriction(opts?: { vertexColors?: boolean }): THREE.Material;
+  /**
+   * As `MaterialLibrary.lens`, plus the cat's-eye return and the fluted
+   * lens's spread of the image behind it. A headlamp is a mirror with a
+   * scatterer at its focus and a diffuser over the front; those two options
+   * are what make it read as one flat block of returned sun rather than as a
+   * bowl with the sun's image somewhere on it. See `materials/lamp.ts`.
+   */
+  lens(color: number, opts?: LensOptions): THREE.Material;
 }
 
 /** Widen the contract to what this module really returns. */
@@ -443,7 +451,15 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
     // come straight from `spec.ts`.
     lens: (color, o) => {
       record('lens', { color, ...o });
-      return shared(`lens:${hex(color)}:${o?.prismatic ? 'prism' : 'smooth'}:${o?.opacity ?? 1}`, () => createLens(color, o));
+      // The cat's-eye and the spread are different *programs* — `createLens`
+      // splices GLSL for each — so, exactly as with `printed`'s sheeting,
+      // two callers at different settings must not collapse onto one
+      // instance and wear each other's optics.
+      const key = [
+        'lens', hex(color), o?.prismatic ? 'prism' : 'smooth', (o?.opacity ?? 1).toFixed(2),
+        (o?.retroGain ?? 0).toFixed(2), (o?.retroLobe ?? 2).toFixed(1), (o?.spread ?? 0).toFixed(2),
+      ].join(':');
+      return shared(key, () => createLens(color, o));
     },
 
     reflector: () => shared('reflector', () => createReflector()),

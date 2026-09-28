@@ -14,9 +14,16 @@
  * `bat_rear_straight_b.jpg` the model designation is left of the tailgate
  * centreline, so it belongs at +X; the engine script is at −X. `HP.rear`'s
  * `badgeModelCenter` (+0.42) and `badgeAudiCenter` (−0.42) already say this,
- * and the photograph measures the `5000 CD` run's centre 264 px left of the
- * body centreline — +416 mm at that frame's 1.574 mm/px. So the hardpoint is
- * right to within 4 mm and both scripts build straight to it.
+ * and both scripts build straight to the hardpoint's X.
+ *
+ * ⚠ The SIDE is right; the MAGNITUDE is not, and it is a hardpoint so it is
+ * reported rather than worked round here. The 0.42 was read as "264 px left
+ * of the body centreline, +416 mm at that frame's 1.574 mm/px" — the same
+ * 1810-mm-at-the-lamp-band scale `MODEL_CAP` below now rejects. Re-measured
+ * on the corrected 1.324 mm/px the `5000 CD` run spans x 695→860 px, centre
+ * 777.5, which is 273 px from the body centreline at 1051 and therefore
+ * **+0.362 m**. `badgeModelCenter[0]` wants 0.36, not 0.42; 0.42 × 1.324 /
+ * 1.574 = 0.353, so the discrepancy is exactly the scale and nothing else.
  *
  * (Which physical flank that is follows `hardpoints.ts`: +X is the car's LEFT.
  * Nothing here depends on it — the placement is fixed by the photograph.)
@@ -71,25 +78,34 @@ function place(obj: THREE.Object3D, x: number, y: number, lift: number): void {
 /**
  * Cap height of the model script.
  *
- * Both dead-on frames give the same answer once each is scaled on its own body
- * width at the lamp band: 19.5 px at 1.574 mm/px and 26 px at 1.089 mm/px, so
- * **30 ± 2 mm**. `CRITIQUE-3.md` §5's 40 mm does not reproduce on either
- * frame; the badge was already the right height and the wrong *width*.
+ * ⚠ THE SCALE THIS WAS MEASURED ON WAS WRONG, and this is the hard-coded
+ * equivalent of a hardpoint that moved. It read **30 ± 2 mm** from 19.5 px on
+ * `bat_rear_straight_b.jpg` at 1.574 mm/px and 26 px on `bat_rear_straight`
+ * at 1.089 — and both of those mm/px came from "body width at the lamp band =
+ * 1810 mm", which is exactly the error `HP.rear.lampInnerX`'s comment records
+ * as the broken link in every earlier reading of this elevation. The tail
+ * does not reach 1810 anywhere near the lamps.
  *
- * Capped at 0.48 of the painted strip so it cannot crowd the band above it or
- * the lamps below. That cap is what actually binds today, because the strip is
- * 35 % short — see the stream report on `HP.glass.tailgateGlassBottomY`. The
- * photograph's own ratio is 0.295 (26 px of cap in an 88 px strip), which will
- * take over on its own once the strip is the right height.
+ * Rescaled on the corrected hardpoints, which cross-check in both axes: the
+ * lamp band measures 1136 px across between the outer gasket edges against
+ * `2 × lampOuterX` = 1500 mm (1.320 mm/px) and 139 px between the top and
+ * bottom gasket minima against `lampTopY − lampBottomY` = 184 mm (1.324),
+ * agreeing to 0.25 %. Re-measured on that scale the cap is 18 px on the first
+ * frame and 26 px on the second — **24 ± 2 mm**, not 30.
+ *
+ * Still capped at 0.48 of the painted strip, but that no longer binds: the
+ * strip is 85 mm now that `lampTopY` has come down, so the cap would have to
+ * exceed 41 mm before it did.
  */
-const MODEL_CAP = Math.min(0.0305, BADGE_STRIP_HEIGHT * 0.48);
+const MODEL_CAP = Math.min(0.025, BADGE_STRIP_HEIGHT * 0.48);
 
 /**
- * Four-ring outer diameter. Measured 31 px tall over a 95 px overall span on
- * `bat_rear_straight_b.jpg` at 1.574 mm/px — 49 mm and 150 mm. `rings.ts`
- * holds the canonical `spacing / diameter` = 0.769, so a 45 mm diameter lands
- * the overall span on 150 mm, one millimetre inside the measurement's own
- * noise on a 31 px feature.
+ * Four-ring outer diameter. Measured 101 px across the four and 33 px tall on
+ * `bat_rear_straight_b.jpg` at the corrected 1.324 mm/px — **134 mm and
+ * 42 mm**. (The 150/49 this used to carry is the same 1.574 mm/px error as
+ * `MODEL_CAP`.) `rings.ts` holds the canonical `spacing / diameter` = 0.769,
+ * so a 41 mm diameter lands the overall span on 135 mm, one millimetre inside
+ * the measurement's own noise on a 33 px feature.
  *
  * Expressed against the script's cap rather than absolutely, because **that
  * relationship is what the eye actually checks**: the photograph's rings stand

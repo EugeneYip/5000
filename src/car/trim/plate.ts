@@ -67,14 +67,32 @@ const LAYOUT = {
   bow: 0.0026,
 } as const;
 
-/**
- * Draft on the pressed flank. The roller only inks the top faces on a real
- * plate, but the flanks here are inked too (the graphic is dilated to match):
- * a white sliver appearing along one edge of a character because the paint and
- * the pressing disagreed by a texel is a far worse artefact than a flank that
- * is a shade too dark.
- */
+/** Draft on the pressed flank. */
 const EMBOSS_DRAFT = 0.0009;
+
+/**
+ * How far the printed graphic is grown past the pressed outline.
+ *
+ * **Only far enough to survive the trace, not far enough to ink the flanks.**
+ * A US plate is sheeted first, embossed second and roller-coated third, so
+ * the roller reaches the raised *top faces* and nothing else: every flank on
+ * a real plate is bare sheeting, and it is bright. That is a large part of
+ * why the characters on the reference photograph read thin and light — each
+ * one is a dark top face with a lit bevel round it, not a solid dark shape.
+ *
+ * This was `ceil(EMBOSS_DRAFT * PPM) + 1`, i.e. **1.19 mm a side**, chosen to
+ * cover the whole 0.9 mm draft so that a flank could never show a white
+ * sliver. It works, and it costs 2.4 mm of extra dark on every stroke and
+ * 2.4 mm on the border rib — measured against the white-balanced photograph,
+ * ink and half-tone cover 53 % of our character band against its 21 %.
+ *
+ * The registration it was actually guarding against is much smaller than the
+ * draft: `shapesFromMask` traces at `epsilon` 1.6 px, which at 6.7 px/mm is
+ * 0.24 mm of chord error, and that is the only disagreement the pressing and
+ * the paint can have. 0.3 mm covers it with margin and leaves the flank to
+ * the sheeting, where it belongs.
+ */
+const INK_OVERPRINT = 0.0003;
 
 /**
  * The sheeting. `retroGain` is in units of a Lambertian surface of the same
@@ -92,8 +110,21 @@ const EMBOSS_DRAFT = 0.0009;
  * They are also **not independent of how deep the grove's shade is**, which
  * is `src/scene`'s to set. Whoever takes the shade down next should re-read
  * the plate against 236 — `__AUDI_RETRO.set(gain, lobe)` sweeps it live.
+ *
+ * The gain was 1.2 until the overprint above came down. Thinning the ink took
+ * more of the plate's own area up to sheeting white, which the bloom pass then fed back
+ * onto the face: the clean face strip went 236.0 to 237.5 at an unchanged
+ * gain. So the gain comes back the other way, and what it is held to is the
+ * measurement rather than the gate.
+ *
+ * The clean face — a strip between the legend and the registration, no ink in
+ * it — now reads **mean 236.6** against the white-balanced photograph's
+ * **235.9**, sd 3.7 against 3.5. That is the number that matters: the white
+ * balance in `docs/REFERENCE-PHOTO.md` is *derived* from this surface, so the
+ * plate face is the one calibrated neutral in the frame and it is worth more
+ * than the two tenths of tone profile that pushing on to 1.2 would buy.
  */
-const RETRO_GAIN = 1.2;
+const RETRO_GAIN = 1.05;
 const RETRO_LOBE = 3;
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
@@ -211,7 +242,7 @@ function drawFace(run: Run): HTMLCanvasElement {
   ctx.fillRect(0, 0, TEX_W, TEX_H);
   ctx.restore();
 
-  const dilate = Math.ceil(EMBOSS_DRAFT * PPM) + 1;
+  const dilate = Math.max(1, Math.round(INK_OVERPRINT * PPM));
   ctx.fillStyle = INK;
   ctx.strokeStyle = INK;
   ctx.lineJoin = 'round';
