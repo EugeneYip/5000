@@ -86,8 +86,13 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   group.position.set(C[0], C[1], C[2]);
   // Tilt the wheel plane back from vertical; the column follows its normal.
   // Positive, which puts the top of the rim forward of the bottom, as a
-  // column rising from the rack does. (What is wrong here is not this angle
-  // but the local z of everything hung off it — see the stream report.)
+  // column rising from the rack does.
+  //
+  // So local +z runs forward and down, along the column towards the rack, and
+  // local −z is the face the driver looks at. Everything below is authored to
+  // that: pad, rings and slots at −z, shroud, stalks and ignition at +z. It
+  // was the other way round until this commit, which ran the shroud 284 mm
+  // back into the cabin and left the driver looking at the back of the wheel.
   group.rotation.x = HP.interior.steeringTiltDeg * D2R;
 
   const spin = new THREE.Group();
@@ -103,23 +108,25 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
 
   // Centre pad: a broad horizontal rounded rectangle filling the hub area.
   const pad: THREE.BufferGeometry[] = [];
+  // `th` runs backwards on both pad shells. They face −z, and negating z on
+  // its own is a reflection: it would leave them wound inside out.
   const padBody = surface(30, 10, true, (i, j, o) => {
     const v = j / 10;
-    const th = (i / 30) * TAU;
+    const th = -(i / 30) * TAU;
     const k = 3.0;
     const ux = Math.sign(Math.cos(th)) * Math.abs(Math.cos(th)) ** (2 / k);
     const uy = Math.sign(Math.sin(th)) * Math.abs(Math.sin(th)) ** (2 / k);
     const scale = Math.sin(Math.PI * (0.5 + v * 0.5)) ** 0.45;
-    o.set(ux * 0.105 * scale, uy * 0.0555 * scale, -0.018 + v * 0.040);
+    o.set(ux * 0.105 * scale, uy * 0.0555 * scale, 0.018 - v * 0.040);
   });
   pad.push(padBody);
   const padCap = surface(30, 4, true, (i, j, o) => {
-    const th = (i / 30) * TAU;
+    const th = -(i / 30) * TAU;
     const k = 3.0;
     const rr = 1 - (j / 4) ** 1.7;
     const ux = Math.sign(Math.cos(th)) * Math.abs(Math.cos(th)) ** (2 / k);
     const uy = Math.sign(Math.sin(th)) * Math.abs(Math.sin(th)) ** (2 / k);
-    o.set(ux * 0.105 * rr, uy * 0.0555 * rr, 0.022 + (1 - rr ** 2) * 0.004);
+    o.set(ux * 0.105 * rr, uy * 0.0555 * rr, -0.022 - (1 - rr ** 2) * 0.004);
   });
   pad.push(padCap);
   spin.add(mesh(merge(pad), padMat, 'hornPad'));
@@ -130,7 +137,7 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   const rsp = 0.0170;
   for (let i = 0; i < 4; i++) {
     const t = new THREE.TorusGeometry(rd / 2, 0.0016, 8, 26);
-    t.translate((i - 1.5) * rsp, 0.007, 0.0262);
+    t.translate((i - 1.5) * rsp, 0.007, -0.0262);
     rings.push(t);
   }
   spin.add(mesh(merge(rings), brightMat, 'hubRings'));
@@ -139,7 +146,7 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   const slots: THREE.BufferGeometry[] = [];
   for (let i = 0; i < 6; i++) {
     const s = slab(0.0088, 0.0125, 0.006, 0.0018, 1);
-    s.translate(-0.0335 + i * 0.0134, -0.016, 0.0235);
+    s.translate(-0.0335 + i * 0.0134, -0.016, -0.0235);
     slots.push(s);
   }
   spin.add(mesh(merge(slots), darkMat, 'hubSlots'));
@@ -148,11 +155,11 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   const col: THREE.BufferGeometry[] = [];
   const upper = cyl(0.0345, 0.0465, 0.155, 20, true);
   upper.rotateX(Math.PI / 2);
-  upper.translate(0, 0, -0.098);
+  upper.translate(0, 0, 0.098);
   col.push(upper);
   const lower = cyl(0.0470, 0.0540, 0.115, 20, true);
   lower.rotateX(Math.PI / 2);
-  lower.translate(0, -0.004, -0.228);
+  lower.translate(0, -0.004, 0.228);
   col.push(lower);
   group.add(mesh(merge(col), padMat, 'columnShroud'));
 
@@ -162,27 +169,35 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   // `sx` is the side the root is buried in the shroud on; the visible length
   // protrudes the *other* way. So sx -1 is the stalk the driver reaches to
   // their left, which on this car is outboard, toward +X.
+  //
+  // Lengths are set so the tips clear the horn pad. The pad is 105 mm to
+  // either side of the hub and the stalks sit almost on its horizontal
+  // centreline, where it is at its widest, so anything reaching less than
+  // that is behind it and invisible — which is what the old 118 mm stalk
+  // was, once it stopped sticking out of the wheel towards the driver. On
+  // `bat3_int_dash_steering.jpg` the stalk reaches very nearly to the inner
+  // edge of the rim; these stop 25-35 mm short of it (inner edge 0.161).
   const stalks: THREE.BufferGeometry[] = [];
   const stalk = (sx: number, sy: number, len: number, thick: number, droop: number): THREE.BufferGeometry => {
     const g = roundedBox(thick, thick * 0.82, len, thick * 0.4, 2, 3);
-    g.translate(0, 0, -len / 2);
-    g.rotateY(Math.sign(sx) * (Math.PI / 2 - 0.16));
+    g.translate(0, 0, len / 2);
+    g.rotateY(-Math.sign(sx) * (Math.PI / 2 - 0.16));
     g.rotateX(droop);
-    g.translate(sx * 0.040, sy, -0.062);
+    g.translate(sx * 0.040, sy, 0.062);
     return g;
   };
-  stalks.push(stalk(-1, -0.004, 0.118, 0.0175, 0.10));
-  stalks.push(stalk(1, -0.004, 0.112, 0.0175, 0.10));
-  stalks.push(stalk(-1, -0.036, 0.082, 0.0135, 0.22));
+  stalks.push(stalk(-1, -0.004, 0.180, 0.0175, 0.10));
+  stalks.push(stalk(1, -0.004, 0.166, 0.0175, 0.10));
+  stalks.push(stalk(-1, -0.036, 0.134, 0.0135, 0.22));
 
   // Ignition barrel: right of the column on a left-hand-drive Audi, so
   // inboard of the hub, toward the console — which is -X.
   const barrel = cyl(0.0205, 0.0225, 0.030, 18);
   barrel.rotateX(Math.PI / 2);
-  barrel.translate(-0.062, -0.014, -0.078);
+  barrel.translate(-0.062, -0.014, 0.078);
   stalks.push(barrel);
   const slot = slab(0.0125, 0.0035, 0.004, 0.001, 1);
-  slot.translate(-0.062, -0.014, -0.063);
+  slot.translate(-0.062, -0.014, 0.063);
   stalks.push(slot);
 
   // Stalks and barrel are the same moulding and both fixed to the column —
@@ -197,7 +212,18 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   return {
     group,
     update(dt: number, s: VehicleState) {
-      const want = (s.steerAngle / maxRoad) * maxRim;
+      // `spin` turns about the column axis, which is local +z: forward and
+      // down, away from the driver. A positive rotation about an axis that
+      // points away from you reads clockwise, and positive `steerAngle` is
+      // left, so left lock has to be negative here.
+      //
+      // This is a second, separate fault from the back-to-front z above, and
+      // correcting that does not correct this: moving the contents from +z to
+      // −z is a reflection in the z plane, which commutes with a rotation
+      // about z and so leaves the apparent direction exactly as it was. The
+      // rim and spokes — which are what you read the direction off — never
+      // moved at all.
+      const want = -(s.steerAngle / maxRoad) * maxRim;
       // The rim follows the rack through a little compliance, so it never
       // snaps between frames when the physics steps hard.
       shown += (want - shown) * (1 - Math.exp(-dt * 18));

@@ -87,7 +87,7 @@ export function buildDriveline(): Driveline {
     }
     // Oil filler, forward, and the breather to the airbox.
     cast.push(place(cyl(0.032, 0.036, 0.034, 14), { pos: [0.014, 0.840, coverZ + 0.212] }));
-    rubber.push(place(cyl(0.017, 0.017, 0.150, 10), { pos: [-0.082, 0.826, coverZ + 0.120], rot: [0, 0, 0.9] }));
+    rubber.push(place(cyl(0.017, 0.017, 0.150, 10), { pos: [0.082, 0.826, coverZ + 0.120], rot: [0, 0, -0.9] }));
   }
 
   // Timing belt cover at the front of the engine.
@@ -96,29 +96,36 @@ export function buildDriveline(): Driveline {
   // =========================================================================
   // Intake, on the left of the block; exhaust on the right
   // =========================================================================
+  // **+X is the car's LEFT** (frame note at the top of `hardpoints.ts`), so
+  // the intake is at +x and the exhaust at −x. Both were the other way round
+  // until this commit — authored while the package drawing still said "+X
+  // right" — which is the same error that put the tailpipe on the car's
+  // right. The heading above was the giveaway: it has always been correct and
+  // the code has always contradicted it.
+  //
   // Bosch CIS-E: a cast plenum with five runners, and the fuel distributor and
   // air sensor plate sitting above it.
-  cast.push(place(sqBox(0.110, 0.104, 0.500, 0.78, 14, 10), { pos: [-0.192, 0.742, 0.318] }));
+  cast.push(place(sqBox(0.110, 0.104, 0.500, 0.78, 14, 10), { pos: [0.192, 0.742, 0.318] }));
   for (let i = 0; i < 5; i++) {
     const z = CYL_1_Z - i * BORE_PITCH;
     cast.push(tube([
-      new THREE.Vector3(-0.186, 0.742, z),
-      new THREE.Vector3(-0.166, 0.762, z),
-      new THREE.Vector3(-0.118, 0.716, z),
+      new THREE.Vector3(0.186, 0.742, z),
+      new THREE.Vector3(0.166, 0.762, z),
+      new THREE.Vector3(0.118, 0.716, z),
     ], 0.0225, 8));
   }
-  cast.push(place(cyl(0.082, 0.076, 0.062, 18), { pos: [-0.212, 0.836, 0.452] }));
-  black.push(place(sqBox(0.230, 0.110, 0.240, 0.78, 14, 10), { pos: [-0.316, 0.842, 0.240] }));
-  rubber.push(place(cyl(0.040, 0.040, 0.150, 12), { pos: [-0.268, 0.840, 0.400], rot: [Math.PI / 2, 0, 0.3] }));
+  cast.push(place(cyl(0.082, 0.076, 0.062, 18), { pos: [0.212, 0.836, 0.452] }));
+  black.push(place(sqBox(0.230, 0.110, 0.240, 0.78, 14, 10), { pos: [0.316, 0.842, 0.240] }));
+  rubber.push(place(cyl(0.040, 0.040, 0.150, 12), { pos: [0.268, 0.840, 0.400], rot: [Math.PI / 2, 0, -0.3] }));
 
   // Exhaust manifold: five short runners into a collector.
   for (let i = 0; i < 5; i++) {
     const z = CYL_1_Z - i * BORE_PITCH;
     grimy.push(tube([
-      new THREE.Vector3(0.130, 0.694, z),
-      new THREE.Vector3(0.190, 0.660, z),
-      new THREE.Vector3(0.210, 0.580, lerp(z, 0.150, 0.55)),
-      new THREE.Vector3(0.214, 0.528, 0.132),
+      new THREE.Vector3(-0.130, 0.694, z),
+      new THREE.Vector3(-0.190, 0.660, z),
+      new THREE.Vector3(-0.210, 0.580, lerp(z, 0.150, 0.55)),
+      new THREE.Vector3(-0.214, 0.528, 0.132),
     ], 0.0175, 8));
   }
 
@@ -126,44 +133,53 @@ export function buildDriveline(): Driveline {
   // Exhaust system — one pipe, one catalyst, two boxes
   // =========================================================================
   const TIP = HP.rear.exhaustTip;
+  /**
+   * The pipe exits on the car's LEFT, i.e. +x. Written as a magnitude and a
+   * side rather than read straight off the hardpoint, which still carries the
+   * old "+X right" sign (−0.412). So this is right now, and it is
+   * **idempotent**: correcting `HP.rear.exhaustTip[0]` to +0.412 moves
+   * nothing here. `trim/details.ts` draws the finisher from the hardpoint and
+   * will still be on the wrong side until that correction lands.
+   */
+  const TIP_X = Math.abs(TIP[0]);
   const pipeR = HP.rear.exhaustDiameter / 2;
 
   grimy.push(tube([
-    new THREE.Vector3(0.214, 0.510, 0.120),
-    new THREE.Vector3(0.216, 0.400, 0.020),
-    new THREE.Vector3(0.208, 0.300, -0.160),
-    new THREE.Vector3(0.186, 0.268, -0.330),
+    new THREE.Vector3(-0.214, 0.510, 0.120),
+    new THREE.Vector3(-0.216, 0.400, 0.020),
+    new THREE.Vector3(-0.208, 0.300, -0.160),
+    new THREE.Vector3(-0.186, 0.268, -0.330),
   ], pipeR * 1.16, 12));
   // Catalyst — a US-market MY1988 car has one.
-  grimy.push(place(sqBox(0.136, 0.108, 0.320, 0.55, 16, 10), { pos: [0.172, 0.262, -0.510] }));
+  grimy.push(place(sqBox(0.136, 0.108, 0.320, 0.55, 16, 10), { pos: [-0.172, 0.262, -0.510] }));
   grimy.push(tube([
-    new THREE.Vector3(0.166, 0.262, -0.670),
-    new THREE.Vector3(0.096, 0.256, -0.930),
-    new THREE.Vector3(-0.030, 0.250, -1.280),
-    new THREE.Vector3(-0.076, 0.248, -1.480),
+    new THREE.Vector3(-0.166, 0.262, -0.670),
+    new THREE.Vector3(-0.096, 0.256, -0.930),
+    new THREE.Vector3(0.030, 0.250, -1.280),
+    new THREE.Vector3(0.076, 0.248, -1.480),
   ], pipeR, 12));
   // Centre silencer.
-  grimy.push(place(sqBox(0.190, 0.122, 0.520, 0.5, 16, 10), { pos: [-0.084, 0.248, -1.720] }));
+  grimy.push(place(sqBox(0.190, 0.122, 0.520, 0.5, 16, 10), { pos: [0.084, 0.248, -1.720] }));
   grimy.push(tube([
-    new THREE.Vector3(-0.090, 0.248, -1.984),
-    new THREE.Vector3(-0.240, 0.238, -2.180),
-    new THREE.Vector3(-0.404, 0.222, -2.420),
-    new THREE.Vector3(-0.408, 0.214, -2.560),
-    new THREE.Vector3(-0.372, 0.236, -2.700),
+    new THREE.Vector3(0.090, 0.248, -1.984),
+    new THREE.Vector3(0.240, 0.238, -2.180),
+    new THREE.Vector3(0.404, 0.222, -2.420),
+    new THREE.Vector3(0.408, 0.214, -2.560),
+    new THREE.Vector3(0.372, 0.236, -2.700),
   ], pipeR, 12));
   // Rear box, ahead of the spare well and inboard of the left trailing arm.
-  grimy.push(place(sqBox(0.400, 0.140, 0.330, 0.5, 18, 10), { pos: [-0.318, 0.268, -2.930] }));
+  grimy.push(place(sqBox(0.400, 0.140, 0.330, 0.5, 18, 10), { pos: [0.318, 0.268, -2.930] }));
   grimy.push(tube([
-    new THREE.Vector3(-0.360, 0.268, -3.090),
-    new THREE.Vector3(-0.398, 0.268, -3.360),
-    new THREE.Vector3(TIP[0], TIP[1], TIP[2] - 0.010),
+    new THREE.Vector3(0.360, 0.268, -3.090),
+    new THREE.Vector3(0.398, 0.268, -3.360),
+    new THREE.Vector3(TIP_X, TIP[1], TIP[2] - 0.010),
   ], pipeR, 12));
   // The tip is a plain rolled pipe end, not a chromed finisher.
   grimy.push(place(cyl(pipeR * 1.18, pipeR * 1.12, 0.062, 14),
-    { pos: [TIP[0], TIP[1], TIP[2] + 0.012], rot: [Math.PI / 2, 0, 0] }));
+    { pos: [TIP_X, TIP[1], TIP[2] + 0.012], rot: [Math.PI / 2, 0, 0] }));
 
   // Rubber hangers, which is what stops the system reading as a welded-on rail.
-  for (const [x, z] of [[0.19, -0.70], [-0.08, -1.46], [-0.09, -1.99], [-0.40, -2.63], [-0.36, -3.10]] as const) {
+  for (const [x, z] of [[-0.19, -0.70], [0.08, -1.46], [0.09, -1.99], [0.40, -2.63], [0.36, -3.10]] as const) {
     rubber.push(place(sqBox(0.016, 0.070, 0.038, 0.6, 6, 6), { pos: [x, 0.312, z] }));
   }
 

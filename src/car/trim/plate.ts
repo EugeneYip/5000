@@ -27,6 +27,7 @@ import {
   layout, makeCanvas, maskFromCanvas, shapesFromMask,
 } from './glyphs';
 import { bolt, clamp, merge, mesh } from './util';
+import type { PrintedOptions } from '@/materials/printed';
 
 const W = PLATE.widthM;
 const H = PLATE.heightM;
@@ -74,6 +75,26 @@ const LAYOUT = {
  * is a shade too dark.
  */
 const EMBOSS_DRAFT = 0.0009;
+
+/**
+ * The sheeting. `retroGain` is in units of a Lambertian surface of the same
+ * albedo seen on the retroreflection axis, so 1.0 would be ordinary white
+ * paint and these two numbers say the face returns a few times that when the
+ * light is behind the lens.
+ *
+ * Both were swept against the one thing that can settle them — the
+ * white-balanced photograph's plate face at 236, read through
+ * `tools/sheet.py`. The lobe is not the sheeting's real divergence and cannot
+ * be; `materials/printed.ts` explains why in detail. Neither belongs in
+ * `spec.ts`: they are not factory figures, they are an appearance model with
+ * a measurement behind it, and the measurement is in `docs/REFERENCE-PHOTO.md`.
+ *
+ * They are also **not independent of how deep the grove's shade is**, which
+ * is `src/scene`'s to set. Whoever takes the shade down next should re-read
+ * the plate against 236 — `__AUDI_RETRO.set(gain, lobe)` sweeps it live.
+ */
+const RETRO_GAIN = 1.2;
+const RETRO_LOBE = 3;
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
 const FACE = hex(PLATE.faceColor);
@@ -448,20 +469,36 @@ export function buildPlate(ctx: BuildContext): PlateParts {
     }
   }
 
+  // Typed through `PrintedOptions` rather than written inline at the call,
+  // because `src/types.ts` carries its own copy of this option list and that
+  // copy does not know about the two retro options yet. It is not this
+  // stream's file to edit; the annotation here is what keeps the call honest
+  // in the meantime, and it can come out the moment the contract catches up.
+  const finish: PrintedOptions = {
+    roughness: 0.33,
+    clearcoat: 0.42,
+    clearcoatRoughness: 0.16,
+    envMapIntensity: 0.9,
+    // A large, nearly flat panel carrying 2.9 mm of relief is exactly the
+    // case a shadow map self-shadows into acne; casting from the back faces
+    // moves the recorded depth off the lit surface. `Car` forces castShadow
+    // on every mesh after the builders run, so it has to be the material.
+    backfaceShadow: true,
+    // The face is retroreflective sheeting, not white paint, and that is the
+    // whole reason this plate could not be made to read right. The
+    // photograph's plate measures 236 **in shade**, with the bumper 50 mm
+    // away on the same panel at 65 — fifteen to one across one flat surface,
+    // which no albedo produces and no amount of fill buys back. See the
+    // model, and the units these two numbers are in, in
+    // `materials/printed.ts`.
+    retroGain: RETRO_GAIN,
+    retroLobe: RETRO_LOBE,
+  };
+
   return {
     plate: merge([front, back, rim, emboss]),
     bolts: merge(bolts),
-    material: ctx.materials.printed(map, {
-      roughness: 0.33,
-      clearcoat: 0.42,
-      clearcoatRoughness: 0.16,
-      envMapIntensity: 0.9,
-      // A large, nearly flat panel carrying 2.9 mm of relief is exactly the
-      // case a shadow map self-shadows into acne; casting from the back faces
-      // moves the recorded depth off the lit surface. `Car` forces castShadow
-      // on every mesh after the builders run, so it has to be the material.
-      backfaceShadow: true,
-    }) as THREE.MeshPhysicalMaterial,
+    material: ctx.materials.printed(map, finish) as THREE.MeshPhysicalMaterial,
   };
 }
 

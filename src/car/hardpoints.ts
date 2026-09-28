@@ -414,8 +414,16 @@ export const HP = {
     badgeModelCenter: [0.42, 0.92, TAIL + 0.036] as [number, number, number],
     badgeRingsCenter: [0, 0.927, TAIL + 0.038] as [number, number, number],
 
-    /** Exhaust tip, left of centre. */
-    exhaustTip: [-0.412, 0.268, TAIL + 0.055] as [number, number, number],
+    /**
+     * Exhaust tip, on the car's LEFT — which is +X; see the frame note at the
+     * top of this file. It sat at -0.412, the car's right, placed under the
+     * old "+X right" sentence. Five references put the tailpipe on the left,
+     * and `driveline.ts:97`'s own comment ("intake on the left of the block;
+     * exhaust on the right") contradicted its own code under the corrected
+     * frame — mirroring the run satisfies both. Visible on the car's left in
+     * `scratchpad/ref3/bat_rear_straight_b.jpg`, checked directly.
+     */
+    exhaustTip: [0.412, 0.268, TAIL + 0.055] as [number, number, number],
     exhaustDiameter: 0.052,
 
     /**

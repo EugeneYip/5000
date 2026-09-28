@@ -538,6 +538,12 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
         (o?.envMapIntensity ?? 0.6).toFixed(2),
         (o?.specularIntensity ?? 1).toFixed(2),
         o?.backfaceShadow ? 'bs' : '-',
+        // Retroreflection is a different *program*, not just a different
+        // finish — `printed()` splices GLSL for it — so two callers at
+        // different settings must not collapse onto one instance and wear
+        // each other's sheeting.
+        (o?.retroGain ?? 0).toFixed(2),
+        (o?.retroLobe ?? 3).toFixed(1),
       ].join(':');
       return shared(key, () => createPrinted(map, { ...o, roughness: r, clearcoat: cc }));
     },
