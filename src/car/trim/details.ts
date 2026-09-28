@@ -17,39 +17,80 @@ import { skinY } from './bodyref';
 import { makeCanvas } from './glyphs';
 import { DEG, at, lathe, merge, mesh, roundedBox, type Pt } from './util';
 
-/** A period PA inspection sticker: month band, year, and the issuing station. */
+/**
+ * The pair of Pennsylvania windscreen stickers, drawn onto one canvas.
+ *
+ * The photograph shows **two** of them side by side, not one: the safety
+ * inspection sticker on the left, cream and near-white with no dark field
+ * anywhere on it, and the emissions sticker on the right, white inside a thin
+ * pink border. White-balanced and measured on their own interiors they are
+ * (220, 227, 232) and (210, 208, 219) — 85 % and 48 % of their own area above
+ * level 224. Between them they are 0.449 % of the car and nearly a fifth of
+ * everything it puts above 224, so getting them dark costs the highlight
+ * bucket real ground.
+ *
+ * What was here before was one portrait sticker with a dark green band across
+ * its top third and a navy numeral filling its middle. It measured mean 183
+ * with **nothing at all** above 224.
+ *
+ * They are square, and they read as landscape because the screen is raked.
+ * At 64 deg from vertical, and viewed from a camera level with them, a metre
+ * up the slope moves 0.065 of image height against 0.188 for a metre across —
+ * so a square sticker projects at about 2.9 : 1. Do not "fix" the aspect.
+ */
 function stickerTexture(): THREE.CanvasTexture {
-  const W = 384, H = 496;
+  // Two tiles side by side on one canvas, so the pair is one draw.
+  //
+  // They butt edge to edge and fill the canvas completely, because
+  // `printed()` issues an opaque material — anything left clear here would
+  // render as black, which is the defect this function exists to remove. The
+  // photograph shows them touching anyway.
+  const W = 512, H = 356;
   const c = makeCanvas(W, H);
   const ctx = c.getContext('2d')!;
+  const half = W / 2;
 
-  ctx.fillStyle = '#e8e2cf';
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#1d4a2e';
-  ctx.fillRect(0, 0, W, H * 0.30);
-  ctx.fillStyle = '#e8e2cf';
-  ctx.font = `700 ${Math.round(H * 0.155)}px Helvetica, Arial, sans-serif`;
+  // --- left: safety. Cream, plain, no border, a grid of faint type.
+  // The safety sticker is the brighter of the two and the cooler: measured on
+  // its own interior the photograph gives (220, 227, 232) against the
+  // emissions sticker's (210, 208, 219), a 14-level lead. Rendered from equal
+  // canvases the pair came out the wrong way round, so the lead is set here.
+  ctx.fillStyle = '#fbfdff';
+  ctx.fillRect(0, 0, half, H);
+  ctx.fillStyle = '#4c5158';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('PA', W / 2, H * 0.155);
+  ctx.font = `700 ${Math.round(H * 0.12)}px Helvetica, Arial, sans-serif`;
+  ctx.fillText('PENNSYLVANIA', half / 2, H * 0.17);
+  ctx.font = `700 ${Math.round(H * 0.30)}px Helvetica, Arial, sans-serif`;
+  ctx.fillText('9', half * 0.30, H * 0.50);
+  ctx.fillText('88', half * 0.68, H * 0.50);
+  ctx.font = `500 ${Math.round(H * 0.085)}px Helvetica, Arial, sans-serif`;
+  ctx.fillText('SAFETY INSPECTION', half / 2, H * 0.84);
 
-  ctx.fillStyle = '#1d2a4a';
-  ctx.font = `700 ${Math.round(H * 0.34)}px Helvetica, Arial, sans-serif`;
-  ctx.fillText('9', W / 2, H * 0.53);
-  ctx.font = `700 ${Math.round(H * 0.13)}px Helvetica, Arial, sans-serif`;
-  ctx.fillText('88', W / 2, H * 0.755);
-  ctx.font = `500 ${Math.round(H * 0.065)}px Helvetica, Arial, sans-serif`;
-  ctx.fillText('INSPECTION', W / 2, H * 0.885);
-  ctx.strokeStyle = '#1d2a4a';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(9, 9, W - 18, H - 18);
+  // --- right: emissions. White, thin pink border inset from the edge.
+  ctx.fillStyle = '#f0eef4';
+  ctx.fillRect(half, 0, half, H);
+  ctx.strokeStyle = '#c05263';
+  ctx.lineWidth = 11;
+  ctx.strokeRect(half + 10, 10, half - 20, H - 20);
+  ctx.fillStyle = '#6e424c';
+  ctx.font = `700 ${Math.round(H * 0.11)}px Helvetica, Arial, sans-serif`;
+  ctx.fillText('EMISSION', half * 1.5, H * 0.23);
+  ctx.font = `700 ${Math.round(H * 0.26)}px Helvetica, Arial, sans-serif`;
+  ctx.fillText('9', half * 1.32, H * 0.52);
+  ctx.fillText('88', half * 1.68, H * 0.52);
+  ctx.font = `500 ${Math.round(H * 0.08)}px Helvetica, Arial, sans-serif`;
+  ctx.fillText('PROGRAM', half * 1.5, H * 0.80);
 
   // Sun-bleached and slightly grubby, like everything on a 1980s windscreen.
-  ctx.globalAlpha = 0.10;
+  // Kept to 0.05: at 0.10 it pulled both faces below the photograph's.
+  ctx.globalAlpha = 0.05;
   ctx.fillStyle = '#6b6252';
   for (let i = 0; i < 700; i++) {
     ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
   }
+  ctx.globalAlpha = 1;
 
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -128,24 +169,72 @@ export function buildDetails(ctx: BuildContext): THREE.Group {
     void chrome;
   }
 
-  // --- Pennsylvania inspection sticker -------------------------------------
+  // --- Pennsylvania windscreen stickers ------------------------------------
   {
     // The windscreen is the plane through the cowl and the header.
     const up = new THREE.Vector3(0, HP.headerY - HP.cowlY, HP.headerZ - HP.cowlZ).normalize();
     const n = new THREE.Vector3(0, -up.z, up.y).normalize();
     const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), up, n);
 
-    const z = -1.148;
+    // Low in the corner, not up against the header where this used to sit.
+    // Measured on the photograph against the glass itself, which needs no
+    // scale: the pair's centre is 0.80 of the way down from the header line to
+    // the cowl line at its own x, and 0.80 of the glass half-width out from
+    // the centreline. That is where Pennsylvania puts an inspection sticker —
+    // the lower corner on the driver's side, which on a left-hand-drive car is
+    // the car's LEFT, and +X (see the frame note in `hardpoints.ts`).
+    const DOWN = 0.80;
+    const z = HP.headerZ + DOWN * (HP.cowlZ - HP.headerZ);
     const k = (z - HP.cowlZ) / (HP.headerZ - HP.cowlZ);
     const y = HP.cowlY + k * (HP.headerY - HP.cowlY);
 
-    const plane = new THREE.PlaneGeometry(0.052, 0.067);
-    const sticker = new THREE.Mesh(plane, ctx.materials.printed(stickerTexture(), { roughness: 0.55, clearcoat: 0.1 }));
-    sticker.name = 'inspectionSticker';
-    sticker.quaternion.setFromRotationMatrix(basis);
-    // Applied on the inside of the glass, passenger side, high in the corner.
-    sticker.position.set(0.452, y, z).addScaledVector(n, -0.004);
-    group.add(sticker);
+    // Sized by measurement, not by what a sticker "should" be. The pair
+    // renders 44 x 8 px at photomatch and the photograph, scaled on the plate
+    // (124 render px against 175), wants 60 x 16 — so 1.36x across and 2.0x
+    // up the slope. That gives a 201 mm pair, two tiles of about 100 x 140,
+    // and two independent routes agree on it: the same 201 mm falls out of
+    // the plate-derived 0.421 px/mm at the screen plane, and out of the pair
+    // being 0.32 of the glass half-width at its own row.
+    //
+    // They are portrait and read landscape because the screen is raked. At
+    // 64 deg from vertical, viewed from a camera level with them, a metre up
+    // the slope is worth 0.065 of image height against 0.188 for a metre
+    // across — so each tile projects at about 2.4 : 1 the other way up. Do
+    // not "correct" the aspect to what the render looks like.
+    const plane = new THREE.PlaneGeometry(0.201, 0.140);
+    const stickers = new THREE.Mesh(
+      plane,
+      ctx.materials.printed(stickerTexture(), {
+        roughness: 0.55,
+        clearcoat: 0.1,
+        // The canvas is near-white and the sticker still rendered at 183
+        // against the photograph's 226, because it is paper inside a cabin
+        // and the renderer has no interior bounce — the same gap the
+        // instrument cluster has, documented at `clusterFace`. This is the
+        // stand-in for that missing light, not a fudge for the paper's
+        // albedo: the safety tile's canvas went 240 -> 246 -> 251 and moved
+        // the render 211.9 -> 214.8 -> 214.0, i.e. it saturated. What is
+        // short here is light, not white.
+        //
+        // 2.0 chosen on the gate's own terms rather than on the mean. At 1.7
+        // the pair reads median 217.3 with 31.6 % of itself over 224; at 2.0
+        // it is 221.3 and 44.4 %, against the photograph's ~220 and ~45 %,
+        // and its contribution to the car's above-224 share goes 0.113 % to
+        // 0.159 % against the photograph's 0.196 %. The mean runs 9 levels
+        // high at 2.0 and that is the trade.
+        //
+        // NOT `retroGain`. That term exists for the licence plate, which is
+        // glass-bead sheeting; a paper sticker behind tinted glass is not
+        // retroreflective and borrowing it here would put a flare on the
+        // screen whenever the sun came round behind the camera.
+        envMapIntensity: 2.0,
+      }),
+    );
+    stickers.name = 'windscreenStickers';
+    stickers.quaternion.setFromRotationMatrix(basis);
+    // Applied on the inside of the glass.
+    stickers.position.set(0.520, y, z).addScaledVector(n, -0.004);
+    group.add(stickers);
   }
 
   void at;

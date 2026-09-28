@@ -43,8 +43,8 @@
  * `HP.rear.badgeY`. That sill is now SETTLED — 994 mm measured against 1010
  * built. The body's `tgFaceUpper` rail runs `lampTopY` → the sill, which the
  * re-derived elevation made 0.888 → 1.010 (it was 0.920 → 1.010), so the
- * band-plus-strip stack is 122 mm against 107 measured and the scripts sit on
- * sheet metal.
+ * band-plus-strip stack is 122 mm against 105.5 ± 1.5 measured over five
+ * columns, and the scripts sit on sheet metal.
  *
  * The width is `HP.glass.tailgateGlassHalfW` — see `HALF_W`.
  *
@@ -52,6 +52,24 @@
  * leaves, which is what is built: the tailgate's hinge line is
  * `HP.rear.tailgateHingeY` = 1.340 and the roof skin at that station is 1.338,
  * so no point on the tailgate can be higher.
+ *
+ * ⚠ That is an accurate description of the constraint and a wrong reading of
+ * which end of it is broken. Measured on `bat_rear_straight_b.jpg`, rectified
+ * for the frame's 0.98° roll and scaled on the lamp band's own 138.8 px for
+ * 184 mm, the roof's trailing edge is at row 256 ± 1 and the top of the clear
+ * glass at row 274 ± 2: **18 px of projected height, 24 mm**, steady across
+ * x 800…1185. Our own `rear` frame puts the same two features 36 px apart on a
+ * 62.2 px band — 106 mm. Parallax-corrected (camera height 0.798 from the
+ * horizon at 49 % down the lamp band; the distance that lands the roof edge on
+ * `HP.roofRearY` 1.412 is ~10 m) the photograph's glass top is **1.375
+ * ± 0.010**, so this is 90 mm short.
+ *
+ * The hinge is therefore what has to move, and it moves in two axes: a top
+ * edge that clears 1.375 by the header band's ~15 mm of drop puts
+ * `tailgateHingeY` at **≈1.39**, and a hinge cannot stand above the roof skin,
+ * so `tailgateHingeZ` comes forward from −3.108 to where our roof is still
+ * that high — z ≈ −2.97…−3.00, i.e. `HP.roof.dPillarZ`, which is where a
+ * wagon's tailgate cut is. Hardpoints, so reported rather than changed here.
  */
 
 import * as THREE from 'three';
@@ -81,16 +99,26 @@ export const TG_BOTTOM_Y = HP.glass.tailgateGlassBottomY;
  * photograph was measured for.
  *
  * ⚠ The RATIO survived the re-derivation; the ABSOLUTE did not. 0.843 × the
- * old `lampOuterX` 0.850 is 0.717; 0.843 × the corrected 0.750 is **0.632**,
- * and measuring the aperture directly on `bat_rear_straight_b.jpg` at the
- * corrected 1.324 mm/px gives 946 px across at the sill row and 965 at the
- * frit's bottom — **0.626 to 0.639**. So the knock-on `HP.glass`'s comment
- * records is confirmed by direct measurement and not only by inheritance.
- * It is a hardpoint, so it is reported rather than changed here; and it
- * must not be applied on its own. `rearHalfWidth(1.010)` is 0.82 on the
- * built body against 0.688 measured on the photograph, so narrowing the
- * glass without narrowing the tail turns a 56 mm painted reveal into a
- * 190 mm one and the backlight reads as a letterbox.
+ * old `lampOuterX` 0.850 is 0.717; 0.843 × the corrected 0.750 is **0.632**.
+ *
+ * Measured directly rather than inherited, on `bat_rear_straight_b.jpg` at the
+ * corrected 1.3256 mm/px, scanning outward from the centreline for the first
+ * painted column: the aperture is **956 px at the sill row and 966 px at the
+ * frit's bottom**, its widest — 1267 to 1281 mm, so a half-width of **0.634 to
+ * 0.640**. Against a lamp band measured on the same frame at 1143 px
+ * outer-to-outer that is a ratio of **0.845**, which is the 0.843 the
+ * derivation started from, now agreeing in both the ratio and the absolute.
+ * So 0.712 is **76 mm a side too wide**, and the knock-on is confirmed
+ * independently of the chain.
+ *
+ * It is a hardpoint, so it is reported rather than changed here; and it must
+ * not be applied on its own. `rearHalfWidth(1.010)` is 0.79 on the built body
+ * against 0.688 measured on the photograph — and the same excess runs down the
+ * whole tail: at the lamp band the built silhouette is 0.828–0.844 against
+ * **0.770** measured (1162 px), so there is 83 mm a side of painted flank
+ * outboard of each lamp where the photograph has ~13. Narrowing the glass
+ * without narrowing the tail turns a 56 mm painted reveal into a 190 mm one
+ * and the backlight reads as a letterbox.
  */
 const HALF_W: number = HP.glass.tailgateGlassHalfW;
 

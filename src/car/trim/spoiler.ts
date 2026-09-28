@@ -40,8 +40,32 @@
  * The 53 % break was read as a symptom of `HP.glass.tailgateGlassBottomY`
  * being ~50 mm low. It is not: that sill is SETTLED at 1.010 against 994
  * measured. What actually shortens the backlight is the other end —
- * `HP.glass.tailgateGlassTopY` 1.285 against ~1.350 measured, blocked by a
- * `tailgateHingeY` that is itself ~25 mm low. Both are reported, not applied.
+ * `HP.glass.tailgateGlassTopY`, and the shortfall is bigger than the ~65 mm
+ * this note used to quote.
+ *
+ * Re-measured directly on `bat_rear_straight_b.jpg`, roll-rectified (the frame
+ * carries a 0.98° roll: the lamp band's gasket minima run −0.0171 px/px across
+ * it) and read on the lamp band's own 138.8 px for 184 mm:
+ *
+ *   roof trailing edge, i.e. the top of the silhouette   row 256 ± 1
+ *   top of the clear glass                               row 274 ± 2
+ *
+ * — **18 px, 24 mm of projected height**, holding across x 800…1185. The same
+ * two features in our own `rear` frame are 36 px apart on a 62.2 px band, i.e.
+ * 106 mm. Correcting for the photograph's parallax (the roof edge is ~0.77 m
+ * further from the lens than the tail plane; the camera height is fixed at
+ * 0.798 by the horizon crossing the lamp band at 49 %, and the distance that
+ * puts the roof edge on `HP.roofRearY` 1.412 is ~10 m) gives a glass top of
+ * **1.375 ± 0.010**, so 1.285 is **90 mm short**, not 76.
+ *
+ * That in turn re-derives the hinge rather than being blocked by it. The
+ * tailgate's top edge has to clear the glass by the header band — 82 mm of
+ * surface here, ~15 mm of drop — so `HP.rear.tailgateHingeY` wants **≈1.39**,
+ * not 1.340, and since the hinge cannot stand above the roof skin,
+ * `tailgateHingeZ` has to come forward from −3.108 to where our roof is still
+ * that high, z ≈ −2.97…−3.00 — which is `HP.roof.dPillarZ`, where a wagon's
+ * tailgate cut actually is. Reported, not applied.
+ *
  * Everything in this file is a fraction of the aperture, so it follows them.
  */
 
@@ -180,32 +204,38 @@ function buildSpoiler(): THREE.BufferGeometry {
 /**
  * Band height, as a fraction of the gap between the backlight and the lamps.
  *
- * Re-measured this round on both dead-on frames, each scaled on its own body
- * width at the lamp band (1810 mm over 1150 px and 1662 px respectively):
+ * The band is the SMALLER of the two. `CRITIQUE-3.md` §4 has them the other
+ * way round (93 mm of band over 83 mm of strip); that does not reproduce on
+ * either dead-on frame. An earlier reading here gave 41 mm of band over 98,
+ * and its *ratio* was right — its millimetres were on the discredited
+ * "1810 mm of body width at the lamp band" scale and are 14 % long.
  *
- *   | | `bat_rear_straight_b` | `bat_rear_straight` |
- *   |---|---|---|
- *   | black band       | 539→564 px = 41 mm | 373→413 px = 44 mm |
- *   | painted strip    | 565→627 px = 98 mm | 414→502 px = 96 mm |
+ * SETTLED, on the corrected 1.3256 mm/px (the lamp band's own 138.8 px for
+ * 184 mm) and read at five columns rather than one, because the plate strap
+ * fouls the two nearest the centre. Rows are the end of the *clear* glass, the
+ * first painted row, and the lamp's upper gasket minimum:
  *
- * The band is the SMALLER of the two, at 0.30 of the gap between the
- * backlight and the lamp tops. `CRITIQUE-3.md` §4 has these the other way
- * round (93 mm of band over 83 mm of strip); neither figure reproduces on
- * either frame.
+ *   | x | band px | strip px | split |
+ *   |---|---|---|---|
+ *   |  780 | 27 | 54.5 | 0.331 |
+ *   |  900 | 23 | 56.5 | 0.289 |
+ *   | 1150 | 24 | 55.3 | 0.303 |
+ *   | 1300 | 24 | 54.8 | 0.305 |
+ *   | 1400 | 24 | 55.1 | 0.303 |
  *
- * Re-measured after the rear elevation was re-derived, on the corrected
- * 1.324 mm/px (the lamp band's own 139 px for 184 mm) rather than the
- * 1810-at-the-lamp-band scale the table above used: at x 780 px the clear
- * glass ends at row 539, the band at 563 and the lamp gasket at 620, so the
- * stack is **24 px of band over 57 px of strip = 32 mm over 75 mm**, a split
- * of **0.296 / 0.704**. The 0.30 held here is right to half a percent.
+ * **0.306 ± 0.015**, so the 0.30 held here is right and stays. Note what the
+ * "band" is: 20 px of ceramic frit ON the glass (its hue is the glass's at a
+ * uniform 62 % in all three channels) plus 4 px of bond seal. Our convention
+ * puts the frit below the visible glass and paints the band there instead —
+ * see `HP.glass.tailgateGlassBottomY`. Read the frit as glass and the split
+ * becomes 0.05, not 0.3: change both files or neither.
  *
  * The 90-mm-versus-139 shortfall this note used to carry is gone: with
- * `lampTopY` at 0.888 the hardpoints leave 122 mm against the 107 measured,
- * so the band builds at 37 mm and the strip at 85 — 15 % long rather than
- * 35 % short, and all of that residue is the 16 mm by which
- * `tailgateGlassBottomY` 1.010 exceeds the 994 measured. Holding the split as
- * a fraction is what made it self-correct.
+ * `lampTopY` at 0.888 the hardpoints leave 122 mm against the **105.5 ± 1.5**
+ * measured (79.6 px), so the band builds at 37 mm against 32.5 and the strip
+ * at 85 against 73 — 16 % long rather than 35 % short, and all of that residue
+ * is the 16 mm by which `tailgateGlassBottomY` 1.010 exceeds the 994 measured.
+ * Holding the split as a fraction is what made it self-correct.
  */
 const BAND_TOP_Y = HP.glass.tailgateGlassBottomY;
 const BAND_GAP = BAND_TOP_Y - HP.rear.lampTopY;
@@ -259,9 +289,9 @@ function buildBand(): THREE.BufferGeometry {
   const section = (j: number): Pt[] => {
     const x = xs[j];
     const z0 = rearFaceZ(x, BAND_MID_Y);
-    // Conformed per point, not per station: over a 765 mm half-span the tail
-    // face comes forward by 47 mm at the ends and leans 11 mm over the band's
-    // own 32 mm of height, and a section that ignored either would float.
+    // Conformed per point, not per station: over a 766 mm half-span the tail
+    // face comes forward by ~50 mm at the ends and leans over the band's own
+    // 37 mm of height, and a section that ignored either would float.
     return shape.map(([b, out]) => [z0 - rearFaceZ(x, BAND_MID_Y + b) + out, b] as Pt);
   };
 
@@ -280,17 +310,23 @@ function buildBand(): THREE.BufferGeometry {
 
 /**
  * Standard on the US car (§6.11, [AW-87]) and plainly visible in `BAT-R` as a
- * pale bar inside the top centre of the backlight — 132 × 27 px against a
- * 1424 mm glass width over 940 px, so **≈200 × 41 mm**, its top ~26 mm below
- * the glass's upper edge.
+ * pale bar inside the top centre of the backlight — 132 × 27 px.
+ *
+ * ⚠ The PIXELS were right and the millimetres were not. They were scaled by
+ * calling the backlight 1424 mm wide over 940 px, and 1424 is twice the built
+ * `tailgateGlassHalfW` 0.712 rather than anything measured — the same circular
+ * scale the rest of this elevation has been purged of. On the lamp band's own
+ * 1.3256 mm/px those 940 px are 1246 mm, which agrees with the aperture
+ * measured directly (956–966 px, 1267–1281 mm). So the unit is **175 × 36 mm**
+ * and not 202 × 41; the bar is the same bar, read on the right ruler.
  *
  * It is an interior-mounted unit: it sits behind the glass on the tailgate's
  * inner face, not on the skin. So it is let *in* along the surface normal, and
  * the lens is the only part of it that faces the camera.
  */
 const CHMSL_Z = -3.246;
-const CHMSL_WIDTH = 0.202;
-const CHMSL_HEIGHT = 0.041;
+const CHMSL_WIDTH = 0.175;
+const CHMSL_HEIGHT = 0.036;
 
 function chmslBasis(): { m: THREE.Matrix4; o: THREE.Vector3; n: THREE.Vector3 } {
   const n = skinNormal(CHMSL_Z, 0).normalize();

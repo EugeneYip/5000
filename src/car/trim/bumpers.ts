@@ -121,12 +121,24 @@ function tailPlan(midY: number, samples = 40): Array<[number, number]> {
  *
  * On `bat_rear_straight_b.jpg` the bright line measures 8.5 px at x 1450 and
  * 10 px at x 880 — 11 to 13 mm at 1.324 mm/px — against ~100 mm of black
- * below it, and the two together are the 113 mm the hardpoints allow. The
- * strip caps the moulding's top roll, so the dead-astern band is roughly
- * `stripHeight` less the 12 mm of roll above the face: 24 mm here projects
- * as ~12. `HP.rear` wants its own `rubStripHeight` — reported.
+ * below it, and the two together are the 113 mm the hardpoints allow.
+ *
+ * ⚠ 24 mm did NOT project as the ~12 this note predicted, and the prediction
+ * was the error: the top roll projects too. Measured on a `rear` frame beside
+ * the photograph at matched lamp-band scale, the lit band ran y 0.614 → 0.593,
+ * i.e. **24 mm** against 5–9 px (7–12 mm) on the photograph — twice as deep,
+ * and one of the loudest differences left in a dead-astern frame.
+ *
+ * The profile above the face is fixed (12.6 mm of top roll, `t + 0.0128` down
+ * to `t + 0.0002`) and only the face below it is `stripHeight`'s to set, so
+ * 14 mm leaves a 10 mm astern face and lands the lit band at 5–6 px. What is
+ * left over after this is brightness rather than height — the strip peaks at
+ * L 128 where the photograph's chrome peaks at 254 and sparkles between, which
+ * is `dirtyMetal`'s and the bloom's, not geometry's.
+ *
+ * `HP.rear` wants its own `rubStripHeight` — reported.
  */
-const REAR_STRIP_HEIGHT = 0.024;
+const REAR_STRIP_HEIGHT = 0.014;
 
 /** 0 at the centreline, 1 at the very tip of the wrap. */
 function wrapK(x: number): number {
@@ -233,9 +245,7 @@ function valance(s: BumperSpec, frames: Frame[], spinePts: Array<[number, number
   // The top of the apron is buried inside the moulding's bottom roll: leaving
   // the two edges coplanar put a row of z-fighting slashes across the valance.
   // Near-vertical where it shows under the moulding, then turning hard under
-  // for the bottom half. The apron is body colour, and paint this dark only
-  // reads dark when it is facing the ground rather than the sky: a gently
-  // convex apron mirrors the horizon and comes out brighter than the bonnet.
+  // for the bottom half.
   // The top edge is carried right up inside the moulding: anywhere it came out
   // level with the moulding's underside the two surfaces grazed each other and
   // left a row of dark slivers along the join.
@@ -310,11 +320,78 @@ const APRON_BURY = 0.026;
  * vertical it takes enough ground bounce to lift a 30 mm strip from L 45 to
  * L 90 where the photograph is black. What the photograph actually shows
  * under the apron's lip is the underbody in shadow, which is what is there.
+ * (Both of those trials were run with the `env:bounce` defect below still in
+ * the rig, and the surfaces they added face exactly where that light is
+ * aimed. Worth re-running once it is fixed before treating "no valance" as
+ * settled.)
  *
  * Conformed per point to `rearFaceZ` rather than swept at a constant depth —
  * the tail face comes forward 47 mm over the half-span and another 29 mm over
  * the apron's own height, and a section that ignored either would float off
  * the body at the corners. Same construction as `spoiler.ts`'s black band.
+ *
+ * ## Why this part renders near-white, and why nothing here fixes it
+ *
+ * DIAGNOSED, NOT WORKED AROUND — the cause is in another stream's file.
+ *
+ * In `goldenhour` the apron's crown returns L 125 where the painted panel
+ * 200 mm above it, the same `paint` material on the same tail, returns 81, and
+ * its hue inverts with it: B−R −15 on the apron against +11 everywhere else on
+ * the car. The photograph has the two the other way round — read on
+ * `bat_rear_straight_b.jpg` at x 1000, the apron (rows 916–1024) is L 29 to
+ * the panel's (rows 760–802) L 35.5, a ratio of **0.82** against our **1.55**.
+ * Ruled out by probe, not by argument:
+ *
+ *  · **Not grazing incidence.** `__AUDI.pick` gives the apron's face normals
+ *    as (0, −0.22…−0.47, −0.98…−0.88) against a dead-astern view vector, so
+ *    cos θ runs 0.93 down to 0.88. Fresnel at 21° is 0.043 against 0.040 at
+ *    normal. The grazing highlights on this tail are real but they are the
+ *    *flanks* at the rear corners, 80 mm outboard of the lamps — see the note
+ *    on the tail's half-width in `glass/tailgate.ts`.
+ *  · **Not inverted winding.** Every normal `pick` returns here has z ≤ −0.87,
+ *    i.e. pointing astern at the camera, on a `FrontSide` material. This is
+ *    not another `tailgateBlackBand`.
+ *  · **Not the material.** `rearValance` wears `paint`, and the crop at
+ *    (380,600)–(1720,1100) of `bat_rear_straight_b.jpg` shows the apron in
+ *    body colour, the same paint as the panel above. That is right.
+ *
+ * It is `env:bounce`. Shot identically at one boot per measurement, apron
+ * crown / panel above, in levels:
+ *
+ *   | preset | panel above | apron crown |
+ *   |---|---|---|
+ *   | goldenhour | 81 | **125** |
+ *   | studio | 110 | 49 |
+ *   | overcast | 52 | 32 |
+ *   | noon | 46 | 26 |
+ *   | dusk | 32 | 8 |
+ *
+ * Every preset but one has the apron *darker* than the panel above, which is
+ * what a panel tucked 12–48° under and reflecting the road should be.
+ * `goldenhour` is also the only preset whose bounce light points UP
+ * (`dir: [0.3, +0.55, 0.62]`; the other four are negative in y, and
+ * `presets.ts` says so in as many words). Confirmed by mutating the live
+ * preset through the module graph and re-applying it: with
+ * `bounce.intensity = 0` the apron goes 125 → 40 while the panel above moves
+ * 81 → 74 and the plate 157 → 150; simply flipping the sign of `dir[1]`
+ * gives 41 with the plate and the rocker unchanged. `rim` is worth 0.7 of a
+ * level here.
+ *
+ * The mechanism is that the paint is `metalness: 1.0` with no diffuse lobe, so
+ * a directional light can only ever appear as a specular highlight, and the
+ * half-vector between this bounce and a dead-astern camera sits ~10° off the
+ * apron's normal against ~19° off the panel above. `presets.ts` already
+ * records the artefact — "a thin band — the rocker rub strip, the arch lips
+ * and the rear valance — where it laid an orange rim the photograph has no
+ * trace of" — and cut it from 2.2 to 0.7 without removing it. At 0.7 it is
+ * still laying a specular sheet across the whole apron.
+ *
+ * So this is not fixable here and must not be: darkening the apron, flattening
+ * its tuck or taking it off `paint` would all hide a light that is doing the
+ * same thing to the sills and the arch lips. With the bounce off, the ratio
+ * above goes to 0.54 — past the photograph's 0.82 rather than short of it, so
+ * the light accounts for the whole inversion. Reported against
+ * `src/scene/env/presets.ts`.
  */
 function rearApron(s: BumperSpec): THREE.BufferGeometry {
   const top = s.bottomY;
