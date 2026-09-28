@@ -115,25 +115,62 @@ export interface EnvPreset {
   /** What colour shaded road is — sky-lit, so usually cooler than the sun. */
   readonly shadeTint: number;
   /**
-   * How much of the baked proxy world actually reaches a material.
+   * `scene.environmentIntensity` — and **it reaches ten of the eighty-seven
+   * materials in the scene.**
    *
-   * Not a look knob and not an exposure: it is the factor by which the proxy
-   * world under-counts the real one, and it was measured rather than picked.
-   * `paint.ts` builds the body at `metalness: 1.0`, so a body panel has no
-   * diffuse lobe and the hemisphere, bounce and rim lights contribute nothing
-   * to it — taking `hemi.intensity` from 0.12 to 0.75 moves a shaded flank by
-   * zero levels. Every panel not in direct sun is showing this map and only
-   * this map, and zeroing the map's terms one at a time says the flank is
-   * mirroring the *ground*: without the proxy road it falls 56 → 30, without
-   * the furniture only to 48, and no change to the sky band moves it at all.
+   * This used to be documented as "how much of the baked proxy world actually
+   * reaches a material", and the whole light rig was tuned on that belief. It
+   * is not what the number does. three applies it in one place, in
+   * `WebGLRenderer.setProgram`:
+   *
+   *     if ( ( material.isMeshStandardMaterial || … )
+   *          && material.envMap === null && scene.environment !== null )
+   *         m_uniforms.envMapIntensity.value = scene.environmentIntensity;
+   *
+   * — only where the material has no `envMap` of its own, and it *overwrites*
+   * that material's `envMapIntensity` when it applies. `materials.setEnvMap`
+   * hands the IBL texture to every car material directly, so the car never
+   * sees this number at all. Measured on the `photomatch` and `side` frames:
+   * taking it from 3.3 to 0 leaves the bonnet at (126,126,137), the front
+   * door at 72, the bumper band at 176 and the bumper face at 28 — every one
+   * of them unchanged to the level — and moves only the road, 140 → 76.
+   *
+   * At 3.3 it was therefore not lifting the flanks, which is what it was
+   * raised for. What it was doing was putting 3.3× the ambient on the road,
+   * the backdrop and the ground plane and on nothing else, which is most of
+   * why the car's own umbra measured 0.65 of the lit road where the
+   * photograph has 0.35 — a 0.53:1 key-to-fill against the photograph's
+   * 1.88:1. It is 1.0 now, which is what a map already carrying true scene
+   * radiance asks for.
+   *
+   * The argument it was carrying is real and has moved to `proxyGain` below,
+   * which is applied inside the bake where every material can see it.
+   */
+  readonly envIntensity: number;
+  /**
+   * The factor by which the baked proxy world under-counts the real one.
+   *
+   * `paint.ts` builds the body at `metalness: 1.0` and the basecoat flops to
+   * near-black at grazing, so a body panel is essentially a clearcoat mirror:
+   * the hemisphere, bounce and rim lights contribute nothing to it — taking
+   * `hemi.intensity` from 0.12 to 0.75 moves a shaded flank by zero levels.
+   * Every panel not in direct sun is showing the IBL and only the IBL, and
+   * zeroing the map's terms one at a time says the flank is mirroring the
+   * *ground*: without the proxy road it falls 56 → 30, without the furniture
+   * only to 48, and no change to the sky band moves it at all.
    *
    * What the 140 m disc and forty-two leaf blobs leave out of that band is
    * most of a boulevard — the far carriageway and its traffic, parked cars
    * (vertical, specular, at exactly flank height), the pavement crowds, the
    * lamp standards with their flags, the sunlit grass past the trees. All of
    * it stands in the reflection and none of it is modelled.
+   *
+   * So it is a gain on what the proxy *furniture and road* emit, applied in
+   * `ibl.ts`. Not on the sky, which is modelled in full by the same shader the
+   * background dome uses, and not on the overhead canopy, which is a
+   * silhouette against that sky and would end up brighter than it.
    */
-  readonly envIntensity: number;
+  readonly proxyGain: number;
   /** Darkness of the rendered contact-occlusion pool under the car. */
   readonly contactStrength: number;
   readonly lamps?: LampSpec;
@@ -219,7 +256,12 @@ export const PRESETS: Record<string, EnvPreset> = {
     // raising the fill alone makes it *worse* (15.6 at 3.2 with the key left
     // at 7.0, even though the gate's own number improves — that one is the
     // gate re-forming its top ten and is worth knowing about).
-    sunIntensity: 6.3,
+    // 6.9, and the 0.6 is the plate again. The one calibrated neutral in frame
+    // measures 236 white-balanced; with `envIntensity` corrected the render's
+    // plate face reads 225 at 6.3 and 236 at 6.9. It moves the right bucket
+    // too: the photograph puts 8.3 % of the car between 224 and 240 and this
+    // render had 2.5 %, with the surplus sitting one bucket below.
+    sunIntensity: 6.9,
     sunShadow: true,
     sunShadowRadius: 2.2,
     sky: {
@@ -354,17 +396,30 @@ export const PRESETS: Record<string, EnvPreset> = {
     // a negative y: the "light kicked back up off the road" was shining down,
     // which made it a second uncredited key from above and left, and left the
     // sills and arch liners with nothing. Pointed up, where a bounce belongs.
-    // 2.2, not 0.7. A shaded car on a boulevard at 11.5° of solar elevation
-    // is standing beside a very large area of *sunlit* road, pavement and
-    // stone, and one bounce off a 0.15–0.35 albedo surround across a wide
-    // aspect returns a fifth to a quarter of the sun. 0.7 against a key of
-    // 6.3 was 11 %, which is a fill for a car in the open — the shadow work
-    // is what makes this term load-bearing rather than cosmetic.
+    // (The other four presets still point theirs down. Noted rather than
+    // changed blind — each one needs its own look.)
     //
-    // It is worth 2.5 on the tone profile and, unlike an exposure, it reaches
-    // only the dielectrics: the paint is `metalness: 1.0`, so the colour gate
-    // cannot be moved with it in either direction.
-    bounce: { color: 0xd4a173, intensity: 2.2, dir: [0.3, 0.55, 0.62] },
+    // **0.7 and a far cooler colour, back from 2.2 and 0xd4a173.** The case
+    // for 2.2 was that a shaded car stands beside a large sunlit surround
+    // returning a fifth of the sun. That is true, and it is *already in the
+    // cubemap*: the proxy road, kerb and verge are derived from the same
+    // irradiance and they light every material through `envMap`. A second
+    // directional light doing it again is the same bounce counted twice, and
+    // with `proxyGain` now reaching the car it is counted twice at full
+    // strength.
+    //
+    // Measured, 2.2 was not buying the fill it was credited with either. A/B
+    // with the light off: the shaded bumper does not move at all (87, B−R
+    // −11.9, both ways), the front door does not move (72), the bonnet does
+    // not move. Its whole footprint is a thin band — the rocker rub strip,
+    // the arch lips and the rear valance — where it laid an orange rim the
+    // photograph has no trace of. Mean change over the `side` frame with it
+    // switched off: 0.53 of a level.
+    //
+    // The colour is the shaded carriageway the light is supposed to be coming
+    // off, which the white-balanced photograph measures at (108, 102, 103),
+    // R/B 1.05. 0xd4a173 is R/B 1.84 — an orange that is nowhere in the frame.
+    bounce: { color: 0xd8c8bc, intensity: 0.7, dir: [0.3, 0.55, 0.62] },
     rim: { color: 0xbad4f0, intensity: 0.28, dir: [0.62, 0.42, -0.66] },
     // 0.0018, not 0.0038. Halving the extinction is worth a kilometre of
     // visibility and it is the photograph that asks for it: the far end of the
@@ -435,23 +490,33 @@ export const PRESETS: Record<string, EnvPreset> = {
     // It buys nothing on its own: the sky dome is unchanged (this does not
     // reach `applySkyParams`), and the plate — the one calibrated neutral in
     // frame — reads 235 against the white-balanced photograph's 236.
-    envIntensity: 3.3,
-    // 0.44. This pool exists because at a low sun neither the cast shadow nor
-    // screen-space AO puts anything under the sills — but the car is in the
-    // planting's shadow now, so the ground under it is already a stop down and
-    // the pool was being laid over the top of that.
-    contactStrength: 0.44,
+    proxyGain: 3.3,
+    // 1.0, down from 3.3, and not a look change — a correction. See the note
+    // on the field: `scene.environmentIntensity` reaches ten of the scene's
+    // eighty-seven materials, and the car is not among them. At 3.3 it was
+    // lighting the road, the backdrop and the ground plane at three and a
+    // third times ambient while the car it stands under saw none of it, which
+    // is what filled the car's own umbra in and gave the frame a 0.53:1
+    // key-to-fill where the photograph reads 1.88:1.
+    envIntensity: 1.0,
+    // 0.62, up from 0.44. The 0.44 was set when `envIntensity` was believed to
+    // be lifting the car; it was in fact lifting only the ground plane, which
+    // is exactly what this pool sits on, so the pool was being laid over a
+    // surface already 3.3× over-filled. With that corrected the ground under
+    // the car is honestly dark and the pool has to do its own work again.
+    contactStrength: 0.62,
     background: 0x8fb4d8,
     grade: {
       ...BASE_GRADE,
-      // 0.88. Occlusion is *more* visible in shade, not less: in open sun the
-      // key washes the crevices out, and with the car under the canopy there
-      // is no key left to do it. The photograph's deepest sixth of a stop —
-      // the grille's slat shadows, the gap behind the bumper, the arch liners
-      // — measures 6.6 % of the car below level 32 where this render had
-      // 0.6 %, and those are exactly the places a screen-space occlusion term
-      // is describing.
-      aoIntensity: 0.88,
+      // 1.0, up from 0.88. Occlusion is *more* visible in shade, not less: in
+      // open sun the key washes the crevices out, and with the car under the
+      // canopy there is no key left to do it. The photograph's deepest sixth
+      // of a stop — the grille's slat shadows, the gap behind the bumper, the
+      // arch liners — measures 6.6 % of the car below level 32 where this
+      // render had 0.6 %, and those are exactly the places a screen-space
+      // occlusion term is describing. The last 0.12 came back when the flake
+      // grit was capped and the proxy world stopped over-filling the shadows.
+      aoIntensity: 1.0,
     },
   },
 
@@ -490,6 +555,10 @@ export const PRESETS: Record<string, EnvPreset> = {
     dapple: 0,
     shadeTint: 0x202429,
     envIntensity: 1.0,
+    // The other four presets never had a proxy-gain argument to make: their
+    // `envIntensity` was already within 10 % of unity, so splitting the two
+    // roles apart leaves them where they were.
+    proxyGain: 1.0,
     contactStrength: 0.72,
     studio: true,
     background: 0x0b0c0e,
@@ -539,6 +608,10 @@ export const PRESETS: Record<string, EnvPreset> = {
     dapple: 0,
     shadeTint: 0x6e767e,
     envIntensity: 1.05,
+    // The other four presets never had a proxy-gain argument to make: their
+    // `envIntensity` was already within 10 % of unity, so splitting the two
+    // roles apart leaves them where they were.
+    proxyGain: 1.0,
     contactStrength: 0.78,
     background: 0xc9cfd5,
     grade: {
@@ -589,6 +662,10 @@ export const PRESETS: Record<string, EnvPreset> = {
     canopy: 0.55,
     shadeTint: 0x22304d,
     envIntensity: 0.9,
+    // The other four presets never had a proxy-gain argument to make: their
+    // `envIntensity` was already within 10 % of unity, so splitting the two
+    // roles apart leaves them where they were.
+    proxyGain: 1.0,
     contactStrength: 0.5,
     lamps: {
       positions: [
@@ -655,6 +732,10 @@ export const PRESETS: Record<string, EnvPreset> = {
     canopy: 0.45,
     shadeTint: 0x4d6a94,
     envIntensity: 1.0,
+    // The other four presets never had a proxy-gain argument to make: their
+    // `envIntensity` was already within 10 % of unity, so splitting the two
+    // roles apart leaves them where they were.
+    proxyGain: 1.0,
     contactStrength: 0.8,
     background: 0x77a6da,
     grade: {

@@ -249,6 +249,9 @@ float audiTravel(float NdV, float ior) {
   return clamp((1.0 - cosT) / max(1.0 - cosMax, 1e-4), 0.0, 1.0);
 }
 
+/** Ceiling on one flake's flash, as a multiple of the population's own mean. */
+#define AUDI_FLAKE_CEIL 3.0
+
 /**
  * Only a minority of cells hold a flake lying flat enough, and large enough,
  * to throw a visible flash. Without this gate every cell flashes at once and
@@ -359,6 +362,42 @@ const PAINT_FLAKE_APPLY = /* glsl */ `
   vec3 audiFlakeTint = uFlakeColor * uFlakeParams.w * audiFlakeFlop;
   vec3 audiSparkle = (audiFlakeEnv + audiFlakeDirect) * audiFlakeMask * audiFlakeRes;
   vec3 audiSmooth = audiFlakeMean * uFlakeShape.w * (1.0 - audiFlakeRes * 0.75);
+
+  // **What a single flake is allowed to return, relative to the population
+  // it belongs to.**
+  //
+  // audiFlakeRes above fades a flake's *variance* into the mean once the
+  // lattice stops being resolved, which is what keeps a distance shot from
+  // boiling. Nothing capped it while the flake *is* resolved, and a resolved
+  // flake gets a roughness-0.075 env lookup along its own tilted normal — a
+  // 4° mirror. On a dark panel at a close pose that mirror finds the sky and
+  // returns it whole, one pixel at a time.
+  //
+  // Measured on the badge frame's tailgate panel, 1600 x 160 px of paint
+  // either side of the badge: 105 separate specks, median 3 px, peak 155
+  // against a panel median of 38 — **4.1x local contrast**, at about half a
+  // speck per cm² of real panel. That is not flake, it is dust on the sensor,
+  // and it is the defect common.ts already names.
+  //
+  // A flake cannot do that. It is an aluminium platelet about a micron thick
+  // and visibly crumpled, and it is lying under ~45 µm of *pigmented* binder:
+  // the light reaching it has already been scattered on the way in and is
+  // scattered again on the way out, so what a single particle returns is a
+  // diffused version of its lobe, not a clean image of a bright source. A
+  // photographed metallic panel in shade shows its brightest flakes at two to
+  // three times the panel around them.
+  //
+  // So: a soft ceiling at AUDI_FLAKE_CEIL times the energy the whole
+  // population averages to, which is the one quantity in scope that already
+  // describes "what this layer has to give". Soft rather than min, so the
+  // flake field keeps its gradient instead of clipping to a plateau — and
+  // energy-preserving at the low end, where sparkle << k leaves it alone.
+  // It cannot change the panel's brightness: audiSmooth carries the mean
+  // and is untouched.
+  {
+    vec3 audiCeil = audiFlakeMean * AUDI_FLAKE_CEIL + 1e-5;
+    audiSparkle = audiSparkle * audiCeil / (audiCeil + audiSparkle);
+  }
 
   reflectedLight.indirectSpecular += audiFlakeTint * (audiSparkle + audiSmooth);
 }

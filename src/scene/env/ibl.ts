@@ -177,50 +177,72 @@ interface Furniture {
 }
 
 /**
- * Mean radiance of the sky dome for a preset, in the same units the rest of
- * the bake works in. The sky shader ramps from zenith to horizon, so the mean
- * is a weighted blend of the two; the weight leans towards the horizon because
- * that is where most of a hemisphere's solid angle is.
+ * Mean radiance of the sky dome for a preset, **as the sky actually stands in
+ * the baked cubemap** — `sky.exposure` and nothing else, because that is all
+ * `createSkySphereForIbl` is given. The sky shader ramps from zenith to
+ * horizon, so the mean is a weighted blend of the two; the weight leans
+ * towards the horizon because that is where most of a hemisphere's solid
+ * angle is.
  *
  * Irradiance on a surface seeing a fraction `f` of this sky is `f · π · L`,
  * and a lambertian surface then emits `albedo · f · L` — the π cancels, which
  * is why nothing below divides by it except the direct-sun terms.
+ *
+ * ## It used to fold `envIntensity` in, and that was a double count
+ *
+ * The justification written here was that `envIntensity` “is the units a
+ * material finally sees, and the material side multiplies the whole map by
+ * `envIntensity` again”. **The material side does no such thing.** three
+ * applies `scene.environmentIntensity` in exactly one place
+ * (`WebGLRenderer.js`, in `setProgram`):
+ *
+ *     if ( ( material.isMeshStandardMaterial || … )
+ *          && material.envMap === null && scene.environment !== null )
+ *         m_uniforms.envMapIntensity.value = scene.environmentIntensity;
+ *
+ * — only for materials with **no `envMap` of their own**. `materials.setEnvMap`
+ * hands every car material the IBL texture directly, so 77 of the 87 materials
+ * in the scene never see `envIntensity` at all; measured, taking
+ * `scene.environmentIntensity` from 3.3 to 0 leaves the bonnet, the flanks and
+ * the bumper on exactly their old numbers and moves only the road, which is
+ * one of the ten that has no `envMap`.
+ *
+ * So the sky term of the irradiance budget was standing 3.3× over the sky in
+ * the same cubemap, while the direct-sun term next to it was not — which is
+ * both a brightness error and a *ratio* error between the two, and the second
+ * one is why the proxy road's tree shade came out a stop too weak (`shadeMul`
+ * below is that ratio).
+ *
+ * `envIntensity` is still applied, because what presets.ts defines it as — the
+ * factor by which this proxy world under-counts the real boulevard — is a real
+ * argument and the flanks are standing in it. It is applied where that
+ * definition puts it: as a gain on what the proxy world *emits*, after the
+ * budget is worked out honestly, and not to the sky or to the overhead canopy,
+ * neither of which is under-counted.
  */
 function skyRadiance(preset: EnvPreset, out: THREE.Color): number {
   out
     .setHex(preset.sky.zenith)
     .lerp(_hor.setHex(preset.sky.horizon), 0.62)
-    .multiplyScalar(preset.sky.exposure * preset.envIntensity);
+    .multiplyScalar(preset.sky.exposure);
   return 0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b;
 }
 const _hor = new THREE.Color();
 
 /**
- * The same mean, but *as the sky actually stands in the baked cubemap* — and
- * the difference is a factor of `envIntensity`, so anything that has to sit at
- * a ratio to the sky has to use this one.
+ * The gain the proxy world — and only the proxy world — carries.
  *
- * `skyRadiance()` above folds `envIntensity` in, which is right for what it is
- * used for: it is an *irradiance* budget for a proxy surface, expressed in the
- * units a material finally sees, and the material side multiplies the whole
- * map by `envIntensity` again. The sky sphere inside the bake does not get
- * that factor — `applySkyParams` is called with the preset's own exposure and
- * nothing else — so the proxy furniture is deliberately standing 3.3× brighter
- * than the sky it shares the map with. That is the calibration described under
- * `envIntensity` in presets.ts and the flanks are measured against it.
- *
- * A canopy cannot be built on it. Foliage is dark *relative to the sky it is
- * silhouetted against* — the photograph has its canopy at 50 against an open
- * sky of 200 — and derived through `skyRadiance()` a shaded crown comes out at
- * 0.7× the map's own sky, which is not a canopy, it is a slightly greenish
- * cloud. So the overhead planting is derived here instead, and the ratio it
- * lands at is the thing that was actually measured off the photograph.
+ * presets.ts defines `envIntensity` as the factor by which this forty-blob
+ * boulevard under-counts the real one: the far carriageway and its traffic,
+ * parked cars at exactly flank height, the pavement crowds, the lamp standards.
+ * All of that is *furniture*, so the factor belongs on what the furniture and
+ * the road emit and nowhere else. The sky is not under-counted — it is
+ * modelled in full by the same shader the background dome uses — and neither
+ * is the overhead canopy, which is a silhouette *against* that sky and would
+ * become brighter than it.
  */
-function bakedSkyRadiance(preset: EnvPreset, out: THREE.Color): THREE.Color {
-  return out
-    .setHex(preset.sky.zenith)
-    .lerp(_hor.setHex(preset.sky.horizon), 0.62)
-    .multiplyScalar(preset.sky.exposure);
+function proxyGain(preset: EnvPreset): number {
+  return preset.proxyGain;
 }
 
 /** `out += c · k`. Radiances add; `Color` has no operator for it. */
@@ -570,6 +592,9 @@ function buildStreet(): Furniture {
 
       skyRadiance(preset, sky);
       sun.setHex(preset.sunColor);
+      // Everything this row of furniture emits carries the proxy gain; the sky
+      // it is standing in front of does not. See `proxyGain`.
+      const gain = proxyGain(preset);
 
       // Which face of each mass the car can see, and whether the sun is on
       // it. Only the side turned towards the probe is ever in the reflection,
@@ -604,8 +629,8 @@ function buildStreet(): Furniture {
         facadeLitMat.color.copy(sun).multiplyScalar((STONE / Math.PI) * eWall * 0.82),
         sky,
         STONE * 0.45,
-      );
-      facadeMat.color.copy(sky).multiplyScalar(STONE * 0.5);
+      ).multiplyScalar(gain);
+      facadeMat.color.copy(sky).multiplyScalar(STONE * 0.5 * gain);
 
       // Lit foliage at this sun elevation is half *transmitted* light, so it
       // goes gold rather than staying green, and it is far from black. It was
@@ -615,7 +640,7 @@ function buildStreet(): Furniture {
         canopyLitMat.color.setRGB(1.0, 0.84, 0.44).multiply(sun).multiplyScalar((LEAF / Math.PI) * eWall * 1.5),
         sky,
         LEAF * 0.3,
-      );
+      ).multiplyScalar(gain);
       // Shaded foliage keeps the sky's colour through its own green, and a
       // crown at this sun elevation is also *translucent*: roughly a tenth of
       // what hits the far side comes through. That transmitted light is the
@@ -627,7 +652,8 @@ function buildStreet(): Furniture {
       // in the row is edge-on to the beam and glowing, which is exactly what
       // the photograph shows of the planting behind the car.
       canopyMat.color.copy(sky).multiply(tint.setRGB(0.42, 0.56, 0.33)).multiplyScalar(0.45);
-      addScaled(canopyMat.color, tint.setRGB(1.0, 0.82, 0.4).multiply(sun), (LEAF_T / Math.PI) * eWall);
+      addScaled(canopyMat.color, tint.setRGB(1.0, 0.82, 0.4).multiply(sun), (LEAF_T / Math.PI) * eWall)
+        .multiplyScalar(gain);
 
       // Bark. A trunk is *vertical*, so the irradiance on it is the wall's,
       // not the ground's — this read `eGround`, which at 11.5° of elevation is
@@ -635,27 +661,26 @@ function buildStreet(): Furniture {
       // row came out at 0.025 radiance: black posts standing in front of the
       // one bright thing in the band. A cylinder averages 1/π of the normal
       // irradiance over its lit half, which is the only discount it should get.
-      trunkMat.color.copy(sky).multiplyScalar(BARK * 0.45);
+      trunkMat.color.copy(sky).multiplyScalar(BARK * 0.45 * gain);
       addScaled(
         trunkLitMat.color.copy(sun).multiplyScalar((BARK / Math.PI) * eWall * (1 / Math.PI)),
         sky,
         BARK * 0.45,
-      );
+      ).multiplyScalar(gain);
 
       // --- and the canopy overhead -----------------------------------------
       //
-      // Derived against `bakedSkyRadiance`, not `skyRadiance` — see the note
-      // on those two. What is being set here is a *contrast ratio* against the
-      // sky inside the same cubemap, and that ratio is what the photograph
-      // measures: canopy 50 against an open sky of 200.
-      // TEMP-DEBUG knobs (remove before reporting)
-      const TUNE = ((globalThis as unknown as Record<string, Record<string, number>>).__IBL_TUNE) ?? {};
-      canopyVeilMat.opacity = TUNE.veilOpacity ?? 0.55;
+      // **No `gain` here, deliberately.** What is being set is a *contrast
+      // ratio* against the sky inside the same cubemap, and that ratio is what
+      // the photograph measures: canopy 50 against an open sky of 200. A
+      // canopy carrying the proxy gain would be brighter than the sky it is
+      // silhouetted against, which is not a canopy, it is a cloud.
+      canopyVeilMat.opacity = 0.55;
       canopyRimVeilMat.opacity = canopyVeilMat.opacity;
       const density = preset.canopy ?? 0;
       canopyGroup.visible = density > 0;
       if (density > 0) {
-        bakedSkyRadiance(preset, bakedSky);
+        skyRadiance(preset, bakedSky);
         // Two terms, and keeping them apart is what keeps the bonnet *cool*.
         //
         // Only the first is leaf-coloured: it is sky light that has bounced
@@ -665,11 +690,11 @@ function buildStreet(): Furniture {
         // blue-grey rather than as a green one. Tinting both turned the
         // bonnet olive: (105, 87, 62) against the photograph's (91, 111, 134),
         // the red/blue order inverted.
-        canopyDeepMat.color.copy(bakedSky).multiplyScalar(CANOPY_TRANSMIT * (TUNE.transmit ?? 1));
+        canopyDeepMat.color.copy(bakedSky).multiplyScalar(CANOPY_TRANSMIT);
         addScaled(
           canopyDeepMat.color,
           tint.copy(bakedSky).multiply(CANOPY_TINT),
-          LEAF * CANOPY_SKY_VIS * (TUNE.skyVis ?? 1),
+          LEAF * CANOPY_SKY_VIS,
         );
         // The rim — sunlit foliage — and **how much sun there is to be lit by**.
         //
@@ -773,7 +798,7 @@ function buildStudio(): Furniture {
   return {
     group,
     apply(preset) {
-      const g = preset.envIntensity;
+      const g = proxyGain(preset);
       key.color.setRGB(1, 0.99, 0.97).multiplyScalar(7.2 * g);
       fill.color.setRGB(0.97, 0.98, 1).multiplyScalar(2.6 * g);
       top.color.setRGB(1, 1, 1).multiplyScalar(5.2 * g);
@@ -861,12 +886,17 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     // second, silently disagreeing constant.
     const skyTerm = skyRadiance(preset, skyCol);
     const eTotal = sunTerm + skyTerm;
-    albedo.setHex(preset.groundTint).multiplyScalar(ROAD_ALBEDO * eTotal);
+    // …and the road, the kerb and the verge carry the proxy gain like every
+    // other piece of furniture. `eTotal` itself must not: it is the ratio the
+    // shade multiplier below is read off, and inflating the sky half of it was
+    // what left the proxy road's tree shade a stop too weak.
+    const gain = proxyGain(preset);
+    albedo.setHex(preset.groundTint).multiplyScalar(ROAD_ALBEDO * eTotal * gain);
     groundUniforms.uColor.value.copy(albedo);
     // The kerb and pavement, and the grass verge the trees stand in. Same
     // irradiance, their own reflectances — concrete weathered to 0.35, dry
     // late-summer grass to 0.22 with the green it still has.
-    groundUniforms.uKerbColor.value.setHex(preset.groundTint).multiplyScalar(KERB_ALBEDO * eTotal);
+    groundUniforms.uKerbColor.value.setHex(preset.groundTint).multiplyScalar(KERB_ALBEDO * eTotal * gain);
       // Dry late-summer grass, and it is *straw*, not green.
       //
       // This was (0.78, 0.86, 0.52) — G above R — and the verge is fifteen to
@@ -876,7 +906,7 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
       // balance, R above G above B, because a Parkway verge in September is
       // burnt off. Swapping the two channels is worth ten levels of green on
       // the fender patch the colour gate reads.
-    groundUniforms.uVergeColor.value.setRGB(0.86, 0.78, 0.48).multiplyScalar(VERGE_ALBEDO * eTotal);
+    groundUniforms.uVergeColor.value.setRGB(0.86, 0.78, 0.48).multiplyScalar(VERGE_ALBEDO * eTotal * gain);
     // What the far field is veiled by: the sky the shader itself draws at the
     // horizon, at the same exposure, so the road and the sky meet without a
     // seam and the panels see one continuous band.
@@ -885,9 +915,18 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     // brighter than the sky above it — but at eighty-odd degrees of incidence
     // a dielectric returns what it is given, and the photograph has exactly
     // that: the far half of the boulevard at 171 against a sky of about 135.
+    //
+    // It carries the proxy gain too, and that is the one place the gain is
+    // uncomfortable: this term is a *mirror image of the sky*, so multiplying
+    // it says the far carriageway is brighter than the sky directly above it,
+    // which no Fresnel reflection can be. It stays because what a vertical
+    // panel mirrors along the horizon is not sky, it is the missing furniture
+    // standing in front of it — and because taking it out is measurable and
+    // costs more than it buys: the door face falls 72 → 69 and the tone
+    // profile goes 18.3 → 21.1 for no movement at all on B−R.
     groundUniforms.uHorizonColor.value
       .setHex(preset.sky.horizon)
-      .multiplyScalar(preset.sky.exposure * preset.envIntensity);
+      .multiplyScalar(preset.sky.exposure * gain);
     groundUniforms.uSheenColor.value.setHex(preset.sky.sun);
     groundUniforms.uSheen.value = 0.12 + preset.wetness * 0.95;
     // How sharply the surface mirrors. Dry asphalt scatters most of its
@@ -948,9 +987,27 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     pmrem.fromCubemap(cubeRT.texture, target!);
   };
 
-  // TEMP-DEBUG (remove before reporting): lets a probe re-bake the proxy world
-  // with a modified preset and read the cubemap back, so "where is the warmth
-  // coming from" can be measured instead of argued.
+  /**
+   * A measurement hook, and the reason three rounds of "where is the warmth
+   * coming from" can now be answered in one browser session instead of one
+   * edit-and-render cycle per hypothesis.
+   *
+   * `rebake` re-derives the proxy world from a preset object a probe hands it,
+   * while everything outside this file — the sky dome, the lights, the grade —
+   * stays exactly where the app put it. Cloning the live preset with one field
+   * changed therefore isolates that field: `envIntensity` to separate the
+   * bake-side use of it from the material-side one, `sunIntensity: 0` to take
+   * every sunlit proxy surface out without touching the key light, `groundTint`
+   * to ask whether the road's warmth reaches the paint at all. All three of
+   * those were run; none of them moved the paint's B−R by more than a level.
+   *
+   * Read-only handles beside it so a probe can point a camera at the bake
+   * scene and read the radiance back in a given direction.
+   *
+   * This is deliberately *not* a set of value knobs. The ones that used to be
+   * here scaled real constants from a global, which means a render can silently
+   * stop being the render the code describes.
+   */
   (globalThis as unknown as Record<string, unknown>).__IBL_DBG = {
     scene, cubeRT, renderer, probe: PROBE, groundUniforms,
     rebake: (p: EnvPreset, s: { x: number; y: number; z: number }): void =>
