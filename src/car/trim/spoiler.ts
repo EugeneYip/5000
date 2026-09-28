@@ -2,44 +2,44 @@
  * The tailgate's three missing black parts: the spoiler, the band under the
  * backlight, and the centre high-mounted stop lamp.
  *
- * `docs/CRITIQUE-2.md` §3 found no mesh of any kind in this area, and
  * `docs/REFERENCE-VEHICLE.md` §6.5 is explicit that the spoiler and the band
  * are **two different parts and the wagon has both**. [AW-87] lists "Rear
  * spoiler" as standard wagon equipment and a "center high-mounted rear brake
  * light" as standard (§6.11).
  *
- * WHERE THE SPOILER ACTUALLY SITS — this matters, because the obvious reading
- * of §2.3 ("across the top of the tailgate glass at the roof trailing edge")
- * and the obvious reading of a dead-on rear photograph ("two thirds of the way
- * down the backlight") sound like different places and are not.
+ * WHERE THE SPOILER ACTUALLY SITS — re-measured this round on the two dead-on
+ * rear frames in `scratchpad/ref3/`, because the previous reading put it far
+ * too high.
  *
- * The C3's tail does two things at once. The centreline profile runs *level*
- * over the last 150 mm — `body/surface.ts` calls it "the roof extension above
- * the tailgate glass", and probing it confirms y 1.160 at z −3.50 flattening
- * to 1.138 by z −3.64 — and then the surface breaks and falls away almost
- * vertically to the tail face. The backlight spans that break: its top half
- * lies on the near-horizontal extension, its bottom half on the near-vertical
- * face. **The spoiler sits astride the break.** Seen dead-on from behind, that
- * reads as a bar low on the glass; seen in elevation, it is the trailing edge
- * of the roof. Both descriptions are of this one part.
+ * `bat_rear_straight_b.jpg`, dead on, no foreshortening. The backlight
+ * aperture runs y 284 → 539 px at the centreline. The spoiler's top edge is at
+ * 450 and its shadowed under-edge bottoms out at 490, so the part occupies
+ * **65 % → 81 % of the way down the backlight**, and the rear wiper parks at
+ * 59–61 %, i.e. *above* it. `bat_rear_straight.jpg`, `bat_rear3q_left_b.jpg`
+ * and `bat3_rear3q_silver_b.jpg` all agree: in every view this is a bar across
+ * the LOWER half of the glass, nowhere near the roof trailing edge.
  *
- * Measured off `GCFS-85` (a US 5000 S Wagon — our exact model, and the only
- * reference that shows the part unobstructed) and `BAT-R`:
+ * ⚠ `bat3_rear_closeup_spoiler.jpg` is shot from above and its foreshortening
+ * reverses the apparent vertical order of the spoiler and the glass. Do not
+ * measure this part on it.
  *
- *   · a deep moulded wing, not a lip: ~270 mm of chord along the tailgate;
- *   · a **raised rail along its trailing edge** standing ~57 mm proud of the
- *     skin, its top catching light and its aft face in shadow — on `BAT-R`
- *     that pair reads as a bright line at 452 px over near-black at 490 px;
- *   · feathering onto the glass at its leading edge, and dying down onto the
- *     skin at both outboard ends just inside the D-pillars.
+ * Consequence for this model. The body's centreline profile breaks from the
+ * near-horizontal roof extension to the near-vertical tail face at y ≈ 1.138,
+ * which is only **53 % of the way down our backlight** (1.285 → 1.010). So the
+ * reference's 65 % is *below* our break: the spoiler belongs on the lower,
+ * near-vertical part of the glass, not astride the break, and it stands proud
+ * **aft** rather than up. That is also what `bat_tailgate_open_spoiler.jpg`
+ * shows — the part is bonded to the tailgate, full width, with a defined
+ * trailing lip, and is not a roof extension at all.
  *
- * ⚠ It does **not** break the roofline. Its crest reaches y ≈ 1.195 against a
- * roof crown of 1.415; no part of this car's tailgate can reach the roofline,
- * because the tailgate hinge is at 1.338 and falls from there. The flat
- * roofline the review is reacting to is the roof rails (§5), which are fixed
- * separately in `roofrails.ts`. What the spoiler does change is the tail's
- * silhouette: it squares off the last 270 mm, which is the same complaint from
- * the other end.
+ * The old build stood a 57 mm rail up off the roof extension at z −3.43…−3.70,
+ * which put its top edge at y 1.195 — 32 % down the backlight, half as far as
+ * the photograph. Air comes over the roof and *down* the backlight here, so
+ * the leading edge is the upper one and the lip is the lower one.
+ *
+ * The 53 % break is itself a symptom: see the stream report on
+ * `HP.glass.tailgateGlassBottomY`, which is ~50 mm too low and shortens the
+ * whole backlight.
  */
 
 import * as THREE from 'three';
@@ -53,68 +53,93 @@ import { clamp, lerp, mesh, roundedBox, smoothstep, sweep, type Frame, type Pt }
 // Spoiler
 // ---------------------------------------------------------------------------
 
-/**
- * Half-span. The roof-to-bodyside joint measures x 0.604–0.616 over the
- * spoiler's stations, so this leaves ~20 mm of skin outboard of the wing
- * before the surface turns down into the D-pillar.
- */
-const SPOILER_HALF_W = 0.585;
-/** Chord: leading edge forward on the roof extension, trailing edge at the break. */
-const SPOILER_FRONT_Z = -3.430;
-const SPOILER_BACK_Z = -3.700;
-/** Length over which each end dies onto the skin. */
-const SPOILER_END = 0.078;
+/** Backlight aperture in the rear projection — everything here is a fraction of it. */
+const GLASS_TOP_Y = HP.glass.tailgateGlassTopY;
+const GLASS_DROP = GLASS_TOP_Y - HP.glass.tailgateGlassBottomY;
 
 /**
- * Section through the wing, as (station z, height above the local skin),
- * walked as a closed loop: the top surface front → aft, then the underside
- * aft → front.
+ * Where the part lands, as a fraction of the way down the backlight.
  *
- * The underside is carried 4–6 mm *into* the skin the whole way. The wing is
- * bonded down its whole length on the real car, and burying it is also what
- * stops the transverse crown — 17 mm from centreline to x 0.58 — showing a
- * sliver of daylight under the middle of the span.
+ * Measured on `bat_rear_straight_b.jpg` (aperture y 284 → 539 px at the
+ * centreline): leading edge 450 px → 0.651, shadowed under-edge 490 px →
+ * 0.808. Kept as fractions rather than absolute heights so that correcting
+ * `HP.glass.tailgateGlassBottomY` moves the spoiler with the glass instead of
+ * stranding it.
+ *
+ * 0.665 rather than 0.651 for the leading edge: at 0.651 the tail face is
+ * already inside its top corner radius (`rearHalfWidth` falls from 727 mm at
+ * y 1.100 to 534 mm by y 1.125), and a full-width part cannot start there.
+ * 14 points of backlight is 4 mm of height.
+ */
+const SPOILER_TOP_F = 0.665;
+const SPOILER_BOT_F = 0.825;
+const SPOILER_TOP_Y = GLASS_TOP_Y - GLASS_DROP * SPOILER_TOP_F;   // ≈ 1.102
+const SPOILER_BOT_Y = GLASS_TOP_Y - GLASS_DROP * SPOILER_BOT_F;   // ≈ 1.058
+const SPOILER_MID_Y = (SPOILER_TOP_Y + SPOILER_BOT_Y) / 2;
+
+/** Read by `wipers.ts`: the blade parks just clear of the leading edge. */
+export const SPOILER_LEADING_Y = SPOILER_TOP_Y;
+
+/**
+ * Half-span. Full width on every reference — on the dead-on frame the wing
+ * runs x 597 → 1505 px against a backlight aperture of exactly the same
+ * extent. `rearHalfWidth` is 727 mm at the leading edge, so this leaves 27 mm
+ * of paint outboard at the tightest station.
+ */
+const SPOILER_HALF_W = Math.min(HP.glass.tailgateGlassHalfW, rearHalfWidth(SPOILER_TOP_Y)) - 0.027;
+/** Length over which each end dies onto the skin. */
+const SPOILER_END = 0.085;
+
+/**
+ * Section through the wing, as (absolute height, how far it stands AFT of the
+ * tail face), walked top → bottom down the outer surface.
+ *
+ * Aft, not up: at these heights the tailgate is ~24° off vertical, so a wing
+ * bonded here projects backwards. That is why the photograph shows a lit upper
+ * surface over a near-black under-edge rather than a raised rail against the
+ * sky — and why the old build, which stood 57 mm *up* off the roof extension,
+ * put its top edge at 32 % of the backlight instead of 65 %.
+ *
+ * Air comes over the roof and down the backlight, so the LEADING edge is the
+ * upper one: the section feathers onto the glass at the top, thickens to a
+ * 37 mm lip low down, then tucks back under. Both ends are carried 6 mm *into*
+ * the skin so no sliver of daylight opens under the middle of the span.
  */
 const SPOILER_PROFILE: ReadonlyArray<readonly [number, number]> = [
-  [-3.4300, 0.0015],
-  [-3.4620, 0.0105],
-  [-3.5000, 0.0172],
-  [-3.5400, 0.0218],
-  [-3.5720, 0.0242],
-  // A shallow channel ahead of the rail — `GCFS-85` shows the wing's top as a
-  // raised outer rail with a recessed trough inboard of it, and that crease is
-  // what makes it read as a moulded part rather than a blister.
-  [-3.5960, 0.0228],
-  [-3.6120, 0.0246],
-  [-3.6270, 0.0372],
-  [-3.6350, 0.0492],
-  [-3.6400, 0.0545],
-  [-3.6520, 0.0562],
-  // Flat across the crest, then a crisp fall to the trailing edge.
-  [-3.6680, 0.0566],
-  [-3.6800, 0.0548],
-  [-3.6890, 0.0470],
-  [-3.6960, 0.0330],
-  [-3.7000, 0.0160],
-  [-3.7000, 0.0010],
-  [-3.6990, -0.0060],
-  [-3.6400, -0.0052],
-  [-3.5500, -0.0046],
-  [-3.4700, -0.0040],
-  [-3.4320, -0.0034],
+  [SPOILER_TOP_Y + 0.0000, -0.0060],
+  [SPOILER_TOP_Y - 0.0000, 0.0010],
+  [SPOILER_TOP_Y - 0.0030, 0.0052],
+  [SPOILER_TOP_Y - 0.0065, 0.0118],
+  [SPOILER_TOP_Y - 0.0110, 0.0196],
+  [SPOILER_TOP_Y - 0.0155, 0.0262],
+  // A shallow channel ahead of the lip — the wing's top reads as a raised
+  // outer rail with a recessed trough inboard of it, and that crease is what
+  // makes it a moulded part rather than a blister.
+  [SPOILER_TOP_Y - 0.0190, 0.0288],
+  [SPOILER_TOP_Y - 0.0215, 0.0282],
+  [SPOILER_TOP_Y - 0.0245, 0.0320],
+  [SPOILER_TOP_Y - 0.0275, 0.0362],
+  // Flat across the crest of the lip, then a crisp fall to the trailing edge.
+  [SPOILER_TOP_Y - 0.0305, 0.0374],
+  [SPOILER_TOP_Y - 0.0335, 0.0368],
+  [SPOILER_TOP_Y - 0.0365, 0.0330],
+  [SPOILER_TOP_Y - 0.0390, 0.0252],
+  [SPOILER_BOT_Y + 0.0025, 0.0130],
+  [SPOILER_BOT_Y + 0.0000, 0.0010],
+  [SPOILER_BOT_Y - 0.0010, -0.0060],
 ];
 
 function buildSpoiler(): THREE.BufferGeometry {
-  const n = 44;
+  const n = 52;
   const xs: number[] = [];
   const frames: Frame[] = [];
   for (let i = 0; i <= n; i++) {
     const x = lerp(-SPOILER_HALF_W, SPOILER_HALF_W, i / n);
     xs.push(x);
-    // Sweeping along +X with the section laid out in (aft, up): a section
-    // point (a, b) lands at world (x, b, −a), so `a` is just −z.
     frames.push({
-      o: new THREE.Vector3(x, 0, 0),
+      o: new THREE.Vector3(x, SPOILER_MID_Y, rearFaceZ(x, SPOILER_MID_Y)),
+      // Section-right is aft; section-up is +y. A section point (a, b) lands
+      // at world (x, MID + b, z0 − a), so `a` is depth measured aft.
       r: new THREE.Vector3(0, 0, -1),
       u: new THREE.Vector3(0, 1, 0),
     });
@@ -124,17 +149,25 @@ function buildSpoiler(): THREE.BufferGeometry {
   const capFrac = SPOILER_END / span;
   const section = (j: number, t: number): Pt[] => {
     const x = xs[j];
+    const z0 = rearFaceZ(x, SPOILER_MID_Y);
     const k = smoothstep(clamp(Math.min(t, 1 - t) / capFrac, 0, 1));
-    // Only the proud part collapses at the ends; the buried underside stays
-    // buried, so the cap at each end is a 4 mm sliver inside the sheet metal
-    // rather than a visible cut face.
-    return SPOILER_PROFILE.map(([z, out]) =>
-      [-z, skinY(z, Math.abs(x)) + (out > 0 ? out * k : out)] as Pt);
+    // Only the proud part collapses at the ends; the buried edges stay buried,
+    // so each end cap is a sliver inside the sheet metal, not a visible cut.
+    // Conformed per point rather than per station: the tail face leans 17 mm
+    // over the 44 mm this section spans and comes forward 46 mm at the ends.
+    return SPOILER_PROFILE.map(([y, out]) =>
+      [z0 - rearFaceZ(x, y) + (out > 0 ? out * k : out), y - SPOILER_MID_Y] as Pt);
   };
 
-  // `flip`: same handedness problem as the tailgate ribs — sweeping along +X
-  // with the section's right axis pointing aft reverses the winding.
-  return sweep(section, frames, { closed: true, capStart: true, capEnd: true, flip: true, uvScale: 0.12 });
+  // NOT flipped, unlike `tailgateRibs`, which sweeps the same axes with the
+  // same frames. Walking the loop gives a face normal of (0, ±Δa, ±Δb) with
+  // the sign set by `flip`, so the two parts need opposite settings purely
+  // because the rib's section runs UP the loop and this one runs DOWN it.
+  // Flipped, every outward face here is back-facing: `blackTrim` is
+  // single-sided, so the part vanishes and `Mesh.raycast` returns its buried
+  // inner surface as the nearest hit. See the stream report — the black band
+  // below had exactly this bug and had never been rendered.
+  return sweep(section, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.12 });
 }
 
 // ---------------------------------------------------------------------------
@@ -142,17 +175,40 @@ function buildSpoiler(): THREE.BufferGeometry {
 // ---------------------------------------------------------------------------
 
 /**
- * `BAT-R`, dead-on, column x 800: the band runs 540 → 563 px between the
- * bottom of the glass and the painted badge band, ~36 mm at that frame's
- * 1.55 mm/px. The build has only 90 mm between `tailgateGlassBottomY` (1.010)
- * and `HP.rear.lampTopY` (0.920) to fit the band *and* the badge line into;
- * the photograph splits that gap 31 : 69, which is what these two numbers are.
+ * Band height, as a fraction of the gap between the backlight and the lamps.
+ *
+ * Re-measured this round on both dead-on frames, each scaled on its own body
+ * width at the lamp band (1810 mm over 1150 px and 1662 px respectively):
+ *
+ *   | | `bat_rear_straight_b` | `bat_rear_straight` |
+ *   |---|---|---|
+ *   | black band       | 539→564 px = 41 mm | 373→413 px = 44 mm |
+ *   | painted strip    | 565→627 px = 98 mm | 414→502 px = 96 mm |
+ *
+ * So the real band is **42 mm** and the real painted strip **97 mm** — the
+ * band is the SMALLER of the two, at 0.30 of the 139 mm between the backlight
+ * and the lamp tops. `CRITIQUE-3.md` §4 has these the other way round (93 mm
+ * of band over 83 mm of strip); neither figure reproduces on either frame.
+ *
+ * ⚠ The hardpoints leave only **90 mm** for a stack the photograph measures at
+ * 139 mm, so both parts here are 35 % short in absolute terms however they are
+ * split. Fixing that means raising `HP.glass.tailgateGlassBottomY` — see the
+ * stream report. Holding the split as a fraction rather than a height is what
+ * makes this file correct itself when that lands.
  */
 const BAND_TOP_Y = HP.glass.tailgateGlassBottomY;
-const BAND_HEIGHT = 0.032;
+const BAND_GAP = BAND_TOP_Y - HP.rear.lampTopY;
+const BAND_HEIGHT = BAND_GAP * 0.30;
 const BAND_MID_Y = BAND_TOP_Y - BAND_HEIGHT / 2;
-/** Where the badge line has to go once the band is in. Read by `badges.ts`. */
-export const BADGE_BAND_Y = (BAND_TOP_Y - BAND_HEIGHT + HP.rear.lampTopY) / 2;
+/** The painted badge strip left below the band. Read by `badges.ts`. */
+export const BADGE_STRIP_TOP_Y = BAND_TOP_Y - BAND_HEIGHT;
+export const BADGE_STRIP_HEIGHT = BADGE_STRIP_TOP_Y - HP.rear.lampTopY;
+/**
+ * Where the badge line goes. Both dead-on frames put the script's cap box
+ * dead centre in the painted strip (31 px of paint above and 31 below on
+ * `bat_rear_straight.jpg`), so this is simply the strip's mid-height.
+ */
+export const BADGE_BAND_Y = (BADGE_STRIP_TOP_Y + HP.rear.lampTopY) / 2;
 
 /** How far the band stands out of the paint, and how far it is let in behind. */
 const BAND_PROUD = 0.004;
@@ -198,7 +254,13 @@ function buildBand(): THREE.BufferGeometry {
     return shape.map(([b, out]) => [z0 - rearFaceZ(x, BAND_MID_Y + b) + out, b] as Pt);
   };
 
-  return sweep(section, frames, { closed: true, capStart: true, capEnd: true, flip: true, uvScale: 0.12 });
+  // `flip` removed — see `buildSpoiler`. With it, the band's outward faces were
+  // all back-facing against a single-sided material, so the part had never
+  // actually appeared in a render: `__AUDI.pick` straight down the tailgate
+  // returned `tailgatePanel` where the band is, then the band's *buried* inner
+  // face 12 mm behind it. Its bounding box was always right, which is why
+  // three review rounds measured it rather than noticing it was invisible.
+  return sweep(section, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.12 });
 }
 
 // ---------------------------------------------------------------------------

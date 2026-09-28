@@ -11,7 +11,13 @@
  *   →  simplify  →  THREE.Shape (+ holes)  →  bevelled extrusion
  *
  * which gets real outlines out of whatever condensed grotesque the platform
- * actually has, with no asset and no hand-drawn glyph table.
+ * actually has, with no asset.
+ *
+ * The tailgate model badge is the exception. Its two faces — the squared
+ * numerals and the `Audi` wordmark — exist on no platform, and substituting a
+ * grotesque for them got the *width* wrong by a third as well as the shapes.
+ * So the bottom of this file replaces `fillText` with a small drawn glyph
+ * table and feeds the identical mask → contour → emboss pipeline.
  */
 
 import * as THREE from 'three';
@@ -37,15 +43,9 @@ export const PLATE_FONT_STACK =
 export const BADGE_FONT_STACK = `"Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif`;
 
 /**
- * The tailgate model designation — `Audi 5000 S`.
- *
- * `docs/CRITIQUE-2.md` §12: the real badge is "a distinctive squared-off face
- * with wide letter spacing", not the modern grotesque this was set in. The
- * squared industrial face the 1980s badge actually derives from (Eurostile /
- * Microgramma) is not on any platform this runs on — probed, it falls straight
- * through to the default. **DIN Alternate** is: same German-industrial
- * lineage, flat terminals, and the straight-sided zeros `BAT-R` shows in
- * `5000 CD` at 2048 px. The spacing is carried by `tracking`, not the face.
+ * Fallback only. The tailgate model designation is drawn, not set — see
+ * `audiScriptGeometry` below. This stack is what an unsupported character
+ * falls through to so a string change can never silently drop a glyph.
  */
 export const BADGE_MODEL_FONT_STACK =
   `"DIN Alternate", "PT Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
@@ -399,6 +399,309 @@ export function badgeText(
     epsilon: 0.6,
   });
   const g = embossGeometry(shapes, { depth: opts.depth ?? 0.0022, bevel: Math.min((opts.depth ?? 0.0022) * 0.28, 0.0005) });
+  g.computeBoundingBox();
+  return g;
+}
+
+// ---------------------------------------------------------------------------
+// The 1980s Audi tailgate script, drawn rather than set
+// ---------------------------------------------------------------------------
+
+/**
+ * `Audi 5000 S` is two typefaces, and neither is on any platform this runs on.
+ *
+ * Measured on `scratchpad/ref3/bat3_badge_audi5000cs_tailgate.jpg` (2048 px
+ * across one badge) and calibrated against the two dead-on frames, which are
+ * the only ones with no foreshortening:
+ *
+ *   · **The numerals are rounded rectangles, not circles.** A `0` measures
+ *     1.22 × 1.00 cap with a rectangular counter — 1.7× the width of a
+ *     grotesque zero — on a monoline stroke with flat terminals. Advance is
+ *     1.45 cap, so a quarter of a character of air between digits.
+ *   · **`Audi` is a separate, lighter, calligraphic wordmark**: a leaning `A`
+ *     with a long shallow right leg and a low crossbar, a wide flat-oval `d`
+ *     bowl with a diagonal flag for an ascender, and a **dotless `ı`**.
+ *
+ * The consequence is mostly horizontal. Set in DIN Alternate the run came out
+ * 256 mm long at a 30.5 mm cap; the reference's own `5000 CD` is 8.97 cap
+ * widths long (measured 167 px over a 19.5 px cap on one frame, 244 over 26 on
+ * the other), which puts `Audi 5000 S` at **12.7 cap widths ≈ 390 mm**. The
+ * cap height itself was already right — `CRITIQUE-3.md` §5's 40 mm does not
+ * reproduce on either dead-on frame, both of which give 28–31 mm.
+ *
+ * Drawing is cheaper than it looks because the pipeline below already turns a
+ * canvas into outlines with holes: these functions stroke centre-lines onto
+ * the same canvas `fillText` would have written to, and everything downstream
+ * is unchanged.
+ */
+
+/** Stroke weights, as a fraction of cap height. The wordmark is the lighter. */
+const WORDMARK_STROKE = 0.145;
+const NUMERAL_STROKE = 0.215;
+/** Width of a numeral or a squared capital, and the advance between them. */
+const NUMERAL_W = 1.22;
+const NUMERAL_ADV = 1.45;
+/** x-height of the wordmark's lowercase, measured 0.641 of the `A`. */
+const X_HEIGHT = 0.641;
+
+/**
+ * A glyph's drawing instructions in a unit box: baseline at y = 0, cap at
+ * y = 1, pen starting at x = 0, y up. `advance` is where the next pen lands —
+ * `A` deliberately draws past its own advance, because on the real badge the
+ * `A`'s long right leg tucks under the `u`.
+ */
+interface DrawnGlyph {
+  advance: number;
+  draw(p: Pen): void;
+}
+
+/** Unit-box drawing surface: converts to pixels and strokes. */
+class Pen {
+  constructor(
+    private readonly ctx: CanvasRenderingContext2D,
+    private readonly x0: number,
+    private readonly baseline: number,
+    private readonly cap: number,
+  ) {}
+
+  private px(x: number): number { return this.x0 + x * this.cap; }
+  private py(y: number): number { return this.baseline - y * this.cap; }
+
+  /** Move the pen origin for the next glyph. */
+  advanceBy(dx: number): Pen {
+    return new Pen(this.ctx, this.x0 + dx * this.cap, this.baseline, this.cap);
+  }
+
+  private begin(weight: number): void {
+    this.ctx.lineWidth = weight * this.cap;
+    // Butt caps and round joins: the reference's terminals are cut square
+    // across the stroke, and its corners are radiused.
+    this.ctx.lineCap = 'butt';
+    this.ctx.lineJoin = 'round';
+    this.ctx.beginPath();
+  }
+
+  /** An open polyline with every interior corner radiused by `r`. */
+  polyline(pts: ReadonlyArray<readonly [number, number]>, r: number, weight: number): void {
+    this.begin(weight);
+    this.ctx.moveTo(this.px(pts[0][0]), this.py(pts[0][1]));
+    for (let i = 1; i < pts.length - 1; i++) {
+      this.ctx.arcTo(
+        this.px(pts[i][0]), this.py(pts[i][1]),
+        this.px(pts[i + 1][0]), this.py(pts[i + 1][1]),
+        r * this.cap,
+      );
+    }
+    const last = pts[pts.length - 1];
+    this.ctx.lineTo(this.px(last[0]), this.py(last[1]));
+    this.ctx.stroke();
+  }
+
+  /** A closed rounded rectangle, given its two opposite centre-line corners. */
+  roundRect(xa: number, ya: number, xb: number, yb: number, r: number, weight: number): void {
+    const [ax, bx] = [this.px(xa), this.px(xb)];
+    const [ay, by] = [this.py(ya), this.py(yb)];
+    const rr = r * this.cap;
+    this.begin(weight);
+    this.ctx.moveTo((ax + bx) / 2, ay);
+    this.ctx.arcTo(bx, ay, bx, by, rr);
+    this.ctx.arcTo(bx, by, ax, by, rr);
+    this.ctx.arcTo(ax, by, ax, ay, rr);
+    this.ctx.arcTo(ax, ay, bx, ay, rr);
+    this.ctx.closePath();
+    this.ctx.stroke();
+  }
+
+  /** A closed ellipse on its bounding centre-line box. */
+  oval(xa: number, ya: number, xb: number, yb: number, weight: number): void {
+    this.begin(weight);
+    this.ctx.ellipse(
+      this.px((xa + xb) / 2), this.py((ya + yb) / 2),
+      Math.abs(this.px(xb) - this.px(xa)) / 2, Math.abs(this.py(yb) - this.py(ya)) / 2,
+      0, 0, Math.PI * 2,
+    );
+    this.ctx.stroke();
+  }
+}
+
+const S = NUMERAL_STROKE;
+const W = NUMERAL_W;
+/** Inset of a numeral's centre-line from its cap box. */
+const IN = S / 2;
+
+const GLYPHS: Record<string, DrawnGlyph> = {
+  ' ': { advance: 0.64, draw: () => {} },
+
+  // --- the wordmark ------------------------------------------------------
+  // Leaning triangle: a short steep left leg, a long shallow right leg that
+  // runs on past the advance and under the `u`, and a crossbar low down.
+  A: {
+    advance: 1.374,
+    draw: (p) => {
+      p.polyline([[0.00, 0.00], [0.242, 1.00], [1.513, 0.011]], 0.06, WORDMARK_STROKE);
+      p.polyline([[0.055, 0.228], [0.930, 0.228]], 0, WORDMARK_STROKE);
+    },
+  },
+  u: {
+    advance: 1.375,
+    draw: (p) => {
+      p.polyline(
+        [[0.00, X_HEIGHT], [0.00, 0.085], [1.073, 0.085], [1.073, X_HEIGHT]],
+        0.26, WORDMARK_STROKE,
+      );
+    },
+  },
+  // A wide flat bowl with the ascender laid across it as a diagonal flag.
+  // This is the detail that dates the badge: the stem is not vertical.
+  //
+  // The flag stops on the bowl's right flank rather than running to the
+  // measured join at (1.142, 0.370). Drawn to the letter it crosses the
+  // counter at its widest and the `d` closes up into a filled almond — the
+  // reference keeps a clear crescent under the diagonal, and a stroke this
+  // heavy needs the extra 0.1 of a cap to leave one.
+  d: {
+    advance: 1.462,
+    draw: (p) => {
+      p.oval(0.00, 0.085, 1.271, X_HEIGHT, WORDMARK_STROKE);
+      p.polyline([[0.260, 0.946], [1.205, 0.497]], 0, WORDMARK_STROKE);
+    },
+  },
+  // Dotless. There is no dot on the badge and putting one there is the single
+  // most visible way to get this script wrong.
+  i: {
+    advance: 0.300,
+    draw: (p) => {
+      p.polyline([[0.0695, 0.652], [0.0695, 0.00]], 0, WORDMARK_STROKE);
+    },
+  },
+
+  // --- the squared model face --------------------------------------------
+  '0': {
+    advance: NUMERAL_ADV,
+    draw: (p) => p.roundRect(IN, IN, W - IN, 1 - IN, 0.30, S),
+  },
+  '5': {
+    advance: NUMERAL_ADV,
+    draw: (p) => {
+      p.polyline(
+        [[W - IN, 1 - IN], [IN, 1 - IN], [IN, 0.560], [W - IN, 0.560], [W - IN, IN], [0.22, IN]],
+        0.055, S,
+      );
+      // The bowl's corners are much softer than the shoulder above them, so
+      // they get their own pass rather than one radius for the whole path.
+      p.polyline([[IN, 0.560], [W - IN, 0.560], [W - IN, IN], [0.22, IN]], 0.26, S);
+    },
+  },
+  S: {
+    advance: NUMERAL_ADV,
+    draw: (p) => {
+      p.polyline(
+        [
+          [W - IN, 0.800], [W - IN, 1 - IN], [IN, 1 - IN], [IN, 0.500],
+          [W - IN, 0.500], [W - IN, IN], [IN, IN], [IN, 0.240],
+        ],
+        0.22, S,
+      );
+    },
+  },
+  C: {
+    advance: NUMERAL_ADV,
+    draw: (p) => {
+      p.polyline(
+        [[W - IN, 0.760], [W - IN, 1 - IN], [IN, 1 - IN], [IN, IN], [W - IN, IN], [W - IN, 0.240]],
+        0.28, S,
+      );
+    },
+  },
+  D: {
+    advance: NUMERAL_ADV,
+    draw: (p) => {
+      p.polyline(
+        [[IN, IN], [IN, 1 - IN], [W - IN, 1 - IN], [W - IN, IN], [IN, IN], [IN, 0.5]],
+        0.30, S,
+      );
+    },
+  },
+};
+
+/**
+ * Lay out and draw a badge string, returning its total advance in cap units.
+ * Unknown characters fall through to `fillText` in `BADGE_MODEL_FONT_STACK`,
+ * so adding a character to the string can never silently drop it.
+ */
+function drawAudiScript(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x0: number,
+  baseline: number,
+  cap: number,
+): number {
+  ctx.save();
+  ctx.strokeStyle = '#fff';
+  ctx.fillStyle = '#fff';
+  let pen = new Pen(ctx, x0, baseline, cap);
+  let width = 0;
+  for (const ch of text) {
+    const g = GLYPHS[ch];
+    if (g) {
+      g.draw(pen);
+      pen = pen.advanceBy(g.advance);
+      width += g.advance;
+    } else {
+      ctx.save();
+      ctx.font = `500 ${cap / 0.72}px ${BADGE_MODEL_FONT_STACK}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      const adv = ctx.measureText(ch).width / cap;
+      ctx.fillText(ch, x0 + width * cap, baseline);
+      ctx.restore();
+      pen = pen.advanceBy(adv);
+      width += adv;
+    }
+  }
+  ctx.restore();
+  return width;
+}
+
+/** Total advance of a drawn run, in cap units. */
+export function audiScriptWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) w += GLYPHS[ch]?.advance ?? NUMERAL_ADV;
+  return w;
+}
+
+/**
+ * The drawn counterpart of `badgeText`: same mask → contour → emboss pipeline,
+ * but the letterforms come from `GLYPHS` instead of from whatever grotesque
+ * the platform happens to resolve. Geometry comes back centred on its own
+ * bounding box, lying in XY and facing +Z, with cap height `cap` metres.
+ */
+export function audiScriptGeometry(
+  text: string,
+  cap: number,
+  opts: { depth?: number } = {},
+): THREE.BufferGeometry {
+  // 200 px of cap is ~0.3 % contour precision and a quarter of the
+  // marching-squares work that `badgeText`'s 320 would cost on a run this
+  // long — `Audi 5000 S` is nearly thirteen cap widths.
+  const capPx = 200;
+  const runW = audiScriptWidth(text);
+  const pad = Math.round(capPx * 0.35);
+  // Tall enough for the `A` apex at 1.0 and for a stroke half-width below the
+  // baseline, both with the bevel the emboss adds.
+  const c = makeCanvas(Math.ceil(runW * capPx) + pad * 2, Math.ceil(capPx * 1.5) + pad * 2);
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  const baseline = pad + Math.round(capPx * 1.12);
+  drawAudiScript(ctx, text, pad, baseline, capPx);
+
+  const mask = maskFromCanvas(c);
+  const shapes = shapesFromMask(mask, {
+    scale: cap / capPx,
+    originPx: [pad + 2 + (runW * capPx) / 2, baseline + 2 - capPx / 2],
+    epsilon: 0.8,
+  });
+  const depth = opts.depth ?? 0.0022;
+  const g = embossGeometry(shapes, { depth, bevel: Math.min(depth * 0.28, 0.0005) });
   g.computeBoundingBox();
   return g;
 }

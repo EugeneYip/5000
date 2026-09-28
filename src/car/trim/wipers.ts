@@ -12,22 +12,29 @@
  * tailgate's from the body's own rear-surface rake.
  *
  * Rear-wiper note: §6.7 reads the motor housing at the *top* of the tailgate
- * aperture and infers a top pivot, but `HP.rear.wiperPivot` (y = 0.985) is at
- * the bottom of the glass. Built to the hardpoint.
+ * aperture and infers a top pivot, and `HP.rear.wiperPivot` (y = 0.985) puts
+ * it below the bottom of the glass. **Both are wrong, and the photograph is
+ * unambiguous.** On `bat_rear_straight_b.jpg`, dead on, the backlight aperture
+ * runs y 284 → 539 px and the parked arm lies across it at 435–450 px — 59 to
+ * 61 % of the way down the glass, i.e. in its lower middle and, decisively,
+ * *above* the spoiler, whose leading edge is at 65 %. The build had the blade
+ * parked at 82–96 %, on the very bottom of the pane and underneath the
+ * spoiler.
  *
- * The hardpoint is right and the blade was still 49 mm clear of the glass
- * (`docs/CRITIQUE.md` §8) — because the tailgate glass is built 56 % short of
- * its own package drawing (§2, and not this stream's to fix). A wiper is
- * defined by the glass it wipes, not by a number, so `fitRearWiper` below
- * measures the pane that actually got built and drops the pivot onto its lower
- * edge. When the glazing stream lands `HP.glass.tailgateGlassBottomY` (0.962)
- * this quietly converges back on `HP.rear.wiperPivot` (0.985) and stops moving.
+ * So `fitRearWiper` below parks the blade against the spoiler's leading edge
+ * rather than against the bottom of the pane. Both numbers are fractions of
+ * the backlight in `trim/spoiler.ts`, so the pair stays together if the glass
+ * moves.
+ *
+ * The pivot's x is left on the hardpoint (−0.315); the photograph measures
+ * −0.247. See the stream report.
  */
 
 import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import type { Articulation, BuildContext, VehicleState } from '@/types';
 import { rearFaceZ } from './bodyref';
+import { SPOILER_LEADING_Y } from './spoiler';
 import { DEG, at, clamp, lathe, merge, mesh, mirrorX, roundedBox, type Pt } from './util';
 
 const W = HP.wiper;
@@ -157,7 +164,10 @@ export function buildWipers(ctx: BuildContext): WiperResult {
   const passenger = mount(group, 'wiperPassenger', pp, screen, W.bladeLength * 0.80, false, metalMat, rubberMat);
 
   // --- tailgate plane ------------------------------------------------------
-  const ry = HP.rear.wiperPivot[1];
+  // `fitRearWiper` refines this once the pane is in the graph; the value here
+  // is what shows if it never runs, so it is the spoiler-relative height too
+  // rather than the hardpoint's 0.985, which is below the glass.
+  const ry = SPOILER_LEADING_Y + 0.016;
   const dz = rearFaceZ(HP.rear.wiperPivot[0], ry + 0.06) - rearFaceZ(HP.rear.wiperPivot[0], ry - 0.06);
   const rUp = new THREE.Vector3(0, 0.12, dz).normalize();
   const rN = new THREE.Vector3(0, rUp.z, -rUp.y).normalize();
@@ -224,8 +234,11 @@ export function fitRearWiper(mount: THREE.Group, root: THREE.Object3D): boolean 
   root.worldToLocal(box.min);
   root.worldToLocal(box.max);
 
-  // Parked just inside the lower edge, the blade lying along the glass.
-  const y = box.min.y + 0.026;
+  // Parked just above the spoiler's leading edge, the blade lying along the
+  // glass — 16 mm of clearance, which is the gap the photograph shows between
+  // the blade and the wing. Clamped into the pane that actually got built, so
+  // a short backlight can only ever push it back down onto the glass.
+  const y = clamp(SPOILER_LEADING_Y + 0.016, box.min.y + 0.020, box.max.y - 0.020);
   const x = HP.rear.wiperPivot[0];
   const dz = rearFaceZ(x, y + 0.06) - rearFaceZ(x, y - 0.06);
   const up = new THREE.Vector3(0, 0.12, dz).normalize();

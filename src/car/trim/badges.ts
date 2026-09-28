@@ -2,32 +2,55 @@
  * Tailgate badging.
  *
  * The span between the lamps is the ribbed plate panel (`trim/tailgate.ts`),
- * so nothing can sit there. On the US car nothing does: `US-R` shows two
- * scripts on the body-coloured band **above** the lamps, each pushed hard
- * outboard over its own lamp, and **no four rings at all**. Rings on
- * the tailgate are a Euro 100/200 feature (`AV-R1`, `AV-R2`).
- * `docs/CRITIQUE.md` §17, `docs/REFERENCE-VEHICLE.md` §2.6.
+ * so nothing can sit there. Everything here goes on the body-coloured strip
+ * **above** the lamps, between the black band and the lamp tops.
  *
- * Reading sides off `US-R` — worth writing down, because it is easy to get
- * backwards and the two scripts are not interchangeable. The frame has the
- * tail at the left and the nose at the right, so the camera looks along +X and
- * therefore stands on the car's LEFT; the near flank, at the right of the
- * frame, is −X. *FuelInjection* is at that end, *Audi 5000 S* at the far end,
- * so the model script is on the car's RIGHT (+X).
+ * Reading sides off the dead-on frames. Do this in X, not in "left" and
+ * "right", because both the photograph and the render are rear views and both
+ * naming conventions have already gone wrong on this car once.
  *
- * ⚠ `HP.rear.badgeRingsCenter` / `badgeAudiCenter` / `badgeModelCenter` all sit
- * between the lamps at |x| ≤ 0.181, which is now the ribbed panel. Only their
- * *order* survives; the positions are derived from the lamp band. See the
- * stream report — those three hardpoints want replacing with a single
- * `badgeY` plus the lamp centreline.
+ * The `rear` camera sits behind the car looking forward, so its image-left is
+ * **+X** (`f × u` with f = +Z, u = +Y gives a camera-right of −X). On
+ * `bat_rear_straight_b.jpg` the model designation is left of the tailgate
+ * centreline, so it belongs at +X; the engine script is at −X. `HP.rear`'s
+ * `badgeModelCenter` (+0.42) and `badgeAudiCenter` (−0.42) already say this,
+ * and the photograph measures the `5000 CD` run's centre 264 px left of the
+ * body centreline — +416 mm at that frame's 1.574 mm/px. So the hardpoint is
+ * right to within 4 mm and both scripts build straight to it.
+ *
+ * (Which physical flank that is follows `hardpoints.ts`: +X is the car's LEFT.
+ * Nothing here depends on it — the placement is fixed by the photograph.)
+ *
+ * THE FOUR RINGS ARE FITTED, and this reverses a previous round.
+ *
+ * `HP.rear`'s comment ("No rear rings: the four rings on the tailgate are a
+ * Euro 100/200 feature, not a US 5000") and `CRITIQUE-2.md` §17 both rest on a
+ * single reading of `GCFS-85`. Every other source contradicts it:
+ *
+ *   · `bat_rear_straight_b.jpg` / `bat_rear_straight.jpg` — 1988 5000 CD
+ *     Avant, North American car: chrome rings at the dead centre of the
+ *     tailgate, directly above the plate recess. Measured x 1001→1096 px
+ *     against a body centreline of 1043, i.e. centred to within 9 mm.
+ *   · `bat3_rear3q_silver_b.jpg` — 1988 5000 CS Avant, Oregon plates: same.
+ *   · `wm_rear_100avant_22e_b.jpg` — European 100 Avant: same.
+ *   · **`docs/REFERENCE-VEHICLE.md` §6.5, which cites `GCFS-85` itself**:
+ *     "For a 5000 S Wagon, expect `5000 S` left of centre and the rings right
+ *     of centre… `GCFS-85` shows exactly that layout on a US 5000 S Wagon."
+ *
+ * So the one source quoted for their absence is on record as showing them. No
+ * reference in `scratchpad/ref3/` shows a C3 Avant tailgate without rings.
  */
 
 import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import type { BuildContext } from '@/types';
 import { rearFaceZ } from './bodyref';
-import { BADGE_MODEL_FONT_STACK, BADGE_SCRIPT_FONT_STACK, badgeText } from './glyphs';
-import { BADGE_BAND_Y } from './spoiler';
+import {
+  BADGE_SCRIPT_FONT_STACK, audiScriptGeometry, badgeText,
+} from './glyphs';
+import { fourRings } from './rings';
+import { BADGE_BAND_Y, BADGE_STRIP_HEIGHT } from './spoiler';
+import { mesh } from './util';
 
 /** The tailgate leans as it rises; badges have to lie on that rake. */
 function tailBasis(x: number, y: number): { m: THREE.Matrix4; z: number } {
@@ -45,6 +68,39 @@ function place(obj: THREE.Object3D, x: number, y: number, lift: number): void {
   obj.position.set(x + n.x * lift, y + n.y * lift, z + n.z * lift);
 }
 
+/**
+ * Cap height of the model script.
+ *
+ * Both dead-on frames give the same answer once each is scaled on its own body
+ * width at the lamp band: 19.5 px at 1.574 mm/px and 26 px at 1.089 mm/px, so
+ * **30 ± 2 mm**. `CRITIQUE-3.md` §5's 40 mm does not reproduce on either
+ * frame; the badge was already the right height and the wrong *width*.
+ *
+ * Capped at 0.48 of the painted strip so it cannot crowd the band above it or
+ * the lamps below. That cap is what actually binds today, because the strip is
+ * 35 % short — see the stream report on `HP.glass.tailgateGlassBottomY`. The
+ * photograph's own ratio is 0.295 (26 px of cap in an 88 px strip), which will
+ * take over on its own once the strip is the right height.
+ */
+const MODEL_CAP = Math.min(0.0305, BADGE_STRIP_HEIGHT * 0.48);
+
+/**
+ * Four-ring outer diameter. Measured 31 px tall over a 95 px overall span on
+ * `bat_rear_straight_b.jpg` at 1.574 mm/px — 49 mm and 150 mm. `rings.ts`
+ * holds the canonical `spacing / diameter` = 0.769, so a 45 mm diameter lands
+ * the overall span on 150 mm, one millimetre inside the measurement's own
+ * noise on a 31 px feature.
+ *
+ * Expressed against the script's cap rather than absolutely, because **that
+ * relationship is what the eye actually checks**: the photograph's rings stand
+ * 1.63 × the height of the `5000 CD` beside them, and a first pass that tied
+ * both to the same fraction of the strip made them the same height, which
+ * reads instantly wrong however correct each is on its own.
+ */
+const RING_DIAMETER = Math.min(MODEL_CAP * 1.63, BADGE_STRIP_HEIGHT * 0.70);
+/** Half the overall span of the four, from the canonical 0.769 spacing ratio. */
+const RINGS_HALF_W = (3 * 0.769 * RING_DIAMETER + RING_DIAMETER) / 2;
+
 interface ScriptOpts {
   cap: number;
   tracking: number;
@@ -55,7 +111,7 @@ interface ScriptOpts {
   centreX: number;
 }
 
-/** Lay one script on the painted band, pulled in if it would overhang. */
+/** Lay one set script on the painted band, pulled in if it would overhang. */
 function script(
   group: THREE.Group,
   name: string,
@@ -68,10 +124,31 @@ function script(
   const g = badgeText(text, o.cap, {
     depth: 0.0022, tracking: o.tracking, weight: o.weight, font: o.font, style: o.style,
   });
+  lay(group, name, g, side, y, material, o.centreX);
+}
+
+/**
+ * Put a finished badge geometry on the strip at ±`centreX`.
+ *
+ * The run is pulled inboard if it would hang off the end of the lamp below it,
+ * and pushed outboard if it would foul the rings at the centre — there is no
+ * sheet metal outboard of `lampOuterX` at this height, and the rings own the
+ * middle of the strip.
+ */
+function lay(
+  group: THREE.Group,
+  name: string,
+  g: THREE.BufferGeometry,
+  side: 1 | -1,
+  y: number,
+  material: THREE.Material,
+  centreX: number,
+): void {
   g.computeBoundingBox();
   const w = (g.boundingBox?.max.x ?? 0) - (g.boundingBox?.min.x ?? 0);
-  // Never hanging off the end of the lamp below it, whatever the face does.
-  const x = side * Math.min(o.centreX, HP.rear.lampOuterX - w / 2 - 0.012);
+  const outerLimit = HP.rear.lampOuterX - w / 2 - 0.012;
+  const innerLimit = RINGS_HALF_W + 0.030 + w / 2;
+  const x = side * Math.min(Math.max(centreX, innerLimit), outerLimit);
   const m = new THREE.Mesh(g, material);
   m.name = name;
   place(m, x, y, 0.0016);
@@ -84,32 +161,43 @@ export function buildRearBadges(ctx: BuildContext): THREE.Group {
   const chrome = ctx.materials.chrome();
 
   /**
-   * The badge line drops to the middle of what is left of the painted band
-   * once the black trim band is in above it (`trim/spoiler.ts`). It used to
-   * sit at `lampTopY + 0.052` = 0.972, which is inside the band's footprint.
-   *
-   * `BAT-R`, dead-on: band bottom 563 px, badge 575–605, lamp top 624 — so
-   * ~19 mm of paint above the script and ~30 mm below it. As built that comes
-   * out 13 and 30.
+   * The badge line is the mid-height of the painted strip. Both dead-on frames
+   * put the script's cap box dead centre in it — on `bat_rear_straight.jpg`,
+   * strip 414→502 px with the glyphs at 445→471, so 31 px of paint above and
+   * 31 below.
    */
   const y = BADGE_BAND_Y;
 
-  // x: `HP.rear.badgeModelCenter` is ±0.42, and measuring `BAT-R`'s `5000 CD`
-  // against the body's own width puts its centre at ~0.375 — so the hardpoint
-  // is close and the ±0.51 this used to derive from the lamp band was 90 mm
-  // outboard of both. Build to the hardpoint.
-  const modelX = Math.abs(HP.rear.badgeModelCenter[0]);
-  const scriptX = Math.abs(HP.rear.badgeAudiCenter[0]) + 0.075;
+  lay(
+    group, 'badgeModel',
+    audiScriptGeometry('Audi 5000 S', MODEL_CAP, { depth: 0.0022 }),
+    1, y, chrome, Math.abs(HP.rear.badgeModelCenter[0]),
+  );
 
-  script(group, 'badgeModel', 'Audi 5000 S', 1, y, chrome, {
-    cap: 0.0305, tracking: 0.155, weight: '500', font: BADGE_MODEL_FONT_STACK, centreX: modelX,
-  });
   // Two words, lowercase, obliqued — the `turbo`/`quattro` family, not a
-  // camel-case word in a modern geometric sans (`docs/CRITIQUE-2.md` §12).
+  // camel-case word in a modern geometric sans. Still set rather than drawn:
+  // the reference's engine scripts are a slanted geometric sans, which a font
+  // stack does reach, and the wordmark's shapes are not shared with them.
+  //
+  // Built to `badgeAudiCenter` (−0.42). This used to add 75 mm to that, which
+  // is why the mesh measured its centre at −0.4945 — a previous fix that
+  // landed on one side of the car only.
+  //
+  // 0.78 of the model cap: on the dead-on frame `quattro`'s x-height is 14 px
+  // against `5000 CD`'s 19.5 px cap, so the engine scripts are nearly as tall
+  // as the model letters and not the half-size line this used to set. Held
+  // below 1.0 only because the painted strip is short — see `MODEL_CAP`.
   script(group, 'badgeFuelInjection', 'fuel injection', -1, y, chrome, {
-    cap: 0.0185, tracking: 0.008, weight: '500', style: 'italic',
-    font: BADGE_SCRIPT_FONT_STACK, centreX: scriptX,
+    cap: MODEL_CAP * 0.78, tracking: 0.008, weight: '500', style: 'italic',
+    font: BADGE_SCRIPT_FONT_STACK, centreX: Math.abs(HP.rear.badgeAudiCenter[0]),
   });
+
+  // --- four rings, dead centre --------------------------------------------
+  // Lifted a shade further than the scripts: these are a thicker casting and
+  // the photograph shows them standing proud of the flat letters beside them.
+  const rings = mesh('badgeRearRings', fourRings({ diameter: RING_DIAMETER }), chrome);
+  place(rings, 0, y, 0.0022);
+  group.add(rings);
 
   return group;
 }
