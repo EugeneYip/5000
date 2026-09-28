@@ -260,26 +260,32 @@ export const HP = {
      * above a height with no tailgate skin on it. 1.010 reconciles all three.
      */
     /**
-     * OPEN, and contested — do not move it on one measurement.
+     * SETTLED — and it was never the problem. Measured 994 mm against 1010 as
+     * built, inside one sigma. Four readings of the gap to `lampTopY` came
+     * back at 90, 126, 139 and an implied 296 mm; it is **106 mm**, and it was
+     * short because `lampTopY` was 32 mm too high, not because this sill was
+     * low. The two errors nearly cancel here, which is why every attempt to
+     * fix the gap by moving the glass went wrong.
      *
-     * The gap this leaves to `lampTopY` is 90 mm. Two dead-on rear frames put
-     * it at 126 mm and 139 mm, measured independently and disagreeing with
-     * each other by 10 %, so it is somewhere between 35 and 50 mm short. The
-     * black band and the painted badge strip both scale with it; the split
-     * between them is ~0.30 / 0.70 and is now held as a FRACTION of this gap
-     * in `spoiler.ts` and `badges.ts`, so both correct themselves when this
-     * number does.
+     * Where the failed readings came from, so nobody repeats them: 471 mm is
+     * the roof trailing edge to the top of the paint — the whole dark aperture,
+     * roof step and spoiler and glass and band together, not the backlight.
+     * 126 and 139 are the 1814-at-the-lamp-band scale error. "93 mm band over
+     * 83 mm strip" measured the painted strip as the band; it is 34 mm of band
+     * over 72 mm of strip, and the 0.30/0.70 split now held as a fraction in
+     * `spoiler.ts` and `badges.ts` measures 0.318/0.682 in both frames.
      *
-     * Two readings of the same photographs have already been wrong here.
-     * A review reported the band 2.9x short when it is slightly over its
-     * share; I then read the spoiler-plus-glass-below-it as the band and
-     * concluded there was no band at all. The band is real, narrow, and only
-     * resolves at high magnification on `bat_rear_straight.jpg`.
+     * And there is no foreshortening to argue about within the tail plane: a
+     * plane at constant depth maps AFFINELY to image rows, so no camera
+     * elevation can compress one part of it relative to another. Only stations
+     * forward of TAIL need correcting, and only the roof materially so.
      *
-     * The backlight height is in dispute too, by much more: ours is 275 mm
-     * and the same frame projects 471 mm, which no camera elevation explains.
-     * The rear elevation wants re-deriving as a whole, from several
-     * independent scale features, before any of these move.
+     * The band's hue is the glass's at a uniform 62 % in all three channels —
+     * the signature of a ceramic frit ON the glass, not a separate moulding.
+     * Our convention treats this number as the bottom of visible glass with the
+     * band painted below it. If anyone re-reads the band as frit, the aperture
+     * runs to 960 and the band moves onto the glass: change both files or
+     * neither.
      */
     tailgateGlassBottomY: 1.01,
     tailgateGlassZ: TAIL + 0.086,
@@ -292,6 +298,22 @@ export const HP = {
      * 0.745 the glazing built to is not reachable on the corrected body.
      */
     tailgateGlassHalfW: 0.712,
+    /*
+     * KNOCK-ON, NOT YET APPLIED. The derivation above is a ratio — backlight
+     * aperture is 0.843 of the taillamp band — and it is sound, but the
+     * absolute came from multiplying it by `lampOuterX` 0.85, which is now
+     * 0.75. On the ratio this should be 0.843 x 0.75 = 0.632, and left at
+     * 0.712 the backlight is 0.95 of the lamp band where the photograph says
+     * 0.843, which is worse than either. It is 80 mm a side and changes the
+     * tailgate's whole look, so it wants verifying against the photograph
+     * directly rather than inheriting a chain.
+     *
+     * `tailgateGlassTopY` 1.285 is separately 76 mm short — the photograph
+     * puts the top of the clear glass only 60 +- 15 mm below the roof's
+     * trailing edge. The comment there says 1.372 was "unreachable" because
+     * `tailgateHingeY` is 1.340, so it is the HINGE that is too low and the
+     * constraint that needs re-deriving, not the glass that needs clipping.
+     */
   },
 
   // -------------------------------------------------------------------------
@@ -323,22 +345,43 @@ export const HP = {
      * layout — its reverse window sits hard against the plate panel. Do not
      * mix the two cars' rear measurements.
      */
-    lampInnerX: 0.165,
+    /**
+     * Re-derived 2026-09-28 by photogrammetry from four independent scale
+     * features agreeing to 0.4 % (wheelbase 2687, overall length 4895, 15-in
+     * rim flange, and a camera resection whose by-product — rear track
+     * 1.504 m — lands on the published quattro figure without being assumed).
+     * Both dead-on frames measured separately and agreeing to <= 5 mm.
+     *
+     * The broken link in every earlier reading: **body width at the taillamp
+     * band is NOT 1814 mm.** The tail tucks in to ~1600; the 1814 maximum is
+     * lower and further forward, over the rear arch. Scaling the rear
+     * elevation on "lamp band ends = body silhouette = 1814" inflates every
+     * dimension by 13 %, which is exactly the 1.136x between this and the
+     * lamp stream's independent 675 x 205 reading of the same rectangle.
+     */
+    lampInnerX: 0.152,
     /**
      * A single number for a band spanning y 0.688..0.920, but the real lamp's
      * outer end follows the body edge, which tapers ~12 mm over that height.
      * Consumers should clip the lamp to the body's own half-width at each y
      * rather than treating this as a constant.
      */
-    lampOuterX: 0.85,
-    lampTopY: 0.92,
-    lampBottomY: 0.688,
+    lampOuterX: 0.75,
+    lampTopY: 0.888,
+    lampBottomY: 0.704,
     lampZ: TAIL + 0.03,
     /** Internal division: reverse | tail/brake | indicator | fog. */
     lampSegments: 4,
 
-    bumperTopY: 0.636,
-    bumperBottomY: 0.392,
+    /**
+     * The black moulding is 111 mm, not 244. Below it the real car carries a
+     * substantial body-coloured apron down to ~392; `bumpers.ts` builds
+     * `bumperTopY`->`bumperBottomY` as the moulding, so the render had a black
+     * band more than twice the photograph's with the apron missing. Measured
+     * the largest single error in the rear elevation.
+     */
+    bumperTopY: 0.609,
+    bumperBottomY: 0.496,
     bumperZ: TAIL,
     rubStripY: 0.613,
 
@@ -367,9 +410,9 @@ export const HP = {
      */
     /** Dropped to clear the black band under the backlight. */
     badgeY: 0.95,
-    badgeAudiCenter: [-0.42, 0.972, TAIL + 0.036] as [number, number, number],
-    badgeModelCenter: [0.42, 0.972, TAIL + 0.036] as [number, number, number],
-    badgeRingsCenter: [0, 0.9515, TAIL + 0.038] as [number, number, number],
+    badgeAudiCenter: [-0.42, 0.92, TAIL + 0.036] as [number, number, number],
+    badgeModelCenter: [0.42, 0.92, TAIL + 0.036] as [number, number, number],
+    badgeRingsCenter: [0, 0.927, TAIL + 0.038] as [number, number, number],
 
     /** Exhaust tip, left of centre. */
     exhaustTip: [-0.412, 0.268, TAIL + 0.055] as [number, number, number],
