@@ -154,6 +154,13 @@ every stream running at once, not per-stream. Two streams both wrote
 - Nothing in a real car is a perfectly sharp edge. Every visible edge gets a
   radius (`QUALITY.edgeRadius`). This single habit does more for realism than
   any texture.
+- **+X is the car's LEFT.** `hardpoints.ts` said "+X right" for most of this
+  project's life and the mesh names follow that, so `mirrorSailRight` is at +X
+  and `doorFR` is on the left. A review reported the fuel filler on the wrong
+  flank by trusting those names; it is correct. The steering wheel is not — it
+  is at −X, which is the car's right, so the car is built right-hand drive.
+  **Never reason about a side from a mesh name.** Check the sign against the
+  note at the top of `hardpoints.ts`, or with `__AUDI.pick` on the `side` pose.
 - **Relief is only drawn where a vertex lands in it.** A 22 mm stitch trough on
   a 13 mm station pitch needs a station *inside* the trough, and authoring the
   seam at a parametric `v` does not make one: a seam at v 0.755 on a 44-station

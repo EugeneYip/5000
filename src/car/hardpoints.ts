@@ -15,9 +15,30 @@
  *    · Trim, lamps, glass and interior must attach AT these points and must
  *      not invent their own.
  *
- *  Frame: +X right, +Y up, +Z forward. Origin on the ground at the front axle.
- *  All values metres. Symmetric parts give the RIGHT-hand (+X) value only;
- *  mirror for the left.
+ *  Frame: +Y up, +Z forward, origin on the ground at the front axle. Metres.
+ *  Symmetric parts give the +X value only; mirror for −X.
+ *
+ *  **+X IS THE CAR'S LEFT.** This line used to read "+X right" and it was
+ *  wrong, and it has put real parts on the wrong side of the car.
+ *
+ *  three is right-handed: a camera on +Z looking at the origin with +Y up
+ *  sees +X on the right of the frame. The `front` pose is exactly that, and
+ *  the car's nose points at it — and a car facing you has its right side on
+ *  your left. So the car's right is −X.
+ *
+ *  What it cost. The mesh names follow the old sentence and are therefore
+ *  inverted: `mirrorSailRight` is at +X, i.e. on the left. A review found the
+ *  fuel filler "on the wrong flank" by trusting `doorFR`, and it is in fact
+ *  correct. Worse, the steering wheel sits at −0.372 — placed as "left" under
+ *  the old convention — which is the car's **right**, so the car is built
+ *  right-hand drive. Measured against the photograph: its instrument binnacle
+ *  is clearly right of the plate/rings centreline in a dead-on front view, and
+ *  ours is left of it. Mirrored.
+ *
+ *  When you place an asymmetric part, do not reason from a mesh name. Check
+ *  the sign against this note, or with `__AUDI.pick` on the `side` pose — that
+ *  camera sits at +X, and the flank it sees has the nose at image-left, which
+ *  is the car's left flank.
  *
  *  Front-end proportions come from two photographs measured independently —
  *  the owner's car scaled on its licence plate, and a 1985 US wagon with the
@@ -87,7 +108,7 @@ export const HP = {
     ringSpacing: 0.0615,
     ringTubeRadius: 0.0055,
 
-    /** Headlamp aperture, right-hand side. Inner edge meets the grille. */
+    /** Headlamp aperture, +X side. Inner edge meets the grille. */
     lampInnerX: 0.37,
     /**
      * Not the outer edge of the aperture — the aperture runs on to the body's
@@ -208,7 +229,7 @@ export const HP = {
     windscreenThickness: 0.0058,
     sideThickness: 0.0042,
 
-    /** Daylight-opening corners at the beltline, right-hand side. */
+    /** Daylight-opening corners at the beltline, +X side. */
     dloFrontZ: -0.585,
     /**
      * The body's `tDloRear` and the glazing both build the DLO's trailing edge
@@ -261,7 +282,7 @@ export const HP = {
     tailgateBottomY: 0.652,
 
     /**
-     * Taillamp cluster, right-hand side.
+     * Taillamp cluster, +X side.
      *
      * Measured off a dead-on rear frame of the 1988 Avant: ~675 x 205 mm, an
      * aspect of 3.3:1. These were 590 x 294 (2.0:1), which read far too tall
@@ -429,7 +450,7 @@ export const HP = {
   },
 } as const;
 
-/** Mirror a right-hand hardpoint to the left. */
+/** Mirror a +X hardpoint across the centreline. */
 export function mirrorX(p: readonly [number, number, number]): [number, number, number] {
   return [-p[0], p[1], p[2]];
 }
