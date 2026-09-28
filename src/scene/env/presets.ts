@@ -419,7 +419,27 @@ export const PRESETS: Record<string, EnvPreset> = {
     // The colour is the shaded carriageway the light is supposed to be coming
     // off, which the white-balanced photograph measures at (108, 102, 103),
     // R/B 1.05. 0xd4a173 is R/B 1.84 — an orange that is nowhere in the frame.
-    bounce: { color: 0xd8c8bc, intensity: 0.7, dir: [0.3, 0.55, 0.62] },
+    //
+    // 0.7 -> 0.18, because "a thin band" understated it. That band includes
+    // the whole rear apron, and dead astern the apron crowns at 125 against
+    // 81 on the same paint 200 mm above it — a ratio of 1.55 where the
+    // photograph gives 0.82. Every other preset has the apron DARKER than the
+    // panel above, which is what a surface tucked 12-48 deg under and
+    // reflecting road should be, and `goldenhour` is the only one of the five
+    // whose bounce points up.
+    //
+    // Pointing it up is right and is not the bug: light kicked off a road
+    // travels upward. The bug is asking a DIRECTIONAL light to stand for it.
+    // The paint is `metalness: 1.0` with no diffuse lobe, so a directional
+    // light can appear only as a specular highlight, and here the half-vector
+    // sits ~10 deg off the apron's normal against ~19 off the panel above —
+    // so the apron gets a sheet and the panel does not. A road bounce is a
+    // hemisphere, not a point, and the cubemap already carries it.
+    //
+    // 0.18 solved rather than dialled: measured apron 40 at zero and 125 at
+    // 0.7, panel 74 and 81, so the ratio reaches the photograph's 0.82 at
+    // I = 0.183. It also lands inside the 0.14-0.32 the other four use.
+    bounce: { color: 0xd8c8bc, intensity: 0.18, dir: [0.3, 0.55, 0.62] },
     rim: { color: 0xbad4f0, intensity: 0.28, dir: [0.62, 0.42, -0.66] },
     // 0.0018, not 0.0038. Halving the extinction is worth a kilometre of
     // visibility and it is the photograph that asks for it: the far end of the
