@@ -73,7 +73,7 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
   // Over the rear seat looking forward across the cabin — inside the car,
   // which the previous pose was not: it sat 1.55 m out, beyond the body side,
   // framing a closed door.
-  interior:  { target: [-0.3, 0.95, -0.52], position: [0.42, 1.12, -2.12], focalMm: 22 },
+  interior:  { target: [0.3, 0.95, -0.52], position: [-0.42, 1.12, -2.12], focalMm: 22 },
   /**
    * A seated driver's eye, not a camera resting on the dash top. The old pose
    * sat at y=1.12 looking at a cluster centred at 1.032 with a 1.055 dash top
@@ -111,7 +111,7 @@ export const POSES: Record<Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinem
    * rather than dodging it.
    */
   dash:      { target: [...HP.interior.clusterCenter] as [number, number, number],
-               position: [-0.372, 1.27, -1.22], focalMm: 75, aperture: 8 },
+               position: [0.372, 1.27, -1.22], focalMm: 75, aperture: 8 },
 
   /**
    * Reproduces the original photograph's viewpoint: dead-on front, low, ~3.7 m.
@@ -210,8 +210,8 @@ export class CameraRig {
       carRoot.localToWorld(this.desiredPos);
       carRoot.localToWorld(this.desiredTarget);
     } else if (this.current === 'hood' && state) {
-      this.desiredPos.set(-0.38, 1.16, -0.2);
-      this.desiredTarget.set(-0.38 + state.steerAngle * 0.8, 1.02, 9);
+      this.desiredPos.set(0.38, 1.16, -0.2);
+      this.desiredTarget.set(0.38 + state.steerAngle * 0.8, 1.02, 9);
       this.desiredFov = fovFromFocal(30);
       carRoot.localToWorld(this.desiredPos);
       carRoot.localToWorld(this.desiredTarget);

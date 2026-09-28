@@ -422,8 +422,8 @@ export const HP = {
   // -------------------------------------------------------------------------
   wiper: {
     /** Single pantograph wiper is period-correct on many C3s; twin also used. */
-    pivotDriver: [-0.472, 1.032, -0.362] as [number, number, number],
-    pivotPassenger: [0.398, 1.032, -0.362] as [number, number, number],
+    pivotDriver: [0.472, 1.032, -0.362] as [number, number, number],
+    pivotPassenger: [-0.398, 1.032, -0.362] as [number, number, number],
     bladeLength: 0.512,
     parkAngleDeg: -8,
     sweepDeg: 92,
@@ -434,14 +434,14 @@ export const HP = {
   // -------------------------------------------------------------------------
   interior: {
     /** Driver's hip point — everything in the cabin is laid out from here. */
-    hipPointDriver: [-0.372, 0.612, -1.145] as [number, number, number],
+    hipPointDriver: [0.372, 0.612, -1.145] as [number, number, number],
     /**
      * OPEN: 0.938 is a local MINIMUM for how much of the instrument pack the
      * driver can see. With `steeringDiameter` 0.385 the rim's annulus projects
      * onto the print across the upper third of both main dials — most of the
      * speedometer scale — and its side arcs cross the temperature and fuel
      * gauges. Sweeping hub height alone, fraction of the print with line of
-     * sight from (−0.372, 1.27, −1.22):
+     * sight from (+0.372, 1.27, −1.22):
      *
      *     0.898 → 0.728   0.918 → 0.667   0.938 → 0.617   0.958 → 0.691
      *     0.968 → 0.778   0.978 → 0.802   0.988 → 0.827
@@ -452,7 +452,7 @@ export const HP = {
      * and settling it needs a measurement off a real C3 interior, not more
      * arithmetic against our own geometry.
      */
-    steeringCenter: [-0.372, 0.938, -0.735] as [number, number, number],
+    steeringCenter: [0.372, 0.938, -0.735] as [number, number, number],
     steeringDiameter: 0.385,
     steeringTiltDeg: 24,
     /**
@@ -471,11 +471,12 @@ export const HP = {
      * a compromise this number forced. 1.018 would let the brow keep 13 mm
      * everywhere.
      */
-    clusterCenter: [-0.372, 1.032, -0.575] as [number, number, number],
+    clusterCenter: [0.372, 1.032, -0.575] as [number, number, number],
     dashTopY: 1.055,
     dashFrontZ: -0.395,
     dashRearZ: -0.712,
     centreStackCenter: [0, 0.935, -0.688] as [number, number, number],
+    /** Dead: `console.ts` builds the lever on the centreline and never reads this. */
     shifterBase: [-0.045, 0.638, -1.005] as [number, number, number],
     seatBackRakeDeg: 14,
     rearSeatZ: -2.185,

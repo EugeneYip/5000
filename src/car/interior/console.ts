@@ -347,15 +347,19 @@ export function buildConsole(ctx: BuildContext, batch: StaticBatch): ConsoleHand
       pads.push(rib);
     }
   };
-  pedal(-0.508, 0.056, 0.086, 0.230);
-  pedal(-0.378, 0.062, 0.088, 0.222);
-  pedal(-0.258, 0.040, 0.112, 0.208);
+  // Clutch outboard, then brake, then throttle inboard — so on a left-hand
+  // drive car they run from +X in toward the tunnel. They were mirrored, with
+  // the clutch against the console and the throttle out by the sill.
+  pedal(0.508, 0.056, 0.086, 0.230);
+  pedal(0.378, 0.062, 0.088, 0.222);
+  pedal(0.258, 0.040, 0.112, 0.208);
 
-  // Footrest, canted to meet the sole of a left foot.
+  // Footrest, canted to meet the sole of a left foot: outboard of the clutch,
+  // against the sill.
   const rest = roundedBox(0.070, 0.150, 0.014, 0.005, 2, 3);
   rest.rotateX(-0.34);
-  rest.rotateZ(0.16);
-  rest.translate(-0.614, 0.420, -0.612);
+  rest.rotateZ(-0.16);
+  rest.translate(0.614, 0.420, -0.612);
   pads.push(rest);
 
   // Console side trim, heat duct and pedal arms are one moulding colour and

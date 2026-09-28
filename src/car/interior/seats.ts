@@ -53,7 +53,7 @@
 
 import * as THREE from 'three';
 import type { Articulation, BuildContext } from '@/types';
-import { CABIN, TONE } from './layout';
+import { CABIN, DRIVER, TONE } from './layout';
 import { crease, dish, panel, roll, thin, welt, type BolsterSpec, type Frame, type Panel } from './soft';
 import {
   clamp, cyl, D2R, flipWinding, lerp, merge, mesh, mirrored, roundedBox, roundedRect,
@@ -265,7 +265,7 @@ function headRestraint(f: Frame, backLen: number, hr: HeadRestraint, rakeDeg: nu
 // ---------------------------------------------------------------------------
 
 interface SeatOpts {
-  /** -1 driver, +1 passenger. */
+  /** Which flank the bucket sits on: `DRIVER` (+1, the car's left) or -1. */
   side: number;
   /** Fore/aft travel from the nominal H-point, +forward. */
   slide: number;
@@ -332,7 +332,7 @@ function frontSeat(o: SeatOpts): SeatParts {
       + crease(t, v, 0.22, 0.0040 * (0.4 + w))
       + crease(t, v, 0.62, 0.0026 * (0.4 + w), 0.016)
       // The outboard bolster of a seat people climb over collapses first.
-      - (o.side < 0 ? 1 : 0.35) * w * 0.007 * smoothstep(0.62, 0.99, t * o.side) * smoothstep(0.1, 0.4, v),
+      - (o.side === DRIVER ? 1 : 0.35) * w * 0.007 * smoothstep(0.62, 0.99, t * o.side) * smoothstep(0.1, 0.4, v),
     back: () => -0.002,
   });
   clad(cush, out, 0.0042, 12);
@@ -448,11 +448,11 @@ function frontSeat(o: SeatOpts): SeatParts {
     out.dark.push(arm);
   }
 
-  // Height-adjust lever, driver only.
-  if (o.side < 0) {
+  // Height-adjust lever, driver only — outboard, on the driver's flank.
+  if (o.side === DRIVER) {
     const lever = roundedBox(0.014, 0.020, 0.115, 0.006, 2, 3);
     lever.rotateX(0.22);
-    lever.translate(-0.246, cushY - 0.055, cushRearZ + 0.150);
+    lever.translate(o.side * 0.246, cushY - 0.055, cushRearZ + 0.150);
     out.hard.push(lever);
   }
 
@@ -756,8 +756,10 @@ export function buildSeats(ctx: BuildContext, batch: StaticBatch): { group: THRE
   const articulations: Articulation[] = [];
 
   // Driver: forward on its rails, a degree more upright, four years more use.
-  const driver = frontSeat({ side: -1, slide: 0.030, rakeDeg: CABIN.seatBackRakeDeg - 1.5, wear: 1.0, headrestUp: 0.006, seed: 1.7 });
-  const pass = frontSeat({ side: 1, slide: -0.048, rakeDeg: CABIN.seatBackRakeDeg + 3.5, wear: 0.42, headrestUp: -0.024, seed: 6.4 });
+  // On the car's LEFT, which is +X — the two buckets were the right way round
+  // as a pair and the wrong way round on the car.
+  const driver = frontSeat({ side: DRIVER, slide: 0.030, rakeDeg: CABIN.seatBackRakeDeg - 1.5, wear: 1.0, headrestUp: 0.006, seed: 1.7 });
+  const pass = frontSeat({ side: -DRIVER, slide: -0.048, rakeDeg: CABIN.seatBackRakeDeg + 3.5, wear: 0.42, headrestUp: -0.024, seed: 6.4 });
 
   // Not mirrored: each bucket is built for the side it sits on, so the
   // recliner wheel and the height lever land outboard on both and the two
@@ -767,7 +769,7 @@ export function buildSeats(ctx: BuildContext, batch: StaticBatch): { group: THRE
   // that move — so the seat's X offset is baked in and each finish goes to
   // the cabin's static batch as one contribution. Eight meshes become none.
   const buckets = benchCushion();
-  for (const [s, seat] of [[-1, driver], [1, pass]] as Array<[number, SeatParts]>) {
+  for (const [s, seat] of [[DRIVER, driver], [-DRIVER, pass]] as Array<[number, SeatParts]>) {
     const dx = s * CABIN.seatX;
     for (const key of KEYS) {
       if (seat[key].length) buckets[key].push(merge(seat[key]).translate(dx, 0, 0));

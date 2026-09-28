@@ -16,10 +16,15 @@ import * as THREE from 'three';
 import type { BuildContext, VehicleState } from '@/types';
 import { STEERING } from '@/spec';
 import { HP } from '@/car/hardpoints';
-import { TONE } from './layout';
+import { STEER, TONE } from './layout';
 import { cyl, D2R, lerp, merge, mesh, roundedBox, slab, smoothstep, surface, TAU } from './util';
 
-const C = HP.interior.steeringCenter;
+/**
+ * Steering hub. `STEER` rather than `HP.interior.steeringCenter`, which is on
+ * the car's right: +X is the car's left and this car is left-hand drive. See
+ * `driverX()` in `layout.ts`.
+ */
+const C = STEER;
 const OUTER = HP.interior.steeringDiameter / 2;
 const SECTION = 0.0158;
 const RING_R = OUTER - SECTION;
@@ -80,6 +85,9 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   group.name = 'steering';
   group.position.set(C[0], C[1], C[2]);
   // Tilt the wheel plane back from vertical; the column follows its normal.
+  // Positive, which puts the top of the rim forward of the bottom, as a
+  // column rising from the rack does. (What is wrong here is not this angle
+  // but the local z of everything hung off it — see the stream report.)
   group.rotation.x = HP.interior.steeringTiltDeg * D2R;
 
   const spin = new THREE.Group();
@@ -150,6 +158,10 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
 
   // Stalks. Left: lights and indicators. Right: wipers and washer. Plus the
   // cruise-control stalk below the left one.
+  //
+  // `sx` is the side the root is buried in the shroud on; the visible length
+  // protrudes the *other* way. So sx -1 is the stalk the driver reaches to
+  // their left, which on this car is outboard, toward +X.
   const stalks: THREE.BufferGeometry[] = [];
   const stalk = (sx: number, sy: number, len: number, thick: number, droop: number): THREE.BufferGeometry => {
     const g = roundedBox(thick, thick * 0.82, len, thick * 0.4, 2, 3);
@@ -163,13 +175,14 @@ export function buildWheel(ctx: BuildContext): { group: THREE.Group; update(dt: 
   stalks.push(stalk(1, -0.004, 0.112, 0.0175, 0.10));
   stalks.push(stalk(-1, -0.036, 0.082, 0.0135, 0.22));
 
-  // Ignition barrel: right of the column on a left-hand-drive Audi.
+  // Ignition barrel: right of the column on a left-hand-drive Audi, so
+  // inboard of the hub, toward the console — which is -X.
   const barrel = cyl(0.0205, 0.0225, 0.030, 18);
   barrel.rotateX(Math.PI / 2);
-  barrel.translate(0.062, -0.014, -0.078);
+  barrel.translate(-0.062, -0.014, -0.078);
   stalks.push(barrel);
   const slot = slab(0.0125, 0.0035, 0.004, 0.001, 1);
-  slot.translate(0.062, -0.014, -0.063);
+  slot.translate(-0.062, -0.014, -0.063);
   stalks.push(slot);
 
   // Stalks and barrel are the same moulding and both fixed to the column —

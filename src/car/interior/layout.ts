@@ -7,10 +7,14 @@
  * seat's back rail ends up inside the B-pillar trim. So the derived cabin
  * surfaces live here and every module reads them.
  *
- * Frame is the vehicle frame: +X right, +Y up, +Z forward, origin on the
- * ground at the front axle. The car is left-hand drive, so the driver's side
- * is -X — that is what `HP.interior.hipPointDriver` says and everything here
- * follows it.
+ * Frame is the vehicle frame: **+X is the car's LEFT**, +Y up, +Z forward,
+ * origin on the ground at the front axle — see the frame note at the top of
+ * `hardpoints.ts`, which said the opposite for most of this project's life.
+ *
+ * The car is left-hand drive, so the driver's side is +X. `HP.interior`'s
+ * driver-side points are all still on -X, which is what built the car
+ * right-hand drive; `driverX()` below is where that is put right, and it is
+ * the only place in the cabin that knows about it.
  */
 
 import { BODY, TRIM_COLORS } from '@/spec';
@@ -20,8 +24,33 @@ import { FACE } from './dials';
 
 const I = HP.interior;
 
-/** Which side the driver is on, as a sign on X. */
-export const DRIVER = -1;
+/**
+ * Which side the driver is on, as a sign on X. A 1988 US-market 5000 S is
+ * left-hand drive and +X is the car's left, so this is +1.
+ */
+export const DRIVER = 1;
+
+/**
+ * A driver-side hardpoint, put on the correct flank.
+ *
+ * `hipPointDriver`, `steeringCenter` and `clusterCenter` are all at x -0.372.
+ * Their magnitude is right and their sign is not: they were authored when the
+ * package drawing read "+X right", so they sit on the car's right and the
+ * whole driving position — wheel, column, pack, needles, pedals — was built
+ * right-hand drive with them. Verified against the photograph rather than by
+ * axis argument: in a dead-on front view the reference car's binnacle is
+ * clearly right of the plate/rings centreline and ours was left of it.
+ *
+ * Every driver-side x in this stream comes through here, so when the
+ * hardpoints are corrected this collapses to `p` and nothing else changes.
+ */
+function driverX(p: readonly [number, number, number]): [number, number, number] {
+  return [DRIVER * Math.abs(p[0]), p[1], p[2]];
+}
+
+/** Driver's hip point and steering hub, on the driver's side of the car. */
+export const HIP = driverX(I.hipPointDriver);
+export const STEER = driverX(I.steeringCenter);
 
 export const CABIN = {
   /** Driver / passenger seat centreline. */
@@ -128,9 +157,9 @@ export function fasciaZ(y: number): number {
  * Anything that reaches over the pack is now struck against this point first.
  */
 export const DRIVER_EYE: readonly [number, number, number] = [
-  I.hipPointDriver[0],
-  I.hipPointDriver[1] + 0.658,
-  I.hipPointDriver[2] - 0.075,
+  HIP[0],
+  HIP[1] + 0.658,
+  HIP[2] - 0.075,
 ];
 
 /**
@@ -144,7 +173,7 @@ export const DRIVER_EYE: readonly [number, number, number] = [
  * render actually was.
  */
 export const PACK = {
-  centre: I.clusterCenter,
+  centre: driverX(I.clusterCenter),
   /**
    * Face rake. Struck so the print is square to `DRIVER_EYE`: read head-on,
    * with the lens throwing its one hard reflection at the header rail rather

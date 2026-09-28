@@ -16,11 +16,11 @@
 
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
-import { CABIN, TONE, innerHalfW } from './layout';
+import { CABIN, DRIVER, TONE, innerHalfW } from './layout';
 import { clamp, cyl, fbm, lerp, merge, mesh, roundedBox, smoothstep, surface, TAU } from './util';
 
 interface DoorSpec {
-  /** +1 right, -1 left. */
+  /** Which flank: +1 is the car's LEFT, so +1 is the driver's side. */
   side: number;
   zFront: number;
   zRear: number;
@@ -180,11 +180,14 @@ export function buildDoors(ctx: BuildContext): THREE.Group {
   const group = new THREE.Group();
   group.name = 'doorCards';
 
+  // The four-rocker pod, the mirror joystick, the rear-window lockout and the
+  // worn card belong to the driver's door, which on a left-hand-drive car is
+  // the car's LEFT — side +1. They were all on the right.
   const specs: DoorSpec[] = [
-    { side: -1, zFront: CABIN.doorFrontZ - 0.012, zRear: CABIN.doorMidZ + 0.026, armFrom: 0.30, armTo: 0.92, switches: 4, speaker: true, wear: 1 },
-    { side: 1, zFront: CABIN.doorFrontZ - 0.012, zRear: CABIN.doorMidZ + 0.026, armFrom: 0.30, armTo: 0.92, switches: 1, speaker: true, wear: 0.3 },
-    { side: -1, zFront: CABIN.doorMidZ - 0.026, zRear: CABIN.doorRearZ + 0.028, armFrom: 0.22, armTo: 0.88, switches: 1, speaker: true, wear: 0.5 },
-    { side: 1, zFront: CABIN.doorMidZ - 0.026, zRear: CABIN.doorRearZ + 0.028, armFrom: 0.22, armTo: 0.88, switches: 1, speaker: true, wear: 0.2 },
+    { side: DRIVER, zFront: CABIN.doorFrontZ - 0.012, zRear: CABIN.doorMidZ + 0.026, armFrom: 0.30, armTo: 0.92, switches: 4, speaker: true, wear: 1 },
+    { side: -DRIVER, zFront: CABIN.doorFrontZ - 0.012, zRear: CABIN.doorMidZ + 0.026, armFrom: 0.30, armTo: 0.92, switches: 1, speaker: true, wear: 0.3 },
+    { side: DRIVER, zFront: CABIN.doorMidZ - 0.026, zRear: CABIN.doorRearZ + 0.028, armFrom: 0.22, armTo: 0.88, switches: 1, speaker: true, wear: 0.5 },
+    { side: -DRIVER, zFront: CABIN.doorMidZ - 0.026, zRear: CABIN.doorRearZ + 0.028, armFrom: 0.22, armTo: 0.88, switches: 1, speaker: true, wear: 0.2 },
   ];
   const geo: DoorGeo = { card: [], trim: [], switches: [], bright: [] };
   for (const s of specs) door(s, geo);

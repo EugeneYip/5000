@@ -19,14 +19,20 @@
 
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
-import { HP } from '@/car/hardpoints';
 import { CABIN, PACK, TONE, packSection, packSightline, screenY, softMin } from './layout';
 import type { StaticBatch } from './batch';
 import {
   clamp, cyl, fbm, lerp, merge, mesh, mirrored, roundedBox, slab, smoothstep, surface, type Vec3,
 } from './util';
 
-const DX = HP.interior.steeringCenter[0];
+/**
+ * Where the binnacle sits across the car: the pack's own centre, not a second
+ * reading of `HP.interior.steeringCenter` — which is on the car's right, and
+ * which is what put the binnacle, the bolster and every switch on the fascia
+ * on the wrong flank. One number, in `layout.ts`, and the hood cannot drift
+ * off the pack it covers.
+ */
+const DX = PACK.centre[0];
 const FRONT_Z = CABIN.dashFrontZ;
 
 /**
@@ -320,19 +326,20 @@ export function buildDash(ctx: BuildContext, batch: StaticBatch): void {
     dark.push(...l.dark);
   }
 
-  // Glovebox: a wide lid with a small round lock and no handle.
+  // Glovebox: a wide lid with a small round lock and no handle. Passenger's
+  // side, so -X — the car's right.
   const lid = slab(0.516, 0.206, 0.020, 0.009, 2);
   lid.rotateX(Math.atan(CABIN.fasciaRake));
-  lid.translate(0.452, 0.842, -0.6925 + 0.006);
+  lid.translate(-0.452, 0.842, -0.6925 + 0.006);
   dark.push(lid);
   const lock = cyl(0.0105, 0.0105, 0.010, 14);
   lock.rotateX(Math.PI / 2 + Math.atan(CABIN.fasciaRake));
-  lock.translate(0.664, 0.845, -0.6895);
+  lock.translate(-0.664, 0.845, -0.6895);
   bright.push(lock);
 
   // Knee bolster / lower dash on the driver's side, with the fuse lid.
   const bolsterG = surface(12, 5, false, (i, j, out) => {
-    const x = lerp(-0.742, -0.088, i / 12);
+    const x = lerp(0.742, 0.088, i / 12);
     const v = j / 5;
     const y = lerp(0.792, CABIN.dashBottomY - 0.012, v);
     const z = -0.7125 + (1.028 - y) * CABIN.fasciaRake + 0.052 * v * v + 0.010 * Math.sin(Math.PI * v);
@@ -342,7 +349,7 @@ export function buildDash(ctx: BuildContext, batch: StaticBatch): void {
 
   const fuse = slab(0.168, 0.086, 0.012, 0.006, 1);
   fuse.rotateX(0.5);
-  fuse.translate(-0.556, 0.706, -0.618);
+  fuse.translate(0.556, 0.706, -0.618);
   dark.push(fuse);
 
   // Headlamp rotary and the instrument rheostat, outboard of the column.
@@ -352,14 +359,14 @@ export function buildDash(ctx: BuildContext, batch: StaticBatch): void {
     return g;
   };
   const hl = knobProfile(0.0235, 0.020);
-  hl.translate(-0.632, 0.9015, -0.6845);
+  hl.translate(0.632, 0.9015, -0.6845);
   dark.push(hl);
   const rheo = knobProfile(0.0155, 0.016);
-  rheo.translate(-0.556, 0.8985, -0.6865);
+  rheo.translate(0.556, 0.8985, -0.6865);
   dark.push(rheo);
   const hlFlat = slab(0.016, 0.030, 0.006, 0.002, 1);
   hlFlat.rotateX(Math.atan(CABIN.fasciaRake));
-  hlFlat.translate(-0.632, 0.9015, -0.6745);
+  hlFlat.translate(0.632, 0.9015, -0.6745);
   bright.push(hlFlat);
 
   batch.add(darkMat, merge(dark));

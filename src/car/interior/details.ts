@@ -160,10 +160,10 @@ export function buildDetails(ctx: BuildContext, batch: StaticBatch): void {
     clip.translate(sx * 0.176, headlinerY(sx * 0.176, HP.headerZ - 0.086) - 0.026, HP.headerZ - 0.086);
     darkParts.push(clip);
   }
-  // Vanity mirror on the passenger visor.
+  // Vanity mirror on the passenger visor — the car's right, so -X.
   const vanity = slab(0.104, 0.052, 0.004, 0.002, 1);
   vanity.rotateX(-1.40);
-  vanity.translate(0.316, headlinerY(0.316, HP.headerZ - 0.042) - 0.046, HP.headerZ - 0.042);
+  vanity.translate(-0.316, headlinerY(-0.316, HP.headerZ - 0.042) - 0.046, HP.headerZ - 0.042);
   metal.push(vanity);
 
   // -- rear-view mirror -----------------------------------------------------
@@ -180,13 +180,14 @@ export function buildDetails(ctx: BuildContext, batch: StaticBatch): void {
   stem.rotateX(0.62);
   stem.translate(0, my - 0.026, mz - 0.016);
   darkParts.push(stem);
+  // The head hangs a few millimetres toward the driver, which is +X.
   const headG = roundedBox(0.248, 0.062, 0.030, 0.010, 2, 3);
   headG.rotateX(0.10);
-  headG.translate(-0.012, my - 0.052, mz - 0.038);
+  headG.translate(0.012, my - 0.052, mz - 0.038);
   darkParts.push(headG);
   const face = slab(0.232, 0.050, 0.004, 0.002, 1);
   face.rotateX(0.10);
-  face.translate(-0.012, my - 0.0535, mz - 0.0525);
+  face.translate(0.012, my - 0.0535, mz - 0.0525);
   batch.add(mirrorGlass, face);
 
   // -- grab handles ---------------------------------------------------------
@@ -209,7 +210,8 @@ export function buildDetails(ctx: BuildContext, batch: StaticBatch): void {
       darkParts.push(boss);
     }
   };
-  handleAt(1, -1.320);
+  // Front handle on the passenger's side only, which is -X.
+  handleAt(-1, -1.320);
   handleAt(1, -2.120);
   handleAt(-1, -2.120);
 

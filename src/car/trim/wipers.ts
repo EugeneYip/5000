@@ -28,6 +28,12 @@
  *
  * The pivot's x is left on the hardpoint (−0.315); the photograph measures
  * −0.247. See the stream report.
+ *
+ * Handedness: the two front pivots are mirrored at the head of
+ * `buildWipers` — see the note there. The rear pivot is not, because it was
+ * measured off the photograph against the camera rather than against the
+ * package drawing's "+X right" sentence, so its sign does not inherit that
+ * error.
  */
 
 import * as THREE from 'three';
@@ -38,6 +44,14 @@ import { SPOILER_LEADING_Y } from './spoiler';
 import { DEG, at, clamp, lathe, merge, mesh, mirrorX, roundedBox, type Pt } from './util';
 
 const W = HP.wiper;
+
+/**
+ * Which side the driver sits on, as a sign on X: +X is the car's LEFT (see
+ * the frame note in `hardpoints.ts`) and a 1988 US-market 5000 S is
+ * left-hand drive. Kept local rather than imported from the cabin's
+ * `layout.ts`, which is another stream's module.
+ */
+const DRIVER = 1;
 
 /** One arm and blade, built along +X from a pivot at the origin, in XY. */
 function arm(bladeLength: number): { metal: THREE.BufferGeometry; rubber: THREE.BufferGeometry } {
@@ -155,13 +169,34 @@ export function buildWipers(ctx: BuildContext): WiperResult {
   const screen = new THREE.Matrix4().makeBasis(right, up, n);
 
   const lift = 0.014;
-  const dp = new THREE.Vector3(...W.pivotDriver).addScaledVector(n, lift);
-  const pp = new THREE.Vector3(...W.pivotPassenger).addScaledVector(n, lift);
+  /**
+   * The front pivots, put on the right flanks.
+   *
+   * `HP.wiper.pivotDriver` is at x -0.472 and `pivotPassenger` at +0.398,
+   * both authored when the package drawing read "+X right". **+X is the car's
+   * left**, so as given the long driver's blade parks across the passenger's
+   * half of a left-hand-drive car and its park pattern is handed the wrong
+   * way. Mirrored here in x only — the pair keeps its spacing, its height and
+   * its park angle — with `flip` mirroring each arm and reversing its sweep,
+   * which is the rest of the same reflection.
+   *
+   * Written as a magnitude and a side rather than a negation, so it is
+   * **idempotent**: correcting the sign in `HP.wiper` moves nothing here and
+   * cannot double-flip the pair. The hardpoint correction is in the stream
+   * report, along with the separate problem the mirror does not fix — the two
+   * pivots are 870 mm apart against a 660 mm arm reach, so the shorter
+   * blade's tip lands 43 mm outboard of the car's widest point whichever
+   * flank it is on.
+   */
+  const onSide = (p: readonly [number, number, number], side: number): THREE.Vector3 =>
+    new THREE.Vector3(side * Math.abs(p[0]), p[1], p[2]).addScaledVector(n, lift);
+  const dp = onSide(W.pivotDriver, DRIVER);
+  const pp = onSide(W.pivotPassenger, -DRIVER);
 
   // Tandem pair, both sweeping the same way. The passenger blade is the
   // shorter of the two, as it is on the car.
-  const driver = mount(group, 'wiperDriver', dp, screen, W.bladeLength, false, metalMat, rubberMat);
-  const passenger = mount(group, 'wiperPassenger', pp, screen, W.bladeLength * 0.80, false, metalMat, rubberMat);
+  const driver = mount(group, 'wiperDriver', dp, screen, W.bladeLength, true, metalMat, rubberMat);
+  const passenger = mount(group, 'wiperPassenger', pp, screen, W.bladeLength * 0.80, true, metalMat, rubberMat);
 
   // --- tailgate plane ------------------------------------------------------
   // `fitRearWiper` refines this once the pane is in the graph; the value here

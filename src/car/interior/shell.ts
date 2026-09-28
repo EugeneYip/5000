@@ -109,10 +109,12 @@ function buildMats(ctx: BuildContext): THREE.Mesh {
       out.set(x, y, z);
     }));
   };
-  mat(-CABIN.seatX, -0.640, 0.186, 0.196, 0.035, 1.3);
-  mat(CABIN.seatX, -0.662, 0.186, 0.196, -0.012, 4.1);
-  mat(-CABIN.seatX + 0.02, -1.790, 0.176, 0.170, -0.02, 7.7);
-  mat(CABIN.seatX - 0.02, -1.790, 0.176, 0.170, 0.015, 9.2);
+  // Driver's first, and the driver is on +X: the mat that has been shoved
+  // forward is the one under the pedals, not the one in front of the glovebox.
+  mat(CABIN.seatX, -0.640, 0.186, 0.196, -0.035, 1.3);
+  mat(-CABIN.seatX, -0.662, 0.186, 0.196, 0.012, 4.1);
+  mat(CABIN.seatX - 0.02, -1.790, 0.176, 0.170, 0.02, 7.7);
+  mat(-CABIN.seatX + 0.02, -1.790, 0.176, 0.170, -0.015, 9.2);
   return mesh(merge(parts), ctx.materials.fabric({ color: 0x26282c }), 'floorMats');
 }
 
