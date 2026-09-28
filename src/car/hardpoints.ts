@@ -259,6 +259,28 @@ export const HP = {
      * lamps where the photograph shows ~92, and stranded `HP.rear.badgeY`
      * above a height with no tailgate skin on it. 1.010 reconciles all three.
      */
+    /**
+     * OPEN, and contested — do not move it on one measurement.
+     *
+     * The gap this leaves to `lampTopY` is 90 mm. Two dead-on rear frames put
+     * it at 126 mm and 139 mm, measured independently and disagreeing with
+     * each other by 10 %, so it is somewhere between 35 and 50 mm short. The
+     * black band and the painted badge strip both scale with it; the split
+     * between them is ~0.30 / 0.70 and is now held as a FRACTION of this gap
+     * in `spoiler.ts` and `badges.ts`, so both correct themselves when this
+     * number does.
+     *
+     * Two readings of the same photographs have already been wrong here.
+     * A review reported the band 2.9x short when it is slightly over its
+     * share; I then read the spoiler-plus-glass-below-it as the band and
+     * concluded there was no band at all. The band is real, narrow, and only
+     * resolves at high magnification on `bat_rear_straight.jpg`.
+     *
+     * The backlight height is in dispute too, by much more: ours is 275 mm
+     * and the same frame projects 471 mm, which no camera elevation explains.
+     * The rear elevation wants re-deriving as a whole, from several
+     * independent scale features, before any of these move.
+     */
     tailgateGlassBottomY: 1.01,
     tailgateGlassZ: TAIL + 0.086,
     /**
@@ -335,20 +357,34 @@ export const HP = {
      * span between the lamps is the ribbed panel and carries the plate, so
      * nothing can be badged there.
      *
-     * No rear rings: the four rings on the tailgate are a Euro 100/200
-     * feature, not a US 5000.
+     * The four rings ARE fitted, at the tailgate's centre. This comment used
+     * to say they were a Euro 100/200 feature and not a US 5000; that came
+     * from misreading the one source cited for it. `REFERENCE-VEHICLE.md`
+     * §6.5, quoting `GCFS-85`, says: "For a 5000 S Wagon, expect 5000 S left
+     * of centre and the rings right of centre... GCFS-85 shows exactly that
+     * layout on a US 5000 S Wagon." Every rear reference in `scratchpad/ref3`
+     * carries them within 9 mm of the centreline.
      */
     /** Dropped to clear the black band under the backlight. */
     badgeY: 0.95,
     badgeAudiCenter: [-0.42, 0.972, TAIL + 0.036] as [number, number, number],
     badgeModelCenter: [0.42, 0.972, TAIL + 0.036] as [number, number, number],
+    badgeRingsCenter: [0, 0.9515, TAIL + 0.038] as [number, number, number],
 
     /** Exhaust tip, left of centre. */
     exhaustTip: [-0.412, 0.268, TAIL + 0.055] as [number, number, number],
     exhaustDiameter: 0.052,
 
-    /** Rear wash/wipe on the tailgate. */
-    wiperPivot: [-0.315, 0.985, TAIL + 0.076] as [number, number, number],
+    /**
+     * Rear wash/wipe on the tailgate.
+     *
+     * Was [-0.315, 0.985]. y 0.985 is BELOW the glass and 130 mm under where
+     * the photograph parks the arm; x is 68 mm out — the motor cover centres
+     * 157 px from the body centreline on `bat_rear_straight_b.jpg`, and in a
+     * rear view image-right is -X. `fitRearWiper` has always overridden this,
+     * so nothing moved when it was wrong, which is why it stayed wrong.
+     */
+    wiperPivot: [-0.247, 1.118, TAIL + 0.076] as [number, number, number],
     wiperLength: 0.375,
   },
 
