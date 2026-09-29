@@ -112,6 +112,30 @@ function startServer() {
   });
 }
 
+
+/**
+ * Call into `window.__AUDI`, and **fail loudly if it is not there**.
+ *
+ * Every call here used to be optional-chained — `__AUDI?.setView?.(n)` — so
+ * when the debug surface was missing the harness silently no-opped and shot
+ * whatever happened to be on screen. That is not hypothetical: the dev server
+ * issues a full reload of its own shortly after first load, which destroys
+ * `__AUDI` and returns the rig to `front3q` with the HUD up. A silhouette
+ * frame taken in that window is a `front3q` frame with no silhouette in it,
+ * and every per-car figure read from it would be wrong without anything in
+ * the output saying so.
+ *
+ * So: wait for `ready` again on each call, and throw if the method is absent.
+ * A harness that measures must not be able to quietly measure nothing.
+ */
+async function drive(page, name, fn, arg) {
+  await page.waitForFunction(() => globalThis.__AUDI?.ready === true, null, { timeout: 30_000 })
+    .catch(() => { throw new Error(`__AUDI vanished before ${name} — the dev server probably reloaded`); });
+  const r = await page.evaluate(fn, arg);
+  if (r === '__MISSING__') throw new Error(`__AUDI.${name} is not a function`);
+  return r;
+}
+
 // --- main -------------------------------------------------------------------
 const server = await startServer();
 mkdirSync(OUT, { recursive: true });
@@ -157,20 +181,20 @@ try {
 }
 
 if (ENV) {
-  await page.evaluate((e) => globalThis.__AUDI?.setEnvironment?.(e), ENV);
+  await drive(page, 'setEnvironment', (e) => globalThis.__AUDI.setEnvironment ? (globalThis.__AUDI.setEnvironment(e), true) : '__MISSING__', ENV);
   await page.waitForTimeout(900);
 }
-if (args.nolabel) await page.evaluate(() => globalThis.__AUDI?.setUiVisible?.(false));
+if (args.nolabel) await drive(page, 'setUiVisible', () => globalThis.__AUDI.setUiVisible ? (globalThis.__AUDI.setUiVisible(false), true) : '__MISSING__');
 
 const results = [];
 for (const name of wanted) {
   if (!VIEWS[name]) { console.warn(`  ? unknown view "${name}", skipping`); continue; }
 
-  const ok = await page.evaluate((n) => globalThis.__AUDI?.setView?.(n) ?? false, name);
+  const ok = await drive(page, 'setView', (n) => globalThis.__AUDI.setView ? globalThis.__AUDI.setView(n) : '__MISSING__', name);
   if (!ok) { console.warn(`  ! view "${name}" not implemented by the app yet`); }
 
   // Let TAA/accumulation settle — a noisy frame is not a fair review.
-  await page.evaluate(() => globalThis.__AUDI?.settle?.(24));
+  await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
   await page.waitForTimeout(650);
 
   const file = resolve(OUT, `${name}.png`);
@@ -183,13 +207,13 @@ for (const name of wanted) {
   // `setMaskMode` in main.ts.
   if (MASK.has(name)) {
     for (const [mode, suffix] of [['car', 'mask'], ['paint', 'paint']]) {
-      await page.evaluate((m) => globalThis.__AUDI?.setMaskMode?.(m), mode);
-      await page.evaluate(() => globalThis.__AUDI?.settle?.(8));
+      await drive(page, 'setMaskMode', (m) => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode(m), true) : '__MISSING__', mode);
+      await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(8), true) : '__MISSING__');
       await page.waitForTimeout(350);
       await page.screenshot({ path: resolve(OUT, `${name}_${suffix}.png`), type: 'png' });
     }
-    await page.evaluate(() => globalThis.__AUDI?.setMaskMode?.('off'));
-    await page.evaluate(() => globalThis.__AUDI?.settle?.(24));
+    await drive(page, 'setMaskMode', () => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode('off'), true) : '__MISSING__');
+    await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
     await page.waitForTimeout(450);
   }
 }

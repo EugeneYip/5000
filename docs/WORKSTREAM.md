@@ -154,6 +154,19 @@ every stream running at once, not per-stream. Two streams both wrote
 - Nothing in a real car is a perfectly sharp edge. Every visible edge gets a
   radius (`QUALITY.edgeRadius`). This single habit does more for realism than
   any texture.
+- **The gate is bimodal across boots.** The same committed build read tone
+  profile 11.4, 11.4 and 10.8 on three identical runs, with `dRGB` 31.9 vs
+  33.2 and the car mask 16.6 vs 16.7 % tracking the same two states.
+  **Nothing under about 0.5 of tone profile is a result.** Run three to five
+  times. fps is worse: the same build read 9.3, 23.1 and 44.6 at `front3q`
+  within a few minutes while other streams were rendering — interleave an A/B
+  in a quiet window or do not quote it.
+- **The dev server issues a full reload of its own shortly after first load**,
+  which destroys `__AUDI` and returns the rig to `front3q` with the HUD up.
+  `tools/shoot.mjs` used to optional-chain every call into it, so it silently
+  no-opped and shot whatever was on screen — a silhouette frame taken in that
+  window is a `front3q` frame with no silhouette in it. It throws now. Any
+  probe of your own must wait the reload out and re-apply the pose.
 - **A live sweep in one boot is not reliable on this app.** Two failure modes,
   both of which have nearly shipped a wrong conclusion. Mutating a property on
   an existing material does **not** re-upload its uniforms — three only
