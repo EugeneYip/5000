@@ -4,12 +4,15 @@
  * The IBL proxy world puts trees and facades into the car's *reflections*,
  * but a wide shot also has to have something on the horizon or the boulevard
  * reads as a salt flat. This is that something: two receding rows of plane
- * trees at boulevard spacing, a deeper row behind them, and a broken skyline.
+ * trees at boulevard spacing, a deeper row behind them, a broken skyline —
+ * and the vista, which is what closes the boulevard's own ends and the ground
+ * line beside it, because rows that *flank* a sight line never close one.
  *
- * Kept to four draw calls with `InstancedMesh`. The planting *does* cast now:
- * at 11.5° of solar elevation the trees that shade the car stand fifty to
- * seventy metres up-sun of it, so the sun's frustum reaches out that far and
- * the crowns write a leaf-cut depth so what lands on the road is dapple.
+ * Six draw calls with `InstancedMesh`. The planting *does* cast: at 11.5° of
+ * solar elevation the trees that shade the car stand fifty to seventy metres
+ * up-sun of it, so the sun's frustum reaches out that far and the crowns
+ * write a leaf-cut depth so what lands on the road is dapple. The vista does
+ * not cast — it is two hundred metres outside that frustum.
  */
 
 import * as THREE from 'three';
@@ -154,29 +157,57 @@ export function createBackdrop(): BackdropHandle {
    * rim, which is what thins the mass at the edge. Three texture-free octaves
    * and a discard, on geometry that is a few hundred pixels at most.
    */
-  crownMat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vLeafPos;')
-      .replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
+  const colourCut = (freq: string, base: string, rim: string) =>
+    (shader: THREE.WebGLProgramParametersWithUniforms): void => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vLeafPos;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
 #ifdef USE_INSTANCING
 vLeafPos = (instanceMatrix * vec4(position, 1.0)).xyz;
 #else
 vLeafPos = position;
 #endif`,
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vLeafPos;\n${LEAF_NOISE}`)
-      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${LEAF_CUT}`)
-      // The lobe's own silhouette: the interpolated view normal's lateral
-      // component, which is one at the rim and zero facing the camera.
-      .replace('LEAF_EDGE', 'length(vNormal.xy) / max(length(vNormal), 1e-3)')
-      .replace(/LEAF_FREQ/g, '1.0')
-      .replace('LEAF_BASE', '0.40')
-      .replace('LEAF_RIM', '0.26');
-  };
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\nvarying vec3 vLeafPos;\n${LEAF_NOISE}`)
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${LEAF_CUT}`)
+        // The lobe's own silhouette: the interpolated view normal's lateral
+        // component, which is one at the rim and zero facing the camera.
+        .replace('LEAF_EDGE', 'length(vNormal.xy) / max(length(vNormal), 1e-3)')
+        .replace(/LEAF_FREQ/g, freq)
+        .replace('LEAF_BASE', base)
+        .replace('LEAF_RIM', rim);
+    };
+  crownMat.onBeforeCompile = colourCut('1.0', '0.40', '0.26');
   crownMat.customProgramCacheKey = () => 'audi-canopy-v3';
+
+  /**
+   * The same cut for the vista, at a quarter of the wavelength and a sixth of
+   * the discard — and both numbers are set by the lens rather than by taste.
+   *
+   * The near planting's cut is a 0.31 m wavelength discarding about half of
+   * what it covers, which is right at 20–70 m. At 250 m through the 200 mm
+   * `rear` pose it is not: 0.31 m subtends 0.069°, that pose resolves 155 px
+   * a degree, so every hole arrives 11 px across and half the mass is hole.
+   * What lands is black lace over a bright sky — the same "reads as printed
+   * pattern" `CRITIQUE-3` filed against the backdrop's block motif, and
+   * measurably the wrong thing: the photograph's mid-distance tree mass is
+   * dense and soft, because at that range the leaves and the sky between them
+   * have already averaged into one tone.
+   *
+   * So 2.6x the frequency, which puts a hole at 4 px in that pose and under a
+   * pixel in every other, and a base of 0.16 against 0.40 so the core is
+   * nearly closed. The rim term goes *up* rather than down, 0.26 to 0.42:
+   * the ragged silhouette is the one thing this cut is still being asked to
+   * produce at this distance, and it is what a solid lobe cannot give.
+   */
+  const vistaMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true,
+  });
+  vistaMat.onBeforeCompile = colourCut('2.6', '0.16', '0.42');
+  vistaMat.customProgramCacheKey = () => 'audi-vista-v1';
 
   /**
    * The cut again for the shadow pass, at a different frequency and depth —
@@ -671,6 +702,216 @@ vLeafN = normalize(normalMatrix * normal);
   });
   blockMesh.instanceMatrix.needsUpdate = true;
 
+  /**
+   * The vista — what closes the boulevard, and why two rows beside it cannot.
+   *
+   * Rows of street trees flank a sight line; they never close one that runs
+   * *along* the road. Measured through `fixedGlassOuter` on the photomatch
+   * pose, the rays that leave the backlight run within 6.7° of dead astern at
+   * an elevation of 0.0–2.3°: 1.4 m up at 200 m, 5 m up at 300. They pass
+   * under every crown in the scene — a bole is 4–9 m — between the boles, and
+   * out of the far end of a planting that stopped at z ±210. Fourteen per
+   * cent of the windscreen was `env:skyDome` at level 184 with 77 % of it
+   * above 176: bare horizon haze, seen straight through the cabin.
+   *
+   * The photograph has no bare horizon anywhere in frame. White-balanced, the
+   * band just above the skyline reads 77–122 behind the car and 77–106 across
+   * the far carriageway, against this render's flat 202–213. A hundred
+   * levels, and it is a hole in the world rather than a lighting error: the
+   * IBL is baked from its own proxy scene and there is no screen-space
+   * reflection, so the only way any of this reaches the car is the
+   * transmission pass — which is exactly where the defect was found.
+   *
+   * Three parts, because the band has three causes:
+   *
+   *   · **The end banks**, 214–262 m out. The Parkway is closed at both ends
+   *     — Eakins Oval one way, Logan Circle and the city the other. Three
+   *     staggered rows rather than one, because a 9 m crown at any pitch that
+   *     reads as a street planting leaves sky between the crowns, and down a
+   *     corridor every gap in a single row lines up with the eye.
+   *   · **The thicket at their foot.** This is the part that actually answers
+   *     the measurement. A crown that begins at a 6 m bole is *above* every
+   *     ray in the cone; what stops a ray 1.4 m off the ground at 200 m is
+   *     understory, so the banks stand in 4.4–8.8 m of scrub, in two lines so
+   *     the gaps in one are covered by the other. The first attempt topped
+   *     the scrub out at 6.8 m and dropped the sky share from 14.4 % to
+   *     3.3 % — and the 3.3 % that survived came back at an elevation of
+   *     0.93–1.15° on the nose, i.e. through the slot between the top of the
+   *     scrub and the bottom of the boles behind it. The boles came down to
+   *     match rather than the scrub going up alone, because a 9 m shrub is a
+   *     tree.
+   *   · **The understory behind each kerb**, which is where the photograph
+   *     puts its dark mass: outboard of the street trees on the far side,
+   *     so the far carriageway, its kerb and its grass strip all stay
+   *     visible in front of it — they are plainly visible in the frame — and
+   *     at the far edge of the lawn on the park side, where the same frame
+   *     shows the ground line closed by scrub and low buildings with the
+   *     trunks standing clear in front of it. Not one symmetrical hedge:
+   *     the two sides of this boulevard do not look alike.
+   *
+   * None of it casts or receives: it is 200 m outside a shadow frustum that
+   * reaches 90 m up-sun, so a depth pass over it would write nothing and cost
+   * a draw. It is also on its own random stream — consuming `rnd()` here
+   * would re-roll the shading rank planted above it, and that rank's cast
+   * shadow is calibrated against the photograph's sun/shade spread.
+   */
+  const farRnd = mulberry(0x5000fa72);
+  const FAR_LOBES = 6;
+  const THICKET_LOBES = 3;
+  const farPos: number[] = [];
+  const farScl: number[] = [];
+  const farDir: number[] = [];
+  const farJit: number[] = [];
+  /** x, z, height, bole, girth-per-metre, bark tone. */
+  const farTrunk: Array<[number, number, number, number, number, number]> = [];
+
+  const farLobe = (
+    px: number, py: number, pz: number,
+    sx: number, sy: number, sz: number, dx: number, dz: number, jit: number,
+  ): void => {
+    farPos.push(px, py, pz);
+    farScl.push(sx, sy, sz);
+    const inv = 1 / Math.max(Math.hypot(dx, dz), 1e-3);
+    farDir.push(dx * inv, dz * inv);
+    farJit.push(jit);
+  };
+
+  const farTree = (x: number, z: number, h: number): void => {
+    const bole = h * (0.26 + farRnd() * 0.14);
+    const r = h * (0.28 + farRnd() * 0.10);
+    const bark = farRnd();
+    farTrunk.push([x, z, h, bole, 0.024 + 0.010 * bark, bark]);
+    const crownH = h - bole;
+    for (let b = 0; b < FAR_LOBES; b++) {
+      const a = (b / FAR_LOBES) * Math.PI * 2 + farRnd() * 1.6;
+      const rad = r * (0.30 + 0.70 * farRnd());
+      const fy = 0.16 + 0.84 * farRnd();
+      const dx = Math.cos(a) * rad * (1.0 - 0.45 * fy);
+      const dz = Math.sin(a) * rad * (1.0 - 0.45 * fy);
+      // Seven lobes where the near trees carry twenty, so each one is bigger:
+      // at 230 m the mass is what reads and the lobe count is not resolvable.
+      const rr = r * (0.42 + 0.28 * farRnd());
+      farLobe(x + dx, bole + crownH * fy, z + dz, rr, rr * 0.78, rr * 0.96, dx, dz,
+        0.80 + farRnd() * 0.40);
+    }
+  };
+
+  /** Scrub: a mass that reaches the ground, which is the whole point of it. */
+  const farThicket = (x: number, z: number, r: number, h: number): void => {
+    for (let b = 0; b < THICKET_LOBES; b++) {
+      const a = farRnd() * Math.PI * 2;
+      const rad = r * 0.5 * farRnd();
+      const dx = Math.cos(a) * rad;
+      const dz = Math.sin(a) * rad;
+      const rr = r * (0.60 + 0.32 * farRnd());
+      farLobe(x + dx, h * 0.45, z + dz, rr, h * 0.52, rr, dx, dz, 0.70 + farRnd() * 0.38);
+    }
+  };
+
+  /**
+   * A bank: staggered tree rows with scrub at their foot. `u` runs along it,
+   * `v` outward from the subject, so the same builder lays the two ends of
+   * the boulevard and the park's far boundary.
+   */
+  const farBank = (
+    at: (u: number, v: number) => readonly [number, number],
+    uFrom: number, uTo: number, rows: number, scrub: readonly number[],
+  ): void => {
+    for (let row = 0; row < rows; row++) {
+      let u = uFrom + farRnd() * 10;
+      while (u < uTo) {
+        const [x, z] = at(u, 12 + row * 24 + (farRnd() - 0.5) * 12);
+        farTree(x, z, 12.5 + farRnd() * 7.5);
+        u += 15 + farRnd() * 9;
+      }
+    }
+    for (const v of scrub) {
+      let u = uFrom - 6;
+      while (u < uTo + 6) {
+        const [x, z] = at(u, v + farRnd() * 9);
+        farThicket(x, z, 3.6 + farRnd() * 2.6, 5.0 + farRnd() * 4.6);
+        u += 5.5 + farRnd() * 3.5;
+      }
+    }
+  };
+
+  // The two ends, at x ±142 because that is what the photomatch frame covers
+  // at this depth: a 40 mm lens is ±24°, so its edge at 230 m out is x ∓104.
+  farBank((u, v) => [u, -(202 + v)], -142, 142, 3, [0, 28]);
+  farBank((u, v) => [u, +(202 + v)], -142, 142, 3, [0, 28]);
+  /**
+   * A third bank down the park side is **not** here, and it was tried twice.
+   *
+   * At x −87, just beyond the grove's outermost row, which is where the
+   * photograph's left-hand ground line closes: it bought nothing and cost a
+   * great deal. A 40 mm lens is ±24°, so the photomatch frame's left edge is
+   * only x −89 at 200 m out and x −45 at 100 m — a bank on that bearing is
+   * outside the frame at every depth it could stand at, and the left horizon
+   * was already being closed by the down-boulevard bank above. Meanwhile the
+   * `side` pose stands at x +26 with a 200 mm lens, so it had 8 m lobes at
+   * 113 m filling a third of its frame with black blobs behind the car.
+   *
+   * Moved to x −196 it stops being blobs and becomes a speckle: 0.31 m of
+   * leaf-cut wavelength at 235 m is 11 px through a 200 mm lens, and two tree
+   * rows of it ran right across the top of that frame, with no aperture on
+   * the pose to soften it. Measured on the gate frame, removing it entirely
+   * costs **nothing** — it never appeared there.
+   *
+   * So the park side's ground line is still open in `side` and in orbit. That
+   * is the pre-existing state rather than a regression, and closing it wants
+   * its own round: it is a question about what a 200 mm lens should find at
+   * 250 m, and this cut answers it as noise.
+   */
+  /**
+   * The city side's understory: outboard of the street trees at x 20–25.5, so
+   * the far carriageway, its kerb and its grass strip stay in front of it —
+   * all three are plainly visible in the photograph, with the dark mass
+   * behind them.
+   *
+   * The gap at |z| < 14 is not scenery. The `side` review pose puts the
+   * camera at x +26, z −1.37, which is *inside* this line; a 4.8 m clump
+   * landing there swallows the lens, and whether one does is a dice roll on
+   * a seed. Nothing in frame at photomatch is nearer than z −60 on this
+   * bearing, so the gap costs nothing.
+   */
+  for (let z = -206; z < 206; z += 6.0 + farRnd() * 4.0) {
+    if (Math.abs(z) < 14) continue;
+    farThicket(27 + farRnd() * 7, z, 3.0 + farRnd() * 1.8, 3.0 + farRnd() * 2.8);
+  }
+
+  const farCount = farJit.length;
+  // A 32-triangle lobe where the near planting uses 80. Subdivided once, so
+  // `normalizeNormals` still gives it a smooth normal and `LEAF_EDGE` still
+  // finds a rim to thin — an unsubdivided icosahedron is 20 triangles but its
+  // normals are per-face, which turns the rim thinning into facets. What is
+  // left of the polygon silhouette the cut discards anyway. Sharing
+  // `crownGeo` instead cost 122 k triangles and three frames a second at
+  // `front3q`; this is 49 k and gives them back.
+  const vistaGeo = unitColor(new THREE.OctahedronGeometry(1, 1));
+  const farCrowns = new THREE.InstancedMesh(vistaGeo, vistaMat, farCount);
+  const farTrunks = new THREE.InstancedMesh(trunkGeo, trunkMat, farTrunk.length);
+  // Named, because an unnamed InstancedMesh comes back from `__AUDI.pick` as
+  // `(unnamed)` and the next round has to guess what it just measured.
+  farCrowns.name = 'env:vistaCrowns';
+  farTrunks.name = 'env:vistaTrunks';
+  for (let i = 0; i < farCount; i++) {
+    pos.set(farPos[i * 3], farPos[i * 3 + 1], farPos[i * 3 + 2]);
+    scl.set(farScl[i * 3], farScl[i * 3 + 1], farScl[i * 3 + 2]);
+    q.setFromAxisAngle(spin, farRnd() * 3);
+    farCrowns.setMatrixAt(i, m.compose(pos, q, scl));
+  }
+  farTrunk.forEach(([x, z, h, bole, girth], i) => {
+    pos.set(x, bole * 0.5, z);
+    scl.set(girth * h, bole, girth * h);
+    farTrunks.setMatrixAt(i, m.compose(pos, q.identity(), scl));
+  });
+  farCrowns.instanceMatrix.needsUpdate = true;
+  farTrunks.instanceMatrix.needsUpdate = true;
+  farCrowns.instanceColor =
+    new THREE.InstancedBufferAttribute(new Float32Array(farCount * 3), 3);
+  farTrunks.instanceColor =
+    new THREE.InstancedBufferAttribute(new Float32Array(farTrunk.length * 3), 3);
+
   // The planting casts now, and the sun's frustum has been opened up-sun to
   // hold it — see `SHADOW_REACH` in Environment.ts. Three extra shadow-pass
   // draws, and they are what put the car in the trees' shade instead of
@@ -684,7 +925,9 @@ vLeafN = normalize(normalMatrix * normal);
   trunks.castShadow = true;
   branches.castShadow = true;
   blockMesh.castShadow = false;
-  for (const mesh of [crowns, trunks, branches, blockMesh]) {
+  farCrowns.castShadow = false;
+  farTrunks.castShadow = false;
+  for (const mesh of [crowns, trunks, branches, blockMesh, farCrowns, farTrunks]) {
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
     group.add(mesh);
@@ -822,6 +1065,20 @@ vLeafN = normalize(normalMatrix * normal);
         const k = THREE.MathUtils.smoothstep(d, -0.15, 0.78);
         paint(crowns, i, k, 0xa89a4a, 0x38492c, lobeJit[i], lift);
       }
+      // The vista, on the same two endpoints. It is two hundred metres out,
+      // so the exponential fog is what separates it from the near planting —
+      // giving it its own paler colour here as well would double-count the
+      // aerial perspective the fog is already applying.
+      for (let i = 0; i < farCount; i++) {
+        const d = farDir[i * 2] * sx + farDir[i * 2 + 1] * sz;
+        const k = THREE.MathUtils.smoothstep(d, -0.15, 0.78);
+        paint(farCrowns, i, k, 0xa89a4a, 0x38492c, farJit[i], lift);
+      }
+      for (let i = 0; i < farTrunk.length; i++) {
+        paint(farTrunks, i, farTrunk[i][5], 0xc6bda8, 0x443f34, 1, barkLift);
+      }
+      farCrowns.instanceColor!.needsUpdate = true;
+      farTrunks.instanceColor!.needsUpdate = true;
       // Plane bark is the one tree in a city you can identify from a hundred
       // metres by its trunk: it sheds in plates and reads as pale mottled
       // cream over olive-grey, not as the near-black post it was.
@@ -839,10 +1096,12 @@ vLeafN = normalize(normalMatrix * normal);
     },
     dispose() {
       crownGeo.dispose();
+      vistaGeo.dispose();
       trunkGeo.dispose();
       branchGeo.dispose();
       blockGeo.dispose();
       crownMat.dispose();
+      vistaMat.dispose();
       crownDepthMat.dispose();
       trunkMat.dispose();
       blockMat.dispose();

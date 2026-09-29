@@ -103,7 +103,7 @@ const yTop = spline(
   [-2.860, 1.399],
   [-2.968, 1.386],                               // HP.roof.dPillarZ: roof turns down
   [-3.040, 1.366],
-  [-3.108, 1.338],                               // HP.rear.tailgateHingeZ
+  [-3.108, 1.338],                               // was HP.rear.tailgateHingeZ
   [-3.200, 1.278],
   [-3.300, 1.238],
   [-3.400, 1.200],
@@ -144,9 +144,9 @@ const xRoofEdge = spline(
   [-2.700, 0.690],
   [-2.968, 0.674],
   [-3.108, 0.654],
-  [-3.300, 0.628],
-  [-3.500, 0.611],
-  [Z_TAIL_END, 0.604],
+  [-3.300, 0.627],
+  [-3.500, 0.607],
+  [Z_TAIL_END, 0.596],
 );
 
 /**
@@ -220,11 +220,12 @@ const xBelt = spline(
   [-2.978, 0.850],
   // The tail's taper in plan. These were 0.843 / 0.836 / 0.822, so the
   // beltline ran nearly parallel to the centreline right to the back of the
-  // car and the tailgate came out a full-width slab. See `dloFullX` below for
-  // the measurement all three tail changes come from.
-  [-3.300, 0.838],
-  [-3.500, 0.820],
-  [Z_TAIL_END, 0.795],
+  // car and the tailgate came out a full-width slab. Then 0.838 / 0.820 /
+  // 0.795, which was still 100 mm a side wide: see the note on `dloFullX`
+  // below for the measurement these and the levels under them now come from.
+  [-3.300, 0.817],
+  [-3.500, 0.764],
+  [Z_TAIL_END, 0.692],
 );
 
 /**
@@ -247,36 +248,67 @@ const dloFullY = spline(
  * half-width and the roof-edge half-width. 0.42 along the whole cabin, but the
  * tail tucks in much harder than that.
  *
- * This was the constant 0.42 everywhere.
+ * ## The tail's plan taper — the canonical note
  *
- * The tail was measured off the dead-on rear photograph of the 1988 wagon
- * entirely in *ratios to the taillamp band's own half-width*, so no absolute
- * calibration of the photograph is needed and the answer does not depend on
- * knowing the camera distance — everything compared sits in the same plane.
- * Half-widths in those units, against the model as it was:
+ * Everything aft of the D-pillar was re-measured on
+ * `scratchpad/ref3/bat_rear_straight_b.jpg` after `6df1ff9` re-derived the
+ * rear elevation. The earlier reading here was in *ratios to the taillamp
+ * band's half-width*, which is scale-free and was right about the SHAPE and
+ * silent about the SIZE: it left the tail holding 0.828-0.850 of a metre at
+ * the lamp band where the photograph has **0.770**, i.e. 80 mm a side of
+ * painted flank outboard of each lamp where the reference shows 11-13. That
+ * flank is what put a near-white sliver down both rear corners in every
+ * dead-astern frame — paint at true grazing incidence, picked as
+ * `quarterR`/`doorRR`.
+ *
+ * The tail face outline, scanning outward for the first painted column on the
+ * better-lit side at 1.3256 mm/px, against the loft as it was:
+ *
+ *   |  y    | photo | was   | level        |
+ *   |-------|-------|-------|--------------|
+ *   | 0.440 | 0.776 | 0.770 | `xLowerA`    |
+ *   | 0.611 | 0.780 | 0.852 | `xWide`      |
+ *   | 0.704 | 0.776 | 0.850 | (lamp band)  |
+ *   | 0.804 | 0.774 | 0.842 | t = 0.50     |
+ *   | 0.888 | 0.763 | 0.827 | (lamp top)   |
+ *   | 0.996 | 0.690 | 0.795 | `xBelt`      |
+ *   | 1.109 | 0.617 | 0.711 | t = 0.26     |
+ *   | 1.122 | 0.605 | 0.604 | `xRoofEdge`  |
+ *
+ * So `xLowerA` and `xRoofEdge` were already right to a few millimetres and
+ * everything between them was 70-105 mm wide, worst at the beltline. The
+ * shape the photograph gives is a nearly flat plate from `xLowerA` up to the
+ * lamp band's top, and then a steady ~37 deg chamfer from there to the roof
+ * edge — not the soft full-width roll-over that was built.
+ *
+ * Three levers, because nine control levels cannot draw that corner from
+ * their endpoints alone: `xBelt` comes in 103 mm (it is the chamfer's lower
+ * end), `xWide` 76 mm, and `flankCrown` triples to hold t = 0.50 out at the
+ * lamp band while the belt above it comes in — the same job its own note
+ * describes, at the magnitude the corrected width needs. `dloFullX` carries
+ * the dlo-mid level almost all the way onto the roof edge, which is what the
+ * 13 mm between them at y 1.109 and 1.122 means.
+ *
+ * In z the taper is spread over the rear overhang as (delta at the tail) x
+ * s^2 with s = 0 at z −2.978 and 1 at `Z_TAIL_END`, so it starts flat at the
+ * D-pillar and steepens into the corner. Nothing forward of −2.978 moves:
+ * the maximum half-width over the rear arch, the wheelbase and the whole side
+ * elevation are untouched.
+ *
+ * The earlier ratio table is kept because it is still the check on the shape:
  *
  *   height              photo   model (before)   model (now)
  *   lamp centreline     1.000       1.000           1.000
  *   lamp top            0.984       0.994           0.973
  *   beltline            0.937       0.978           0.942
  *   100 mm above belt   0.864       0.897           0.864
- *
- * The old tail held nearly full width all the way up past the beltline and
- * then broke sharply, instead of rolling over just above the lamps. That is
- * why the tailgate glass had to be built 33 mm wider than `HP.glass
- * .tailgateGlassHalfW` before it looked right against the body beside it: the
- * body, not the glass, was the part that was wrong. Three changes put the
- * tumblehome back where the photograph has it — `xBelt` at the last three
- * stations, `flankCrown` (which keeps the lamp band full while the belt comes
- * in), and this. None of them touches the beltline height, the roof edge, the
- * shoulder, the maximum half-width or anything in the side elevation.
  */
 const dloFullX = spline(
   [Z_NOSE_FACE, 0.42],
   [-3.108, 0.42],
-  [-3.300, 0.44],
-  [-3.500, 0.45],
-  [Z_TAIL_END, 0.46],
+  [-3.300, 0.50],
+  [-3.500, 0.66],
+  [Z_TAIL_END, 0.90],
 );
 
 // ---------------------------------------------------------------------------
@@ -290,9 +322,14 @@ const xWide = spline(
   [0.100, 0.891],
   [-1.600, HP.side.archLipX],                    // 0.891
   [-2.687, HP.side.archLipX],
-  [-3.200, 0.884],
-  [-3.500, 0.872],
-  [Z_TAIL_END, 0.852],
+  // Pinned where the curve already ran. Without it the tail's taper gives the
+  // knot at -2.687 an upward tangent into a flat segment, and a Catmull-Rom
+  // with equal endpoints and a non-zero end tangent bulges: 1.4 mm above
+  // `archLipX` at z -2.32, in the middle of the quarter panel.
+  [-2.900, 0.8888],
+  [-3.200, 0.877],
+  [-3.500, 0.833],
+  [Z_TAIL_END, 0.776],
 );
 
 const yWide = spline(
@@ -312,7 +349,7 @@ const xLowerA = spline(
   [0.000, 0.812],
   [-1.600, 0.813],
   [-2.687, 0.812],
-  [-3.400, 0.800],
+  [-3.400, 0.797],
   [Z_TAIL_END, 0.770],
 );
 const yLowerA = spline(
@@ -329,8 +366,8 @@ const xSill = spline(
   [0.000, 0.778],
   [-1.600, BODY.tumblehomeSill - 0.008],         // 0.782
   [-2.687, 0.780],
-  [-3.400, 0.772],
-  [Z_TAIL_END, 0.730],
+  [-3.400, 0.767],
+  [Z_TAIL_END, 0.716],
 );
 const ySill = spline(
   [Z_NOSE_FACE, 0.348],
@@ -381,10 +418,17 @@ const glassBulge = spline(
 /**
  * Across the doors this is a 6-8 mm crown on a nearly flat skin. Over the tail
  * it does a second job: it holds the section out at the taillamp band while
- * `xBelt` brings the beltline 55 mm inboard above it, which is what turns the
- * tail's shoulder into a radius sitting just above the lamps rather than a
- * chamfer starting at the beltline. Without it, narrowing the belt dragged the
- * lamp band in with it and the taillamps overhung the body.
+ * `xBelt` brings the beltline inboard above it, which is what turns the tail's
+ * shoulder into a radius sitting just above the lamps rather than a chamfer
+ * starting at the beltline. Without it, narrowing the belt dragged the lamp
+ * band in with it and the taillamps overhung the body.
+ *
+ * At the tail it is no longer a crown at all — 40 mm, against 18 before the
+ * tuck in the note on `dloFullX` took `xBelt` down another 103 mm. It is the
+ * only lever that reaches t = 0.50, and t = 0.50 is the station that has to
+ * stay at 0.770 while t = 0.38, 190 mm above it, comes in to 0.692. Read it
+ * as "how far the flank stands proud of the belt-to-shoulder chord", which is
+ * what a flat-sided tail with its roll-over above the lamps measures.
  */
 const flankCrown = spline(
   [Z_NOSE_FACE, 0.003],
@@ -392,8 +436,8 @@ const flankCrown = spline(
   [-0.455, 0.008],
   [-2.585, 0.008],
   [-3.100, 0.009],
-  [-3.300, 0.012],
-  [Z_TAIL_END, 0.018],
+  [-3.300, 0.024],
+  [Z_TAIL_END, 0.040],
 );
 
 const scratch: number[] = new Array(18).fill(0);

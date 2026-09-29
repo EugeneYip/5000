@@ -34,17 +34,27 @@ float audiSlopeAmp(float slope, float freq) {
 // ---------------------------------------------------------------------------
 
 export interface ChromeOptions {
-  /** ≤0.08 polished (the rings, the reveal); above that it brushes. */
+  /** ≤0.07 polished (the rings, the reveal); above that it brushes. */
   roughness?: number;
   /** Object-space direction the brush marks run. Most C3 brightwork is fore-aft. */
   brushAxis?: THREE.Vector3;
 }
 
+/**
+ * Roughness at or below which `createChrome` is polished plate and
+ * `brushAxis` has no effect at all.
+ *
+ * Exported because the library has to know it: the axis is an input the
+ * material identity depends on *only* above this line, and keying it below it
+ * would split the polished rungs for a uniform the shader never reads.
+ */
+export const CHROME_BRUSH_THRESHOLD = 0.07;
+
 export function createChrome(opts: ChromeOptions = {}): THREE.MeshPhysicalMaterial {
   const roughness = opts.roughness ?? 0.045;
   // Below the threshold it is polished plate; above it the part is a brushed
   // anodised extrusion, and the marks are what carry the roughness.
-  const brush = THREE.MathUtils.clamp((roughness - 0.07) / 0.35, 0, 1);
+  const brush = THREE.MathUtils.clamp((roughness - CHROME_BRUSH_THRESHOLD) / 0.35, 0, 1);
 
   const uniforms = {
     // x waviness slope  y waviness cells/m  z brush slope  w brush cells/m
@@ -196,11 +206,26 @@ export interface DirtyMetalOptions {
   /** Base tint. Oxide browns, phosphate greys, dull aluminium. */
   color?: number;
   roughness?: number;
-  /** Oxide is mostly *not* a metal; a rusty part at metalness 1 reads as
-   *  painted brown chrome. 0.1–0.35 is the useful band. */
+  /**
+   * Oxide is mostly *not* a metal; a rusty part at metalness 1 reads as
+   * painted brown chrome. 0.1–0.35 is the useful band for a casting.
+   *
+   * **1 means bare metal** — an anodised extrusion, a stainless tip — and is
+   * the other end of a two-valued physical quantity rather than the top of
+   * that band. It needs `grime: 0` and an `envMapIntensity` that suits where
+   * the part actually is; `anodised()` is the authored entry for it.
+   */
   metalness?: number;
   /** 0 = washed casting, 1 = a decade under a car. Darkens the grain floors. */
   grime?: number;
+  /**
+   * IBL strength, which on this project is the **specular-occlusion** term: a
+   * casting 200 mm inside a wheel arch sees a fraction of the sky and three's
+   * IBL gives it all of the sky unless something says otherwise. The 0.55
+   * default is that fraction for a part under the floor line. A bright strip
+   * on the outside of the car sees the whole sky and wants 1.
+   */
+  envMapIntensity?: number;
   /** For callers baking occlusion or road film into the mesh. */
   vertexColors?: boolean;
 }
@@ -238,7 +263,7 @@ export function createDirtyMetal(opts: DirtyMetalOptions = {}): THREE.MeshPhysic
     color: opts.color ?? 0x3a3c3d,
     metalness: opts.metalness ?? 0.22,
     roughness: opts.roughness ?? 0.78,
-    envMapIntensity: 0.55,
+    envMapIntensity: opts.envMapIntensity ?? 0.55,
     vertexColors: opts.vertexColors ?? false,
     dithering: true,
   });
@@ -290,6 +315,81 @@ roughnessFactor = clamp(roughnessFactor + audiDirtAmt * 0.18
   });
 
   return material;
+}
+
+// ---------------------------------------------------------------------------
+// Anodised aluminium extrusion
+// ---------------------------------------------------------------------------
+
+export interface AnodisedOptions {
+  /** Defaults to `TRIM_COLORS.chrome`, the same brightwork value as `chrome()`. */
+  color?: number;
+  /** 0.30 bright mill finish … 0.45 matt etched. */
+  roughness?: number;
+  /**
+   * Specular occlusion. 1 for a strip in the open; drop it for one down a
+   * reveal that cannot see the sky.
+   */
+  envMapIntensity?: number;
+  vertexColors?: boolean;
+}
+
+/**
+ * The rub-strip beads, the window reveals, the bumper cap strips.
+ *
+ * This is the finish neither of the other two brightwork entries could reach,
+ * and the gap was measured rather than guessed. `chrome()` cannot be rough: it
+ * reads any roughness above 0.07 as a *brushing* amount and lerps the base
+ * back down, so its effective floor is 0.152 and asking it for 0.30 gets a
+ * near-mirror with brush marks on it. `dirtyMetal()`'s ladder could not be
+ * metallic: its top metalness rung was 0.35, and at 0.35 two thirds of the
+ * response is Lambertian. A Lambertian bead has **no tonal range** — the
+ * front bumper bead came out 1.33 % of the car in 176–224 and 0.23 % above
+ * 224 where the photograph is 0.43 % and 0.47 %, because the real extrusion
+ * is genuinely dark over its shaded third and clipping over its sunlit third.
+ * Flat where the real one has range. See commit `5b4becd`.
+ *
+ * So: metalness **1**, roughness on the bright rungs, `grime: 0` — an
+ * exterior strip is rained on, not caked — and the IBL at full strength,
+ * because a bead on the outside of a bumper sees the whole sky and 0.55 is an
+ * under-floor occlusion figure.
+ *
+ * Deliberately `createDirtyMetal` with authored constants and **not** a new
+ * shader, exactly as the cast-iron family below is: the surface wanted here is
+ * a fine grain on solid metal, which is what that program already draws once
+ * the dirt is turned off. At `grime: 0` every dirt term — the diffuse mix, the
+ * metalness knock-down, the roughness lift — drops out, and what is left is
+ * the grain modulating F0 by ±11 % and a bounded normal. One program, one
+ * link, whatever else on the car is wearing a casting.
+ *
+ * The colour is the axis to measure against the plate, not the roughness: at
+ * metalness 1 `color` is F0 rather than an albedo, so the value `5b4becd`
+ * solved for at metalness 0.35 (`0xd0d4d8`) does not carry over and has to be
+ * re-read from the frame. Three real builds with the bead swapped onto this
+ * finish, at the `photomatch` pose, over the bead's own band of the frame:
+ *
+ *   shipped  m0.35 r0.62  #d0d4d8   >224  4.9 %   176–224 20.8 %
+ *   anodised       r0.32  #d8dade   >224 11.6 %   176–224 23.8 %
+ *   anodised       r0.32  #d0d4d8   >224 10.7 %   176–224 24.2 %
+ *   anodised       r0.42  #d0d4d8   >224  8.7 %   176–224 24.3 %
+ *
+ * The range appears at either rung — the bead goes from one flat value end to
+ * end to clipping over its sunlit run and mid-grey over the rest. The colour
+ * is the *weak* lever of the two, because the clipped part is clipped either
+ * way; the roughness rung is the strong one, and `0.42` is the better of the
+ * two here: it shortens the glint and takes most of the bloom skirt off the
+ * moulding under it. A caller on this finish still owes the frame a level, but
+ * it is choosing between two rungs and a colour, not fighting the shader.
+ */
+export function createAnodised(opts: AnodisedOptions = {}): THREE.MeshPhysicalMaterial {
+  return createDirtyMetal({
+    color: opts.color ?? TRIM_COLORS.chrome,
+    metalness: 1,
+    roughness: opts.roughness ?? 0.32,
+    grime: 0,
+    envMapIntensity: opts.envMapIntensity ?? 1,
+    vertexColors: opts.vertexColors,
+  });
 }
 
 // ---------------------------------------------------------------------------

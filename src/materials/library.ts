@@ -61,8 +61,9 @@ import { createPaint } from './paint';
 import { createGlass } from './glass';
 import {
   createChrome, createAlloy, createBrakeDisc, createReflector, createDirtyMetal,
-  createCastIron, createCaliperPaint, createPadFriction,
-  type DirtyMetalOptions, type CastIronOptions,
+  createAnodised, createCastIron, createCaliperPaint, createPadFriction,
+  CHROME_BRUSH_THRESHOLD,
+  type AnodisedOptions, type ChromeOptions, type DirtyMetalOptions, type CastIronOptions,
 } from './metals';
 import { createBlackTrim, createBumperPlastic, createRubber, type RubberOptions } from './trim';
 import { createLens, createEmissive, type LensOptions } from './lamp';
@@ -76,11 +77,12 @@ type Reflective = THREE.Material & { envMapIntensity?: number };
  *
  * `MaterialLibrary` in `src/types.ts` is the contract every part builder is
  * handed and this stream does not own that file, so everything added beyond it
- * — `printed`, `dirtyMetal`, `castIron`, `caliperPaint`, `padFriction`, and
- * the widened `rubber` and `alloy` — is declared as an extension. A caller
- * reaches them with `audiMaterials(ctx.materials).printed(map)`. They should
- * move onto `MaterialLibrary` itself the next time `src/types.ts` is open;
- * the exact signatures are in the stream report.
+ * — `printed`, `dirtyMetal`, `anodised`, `castIron`, `caliperPaint`,
+ * `padFriction`, and the widened `rubber`, `alloy` and `chrome` — is declared
+ * as an extension. A caller reaches them with
+ * `audiMaterials(ctx.materials).printed(map)`. They should move onto
+ * `MaterialLibrary` itself the next time `src/types.ts` is open; the exact
+ * signatures are in the stream report.
  */
 export interface AudiMaterialLibrary extends MaterialLibrary {
   /**
@@ -98,6 +100,14 @@ export interface AudiMaterialLibrary extends MaterialLibrary {
    */
   dirtyMetal(opts?: DirtyMetalOptions): THREE.Material;
   /**
+   * Anodised aluminium extrusion: the rub-strip beads, the window reveals,
+   * the bumper cap strips. Metalness 1 at a roughness `chrome()` cannot reach
+   * without brushing and `dirtyMetal()` could not reach metallically — the
+   * finish the bumper-bead round had to report as missing. See
+   * `createAnodised` in `metals.ts` for the measurement.
+   */
+  anodised(opts?: AnodisedOptions): THREE.Material;
+  /**
    * Seals and tyres. Wider than the contract in `src/types.ts`, which only
    * offers `roughness`: the dust film's coverage and cell size and the mould
    * gloss all have to move between a 15 mm door seal and a 130 mm sidewall,
@@ -107,6 +117,12 @@ export interface AudiMaterialLibrary extends MaterialLibrary {
   rubber(opts?: RubberOptions): THREE.Material;
   /** As `MaterialLibrary.alloy`, plus the vertex-colour opt-in. */
   alloy(opts?: { polished?: boolean; vertexColors?: boolean }): THREE.Material;
+  /**
+   * As `MaterialLibrary.chrome`, plus the brush direction. Widened because
+   * `createChrome` has always read one and the narrow contract could not
+   * reach it, so the option was unreachable *and* unkeyed — see the entry.
+   */
+  chrome(opts?: ChromeOptions): THREE.Material;
   /** Oxidised grey iron: disc hats and vanes, dust shields, backing plates. */
   castIron(opts?: CastIronOptions): THREE.Material;
   /** The phosphated/painted caliper casting. */
@@ -173,8 +189,63 @@ const CABIN_RUNGS = [0.4, 0.56, 0.67, 0.8, 0.93] as const;
 /** Under-floor castings and shields; nothing down there is smooth. */
 const DIRT_RUNGS = [0.62, 0.74, 0.86, 0.95] as const;
 
-/** Oxide/phosphate/aluminium — three bands is all this ever needs. */
-const METALNESS_RUNGS = [0.05, 0.2, 0.35] as const;
+/**
+ * Oxide, phosphate, dull aluminium — and bare metal.
+ *
+ * The first three rungs are one thing measured three times: a dielectric film
+ * of *some* thickness over metal. Metalness itself is not a continuum — a
+ * surface is a conductor or it is not — and every value between 0 and 1 is a
+ * blend standing in for a film, which is why three rungs was the right
+ * granularity for that band and why a fourth *inside* it would have been a
+ * rung per caller.
+ *
+ * The rung at **1** is not a fourth sample of that line. It is the other end
+ * of a two-valued quantity, and until this round the library had no way to say
+ * it outside `chrome()` and `alloy()`, neither of which can be rough: the
+ * whole region "genuinely metal, genuinely not smooth" — an anodised
+ * extrusion, a stainless tip — was unreachable. Measured cost of not having
+ * it, on the front bumper bead: at 0.35 two thirds of the response is
+ * Lambertian, so the bead held 1.33 % of the car in 176–224 and 0.23 % above
+ * 224 against the photograph's 0.43 % and 0.47 % — flat where the real
+ * extrusion is dark over its shaded third and clipping over its sunlit third.
+ * See `5b4becd`, and `BRIGHT_RUNGS` for the roughness that goes with it.
+ *
+ * Inert for what is already on the car: the two `dirtyMetal()` call sites ask
+ * for 0.35 and 0.05, and both still snap to the rung they snapped to before.
+ */
+const METALNESS_RUNGS = [0.05, 0.2, 0.35, 1] as const;
+
+/**
+ * Roughness for a part on the bare-metal rung, *added* to `DIRT_RUNGS`.
+ *
+ * Two ladders rather than one because the clusters are in different places
+ * and for different reasons. `DIRT_RUNGS` was placed against under-floor
+ * castings — "nothing down there is smooth" — and its lowest rung, 0.62, is
+ * above the entire band a bright extrusion lives in, so folding these two
+ * values into it would also move any future `castIron({ roughness })` caller
+ * between 0.45 and 0.62. Kept separate, the dirt ladder is provably untouched.
+ *
+ * Two rungs, not one: the reachable band is 0.30–0.45 and one rung in the
+ * middle of it costs 0.075 at either end, which is a 25 % change in lobe width
+ * at this roughness — the `rubber` ladder's defence (0.05 moves a broad lobe
+ * by seven per cent) does not hold up here because the lobe is not broad. Two
+ * rungs hold the worst shift anywhere in the band to **0.05**, which is inside
+ * the ±0.06 `createDirtyMetal`'s own resolution fade already adds across a
+ * part. Two rungs, not three or four: a rung costs nothing until a caller
+ * lands on it, but a band this narrow with a rung every 0.04 is how you get a
+ * material per part, and the only cluster anyone has measured is the
+ * extrusion family at ≈0.30. A second cluster earns a third rung when
+ * `__AUDI_MAT.raw()` shows one.
+ *
+ * A bare-metal part may still be rough — a sandblasted stainless shield — so
+ * the ladder on that rung is the union of both, and nothing on the bare-metal
+ * rung loses reach.
+ */
+const BRIGHT_RUNGS = [0.32, 0.42] as const;
+const BARE_METAL_RUNGS = [...BRIGHT_RUNGS, ...DIRT_RUNGS] as const;
+
+/** The IBL/occlusion default `createDirtyMetal` is authored with. */
+const DIRT_ENV_INTENSITY = 0.55;
 
 /** Printed finishes: semi-gloss paint, satin, matte instrument print. */
 const PRINT_RUNGS = [0.34, 0.48, 0.62] as const;
@@ -314,6 +385,38 @@ function nearest(value: number, rungs: readonly number[]): number {
 }
 
 /**
+ * A brush direction, quantised — the ladder for a vector.
+ *
+ * Normalise, then snap each component to a tenth. Worst rotation that can
+ * survive is about six degrees, and six degrees is not resolvable on a
+ * brushed strip for the same reason the marks are drawn as a noise field and
+ * not as lines: the shader projects the axis onto the surface tangent plane
+ * (`uBrushAxis - n * dot(uBrushAxis, n)`), so on anything curved the direction
+ * the marks actually run already swings further than that along the part. A
+ * key on the raw vector would be a material per call site for a difference
+ * nobody can point at.
+ *
+ * The quantised vector is what gets built, not just what gets keyed — as with
+ * every other ladder here. Otherwise identity and appearance disagree and the
+ * first caller at a rung decides the rest, which is the bug this is fixing.
+ *
+ * A unit vector has a component of at least 1/√3, so the snapped vector is
+ * never zero unless the caller handed in a zero vector, which normalises to
+ * itself and is keyed as such; the shader has its own fallback for that.
+ *
+ * Returned on the grid rather than renormalised so the key is exact and two
+ * distinct grid directions can never print the same string. `createChrome`
+ * normalises what it is given, so the material is unaffected.
+ */
+function snapAxis(axis: THREE.Vector3 | undefined): THREE.Vector3 {
+  const v = (axis ? axis.clone() : new THREE.Vector3(0, 0, 1)).normalize();
+  return v.set(Math.round(v.x * 10) / 10, Math.round(v.y * 10) / 10, Math.round(v.z * 10) / 10);
+}
+
+/** The snapped axis as a key fragment. */
+const axisKey = (v: THREE.Vector3): string => `${v.x.toFixed(1)},${v.y.toFixed(1)},${v.z.toFixed(1)}`;
+
+/**
  * Every raw option set the library was asked for, before quantisation.
  *
  * The ladders above are only defensible if the rungs sit where the call sites
@@ -416,10 +519,33 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
         () => createGlass(o),
       ),
 
+    /**
+     * The brush axis is part of the identity — but only where it exists.
+     *
+     * The key was roughness alone, so two callers at one rung with different
+     * `brushAxis` shared a material and the first one to be built decided
+     * which way the marks ran on both. Nothing on the car passes an axis
+     * today, and `MaterialLibrary.chrome` did not even expose one, so the
+     * collision was latent rather than live — but the library was handing
+     * `...o` straight to `createChrome`, so the moment one of the two streams
+     * in `trim/` passed a cross-car axis it would have been decided by build
+     * order.
+     *
+     * Below `CHROME_BRUSH_THRESHOLD` the axis is *not* part of the identity:
+     * `createChrome` computes a brush amount of zero, the shader guards every
+     * use of `uBrushAxis` on it, and the uniform is dead. Folding two axes
+     * together there is correct, so the two polished rungs keep the keys they
+     * had. To keep that claim true rather than nearly true the axis is also
+     * dropped from the *material* there, not merely from its key.
+     */
     chrome: (o) => {
       record('chrome', o);
       const r = nearest(o?.roughness ?? 0.045, CHROME_RUNGS);
-      return shared(`chrome:${r.toFixed(3)}`, () => createChrome({ ...o, roughness: r }));
+      const axis = r > CHROME_BRUSH_THRESHOLD ? snapAxis(o?.brushAxis) : undefined;
+      return shared(
+        `chrome:${r.toFixed(3)}${axis ? `:${axisKey(axis)}` : ''}`,
+        () => createChrome({ ...o, roughness: r, brushAxis: axis }),
+      );
     },
 
     blackTrim: () => shared('blackTrim', () => createBlackTrim()),
@@ -503,13 +629,38 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
     dirtyMetal: (o) => {
       record('dirtyMetal', o);
       const c = snapColor(o?.color ?? 0x3a3c3d);
-      const r = nearest(o?.roughness ?? 0.78, DIRT_RUNGS);
       const m = nearest(o?.metalness ?? 0.22, METALNESS_RUNGS);
+      // A bare-metal part is not an under-floor casting and does not share its
+      // ladder; it gets the bright rungs as well as the dirt ones.
+      const r = nearest(o?.roughness ?? 0.78, m === 1 ? BARE_METAL_RUNGS : DIRT_RUNGS);
       const g = Math.round(THREE.MathUtils.clamp(o?.grime ?? 0.7, 0, 1) * 4) / 4;
+      // Rounded to a twentieth and only keyed when it is not the authored
+      // default, so today's keys — and today's instances — are byte-identical.
+      const e = Math.round(THREE.MathUtils.clamp(o?.envMapIntensity ?? DIRT_ENV_INTENSITY, 0, 4) * 20) / 20;
       const vc = o?.vertexColors ?? false;
       return shared(
-        `dirtyMetal:${hex(c)}:${r.toFixed(2)}:${m.toFixed(2)}:${g.toFixed(2)}${vc ? ':vc' : ''}`,
-        () => createDirtyMetal({ color: c, roughness: r, metalness: m, grime: g, vertexColors: vc }),
+        `dirtyMetal:${hex(c)}:${r.toFixed(2)}:${m.toFixed(2)}:${g.toFixed(2)}`
+        + `${e === DIRT_ENV_INTENSITY ? '' : `:e${e.toFixed(2)}`}${vc ? ':vc' : ''}`,
+        () => createDirtyMetal({ color: c, roughness: r, metalness: m, grime: g, envMapIntensity: e, vertexColors: vc }),
+      );
+    },
+
+    /**
+     * Anodised aluminium extrusion. Keyed on its own axes, like the cast-iron
+     * family, rather than folded into `dirtyMetal`'s key — the point of a
+     * named entry is that the beads, the reveals and the cap strips all land
+     * on **one** instance, and they only do that if none of them has to
+     * remember `metalness: 1, grime: 0, envMapIntensity: 1`.
+     */
+    anodised: (o) => {
+      record('anodised', o);
+      const c = snapColor(o?.color ?? TRIM_COLORS.chrome);
+      const r = nearest(o?.roughness ?? 0.32, BARE_METAL_RUNGS);
+      const e = Math.round(THREE.MathUtils.clamp(o?.envMapIntensity ?? 1, 0, 4) * 20) / 20;
+      const vc = o?.vertexColors ?? false;
+      return shared(
+        `anodised:${hex(c)}:${r.toFixed(2)}:${e.toFixed(2)}${vc ? ':vc' : ''}`,
+        () => createAnodised({ color: c, roughness: r, envMapIntensity: e, vertexColors: vc }),
       );
     },
 
@@ -619,8 +770,22 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
    *
    *   __AUDI_MAT.list()          every instance the registry has handed out
    *   __AUDI_MAT.audit()         …and how many drawables are wearing each
+   *   __AUDI_MAT.raw()           every option set asked for, pre-quantisation
+   *   __AUDI_MAT.make(entry, …)  build one, from the console
    *   __AUDI_MAT.paint()         the tints currently in the paint uniforms
    *   __AUDI_MAT.setPaint(hex)
+   *
+   * `make` exists because of how this round started. A finish that no call
+   * site asks for yet cannot be looked at: the ladders only mint a material on
+   * demand, so the only way to judge a new rung used to be to edit somebody
+   * else's module. Now a probe can ask for one and assign it —
+   *
+   *   const m = __AUDI_MAT.make('anodised', { roughness: 0.32 });
+   *   mesh.material = m;   // a NEW object: mutating one does not re-upload
+   *
+   * — and it goes through the real entry, so what comes back is quantised,
+   * keyed and cached exactly as a call site's would be. It *does* mint a
+   * material, so `count()` moves after using it; reboot before measuring.
    *
    * `list()` is the only way to see what the option keys actually collapsed
    * to, which is the thing this file is most easily wrong about — and `audit()`
@@ -635,6 +800,11 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
     raw: () => requests,
     count: () => registry.all().length,
     audit: () => auditScene(renderer, registry),
+    make: (entry: string, ...args: unknown[]) => {
+      const fn = (lib as unknown as Record<string, unknown>)[entry];
+      if (typeof fn !== 'function') throw new Error(`[materials] no such entry: ${entry}`);
+      return (fn as (...a: unknown[]) => unknown).apply(lib, args);
+    },
     paint: () => ({
       color: paint.color().toString(16).padStart(6, '0'),
       face: paint.uniforms.uPaintFace.value.getHexString(),
