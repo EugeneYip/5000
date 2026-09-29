@@ -110,35 +110,33 @@ function tailPlan(midY: number, samples = 40): Array<[number, number]> {
 }
 
 /**
- * Height of the tail's bright cap strip.
+ * Developed width of the bright bead, per end. See `rubStrip` for what
+ * "developed" buys and why the previous, vertical-only figures were wrong.
  *
- * It was `HP.front.rubStripHeight`, 46 mm, because one `rubStrip` serves both
- * ends of the car and only the nose had a figure. That is a hard-coded
- * equivalent of a moved hardpoint: it did not move when
- * `HP.rear.bumperTopY`/`bumperBottomY` cut the tail moulding from 244 mm to
- * 113 mm, so the strip went from a fifth of the part to two-fifths of it and
- * the render's tail acquired a chrome band the width of the car.
+ * The nose was `HP.front.rubStripHeight`, 46 mm — a figure no photograph
+ * supports. Measured across the bead rather than at a point:
  *
- * On `bat_rear_straight_b.jpg` the bright line measures 8.5 px at x 1450 and
- * 10 px at x 880 — 11 to 13 mm at 1.324 mm/px — against ~100 mm of black
- * below it, and the two together are the 113 mm the hardpoints allow.
+ *   · the reference photograph (`images/1.jpg`, plate 169 px wide for 305 mm,
+ *     so 1.80 mm/px, camera ~8° above the bumper): the lit line runs y 772–778
+ *     at x 1240 and y 773–778 at x 1180, i.e. **6–8 px = 11–14 mm**, with
+ *     ~23 mm of dark moulding between it and the lamp above;
+ *   · `bat3_front3q.jpg` (plate 122 px for 305 mm, 2.50 mm/px, ~18° above):
+ *     7 px at x 1200, 1300, 1380 and 1430 = **17.5 mm** projected, ~17 mm
+ *     developed once the face's rake is taken out.
  *
- * ⚠ 24 mm did NOT project as the ~12 this note predicted, and the prediction
- * was the error: the top roll projects too. Measured on a `rear` frame beside
- * the photograph at matched lamp-band scale, the lit band ran y 0.614 → 0.593,
- * i.e. **24 mm** against 5–9 px (7–12 mm) on the photograph — twice as deep,
- * and one of the loudest differences left in a dead-astern frame.
+ * The tail's figure is the previous round's own measurement on
+ * `bat_rear_straight_b.jpg` — 8.5 px at x 1450 and 10 px at x 880, 11 to
+ * 13 mm at 1.324 mm/px — now expressed as developed width so it means what it
+ * says. It could not before: `profileStrip(t - 0.013, t - h + 0.004, …)` runs
+ * *backwards* for any `h` under 17 mm, so `0.014` laid the tail's last four
+ * stations back up the face it had just come down, and the bead's real bottom
+ * was `t - 0.013` with a 3 mm fold-back hanging off it.
  *
- * The profile above the face is fixed (12.6 mm of top roll, `t + 0.0128` down
- * to `t + 0.0002`) and only the face below it is `stripHeight`'s to set, so
- * 14 mm leaves a 10 mm astern face and lands the lit band at 5–6 px. What is
- * left over after this is brightness rather than height — the strip peaks at
- * L 128 where the photograph's chrome peaks at 254 and sparkles between, which
- * is `dirtyMetal`'s and the bloom's, not geometry's.
- *
- * `HP.rear` wants its own `rubStripHeight` — reported.
+ * `HP.front.rubStripHeight` should be 0.015 and `HP.rear` wants its own —
+ * both reported, neither edited here.
  */
-const REAR_STRIP_HEIGHT = 0.014;
+const FRONT_BEAD_WIDTH = 0.015;
+const REAR_BEAD_WIDTH = 0.012;
 
 /** 0 at the centreline, 1 at the very tip of the wrap. */
 function wrapK(x: number): number {
@@ -153,13 +151,10 @@ export interface BumperSpec {
   sign: 1 | -1;
   valanceBottomY: number;
   /**
-   * Height of the bright cap strip down the moulding's top edge.
-   *
-   * Per end, because the two are not the same part and were sharing
-   * `HP.front.rubStripHeight`. 46 mm is a fifth of the nose's 246 mm moulding
-   * and two-fifths of the tail's re-derived 113 mm — see `REAR_STRIP_HEIGHT`.
+   * Developed width of the bright bead measured *along the surface* from the
+   * crown's turn — not a height. See `FRONT_BEAD_WIDTH` and `rubStrip`.
    */
-  stripHeight: number;
+  beadWidth: number;
   /** Plan-form, as (half-width, z). The nose's `PLAN` is not reusable here. */
   plan: Array<[number, number]>;
 }
@@ -174,16 +169,32 @@ function crown(s: BumperSpec, y: number): number {
   return -0.0125 * k * k - (k < 0 ? 0.0042 * k * k : 0);
 }
 
-/** Outer profile of the moulding, face and both rolls, top to bottom. */
-function outerProfile(s: BumperSpec): Pt[] {
+/**
+ * The top roll, from the back of the shelf round to the head of the face.
+ *
+ * Split out of `outerProfile` because `rubStrip` walks the same points: a bead
+ * authored on a curve of its own drifts off the surface it is meant to cap,
+ * and the previous one did — it began 10.5 mm further back and 1.8 mm higher
+ * than the moulding's own crown, so it re-skinned the whole shelf instead of
+ * capping its edge.
+ */
+function crownProfile(s: BumperSpec): Pt[] {
   const t = s.topY;
-  const b = s.bottomY;
   return [
     [-0.0325, t + 0.0110],
     [-0.0182, t + 0.0072],
     [-0.0092, t + 0.0034],
     [-0.0040, t - 0.0018],
     [-0.0026, t - 0.0078],
+  ];
+}
+
+/** Outer profile of the moulding, face and both rolls, top to bottom. */
+function outerProfile(s: BumperSpec): Pt[] {
+  const t = s.topY;
+  const b = s.bottomY;
+  return [
+    ...crownProfile(s),
     ...profileStrip(t - 0.016, b + 0.024, 9, (y) => crown(s, y)),
     [crown(s, b + 0.015) - 0.0022, b + 0.0150],
     [crown(s, b + 0.007) - 0.0076, b + 0.0070],
@@ -216,17 +227,66 @@ function buildMoulding(s: BumperSpec): { geo: THREE.BufferGeometry; frames: Fram
   return { geo, frames };
 }
 
-/** The bright strip that caps the moulding's top edge. */
+/**
+ * `width` of `pts` measured along the surface from index `from`, resampled so
+ * a 15 mm bead does not inherit the moulding's 10 mm chords.
+ */
+function walk(pts: ReadonlyArray<Pt>, from: number, width: number): Pt[] {
+  const out: Pt[] = [pts[from]];
+  let left = width;
+  for (let i = from + 1; i < pts.length && left > 1e-6; i++) {
+    const dz = pts[i][0] - pts[i - 1][0];
+    const dy = pts[i][1] - pts[i - 1][1];
+    const d = Math.hypot(dz, dy);
+    if (d <= 1e-9) continue;
+    const take = Math.min(d, left);
+    const n = Math.max(1, Math.ceil(take / 0.0025));
+    for (let k = 1; k <= n; k++) {
+      const f = (take * k) / (n * d);
+      out.push([pts[i - 1][0] + dz * f, pts[i - 1][1] + dy * f]);
+    }
+    left -= take;
+  }
+  return out;
+}
+
+/**
+ * The bright bead along the top of the moulding's face.
+ *
+ * ## It is a bead, and it was a re-skin of the whole shelf
+ *
+ * `HP.front.bumperZ` puts the moulding's top out in front of the lamps as a
+ * shelf, and the profile gives that shelf 43 mm of near-horizontal roll before
+ * it turns down into the face. The bead used to start at `-0.043` — behind the
+ * moulding's own crown — so **the entire shelf wore the bright material**.
+ * Picked column by column on `photomatch`, 10 of the part's 22 projected
+ * pixels came back with a world normal of `y +0.98`: half the bright band
+ * across the nose was an upward-facing metal surface the width of the car,
+ * mirroring the sky. Same mechanism as the rear apron in `fd8b62d`, different
+ * part. `bat3_front3q.jpg` at 4× settles it — the shelf is dark plastic and
+ * only a thin bead at the head of the face is bright.
+ *
+ * ## Why developed width
+ *
+ * The old `stripHeight` set a *height*, so the roll above it was outside its
+ * control however small it got, and the tail's round found that out the hard
+ * way: 24 mm of lit band from a 14 mm setting. Walking the moulding's own
+ * profile for `beadWidth` of arc puts every millimetre of the part under one
+ * number, and that number is what a photograph of the car measures.
+ */
 function rubStrip(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
-  const t = s.topY;
-  const along: Pt[] = [
-    [-0.0430, t + 0.0128],
-    [-0.0245, t + 0.0092],
-    [-0.0125, t + 0.0050],
-    [-0.0055, t + 0.0002],
-    [-0.0032, t - 0.0062],
-    ...profileStrip(t - 0.013, t - s.stripHeight + 0.004, 4, (y) => crown(s, y)),
-  ];
+  // Starting at the crown's 45° turn was the obvious reading and it is wrong:
+  // the moulding's top edge stands ~8 mm proud of the face directly under it,
+  // so the chord between them overhangs, and a 15 mm bead laid from the turn
+  // lands entirely on that overhang. Picked on `photomatch` it came back with
+  // a world normal of `y −0.64` — a bead facing the road — 4 px tall and
+  // never above L 167. The bead belongs on the face below the lip, which is
+  // where `crownProfile` stops and `crown()` takes over, and where every
+  // reference photograph puts it.
+  const full = outerProfile(s);
+  const along = walk(full, crownProfile(s).length, s.beadWidth);
+  // Proud of the moulding, as an applied extrusion is. At 2.5 mm/px this is
+  // sub-pixel in the review frames and reads as the crisp line it is.
   const lifted = offsetPolyline(along, -0.0017);
   return sweep(lifted, frames, { flip: s.sign > 0, uvScale: 0.06 });
 }
@@ -514,9 +574,39 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
    * At α = 0.62 the specular lobe is ~40× broader than chrome's, so the sun
    * cannot clip it, and what is left is the bright satin line the reference
    * photographs actually show.
+   *
+   * ## Colour: solved against the plate, not against the histogram
+   *
+   * `0xb4b9bf` put the bead at **0.85** of the licence plate where the
+   * photograph's, read through `PHOTO_CAR_POLY` at its per-column peak, runs
+   * 0.96–1.01. Four builds, shot identically, `photomatch` tone profile and
+   * the bead's own peak as a fraction of the plate:
+   *
+   *     0x8f949a   11.3   0.75      moulding beside the bead  90–110
+   *     0xb4b9bf   12.0   0.85                                 95–113
+   *     0xd0d4d8   11.7   0.91                                102–113
+   *     0xe6e9ec   12.1   0.95                                154–178
+   *
+   * `0x8f949a` wins the histogram by dropping the whole bead below 176, and
+   * it is not taken: a part 25 % dark against a calibrated reference is not a
+   * match, it is a bucket dodge. `0xe6e9ec` matches the peak best and is not
+   * taken either — the bloom skirt CRITIQUE-2 described comes straight back
+   * and lifts 40 mm of moulding either side of the bead to 154–178 where the
+   * photograph measures 95–110, i.e. it pays for the bead with the moulding.
+   * `0xd0d4d8` is the only one that is closer than the shipped value on both.
+   *
+   * ⚠ What is left here is not brightness, it is **range**. The photograph's
+   * bead is below 176 over its shaded third and above 224 over its sunlit
+   * third; ours is 0.43 % of the car in 176–224 and 0.02 % above it, because
+   * at metalness 0.35 two thirds of the response is Lambertian and a
+   * Lambertian surface has no range. The fix is metalness 1 at roughness
+   * ~0.3, which the library cannot currently express: `dirtyMetal` snaps
+   * metalness to a top rung of 0.35 and `chrome` floors at an effective
+   * 0.152. Reported — do not reach for `chrome()` to get it, the rung that
+   * exists blows the corners (see above, and the round's report).
    */
   const strip = ctx.materials.dirtyMetal({
-    color: 0xb4b9bf, roughness: 0.62, metalness: 0.35, grime: 0.25,
+    color: 0xd0d4d8, roughness: 0.62, metalness: 0.35, grime: 0.25,
   });
   const paint = ctx.materials.paint();
   const dark = ctx.materials.blackTrim();
@@ -527,7 +617,7 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     bottomY: HP.front.bumperBottomY,
     sign: 1,
     valanceBottomY: HP.front.valanceBottomY,
-    stripHeight: HP.front.rubStripHeight,
+    beadWidth: FRONT_BEAD_WIDTH,
     plan: spine(HP.front.bumperZ, 1),
   };
   const rear: BumperSpec = {
@@ -537,7 +627,7 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     sign: -1,
     // No rear valance figure is published; carry the front's drop across.
     valanceBottomY: HP.rear.bumperBottomY - (HP.front.bumperBottomY - HP.front.valanceBottomY),
-    stripHeight: REAR_STRIP_HEIGHT,
+    beadWidth: REAR_BEAD_WIDTH,
     plan: tailPlan((HP.rear.bumperTopY + HP.rear.bumperBottomY) / 2),
   };
 
