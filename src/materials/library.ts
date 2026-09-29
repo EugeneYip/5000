@@ -63,7 +63,7 @@ import {
   createChrome, createAlloy, createBrakeDisc, createReflector, createDirtyMetal,
   createAnodised, createCastIron, createCaliperPaint, createPadFriction,
   CHROME_BRUSH_THRESHOLD,
-  type AnodisedOptions, type ChromeOptions, type DirtyMetalOptions, type CastIronOptions,
+  type AnodisedOptions, type DirtyMetalOptions, type CastIronOptions,
 } from './metals';
 import { createBlackTrim, createBumperPlastic, createRubber, type RubberOptions } from './trim';
 import { createLens, createEmissive, type LensOptions } from './lamp';
@@ -76,13 +76,18 @@ type Reflective = THREE.Material & { envMapIntensity?: number };
  * The library as this module actually builds it.
  *
  * `MaterialLibrary` in `src/types.ts` is the contract every part builder is
- * handed and this stream does not own that file, so everything added beyond it
- * — `printed`, `dirtyMetal`, `anodised`, `castIron`, `caliperPaint`,
- * `padFriction`, and the widened `rubber`, `alloy` and `chrome` — is declared
- * as an extension. A caller reaches them with
- * `audiMaterials(ctx.materials).printed(map)`. They should move onto
- * `MaterialLibrary` itself the next time `src/types.ts` is open; the exact
- * signatures are in the stream report.
+ * handed. `anodised` is not on it yet, and `rubber`, `alloy`, `printed` and
+ * `lens` are wider here than there, so those are declared as an extension and
+ * a caller reaches them with `audiMaterials(ctx.materials).anodised()`. They
+ * should move onto `MaterialLibrary` itself the next time `src/types.ts` is
+ * open; the exact signatures are in the stream report.
+ *
+ * `chrome` and `dirtyMetal` have made that move and are no longer widened
+ * here. `chrome` carries `brushAxis` on the contract itself, because an
+ * option `createChrome` has always read and no caller could pass is a bug
+ * that keying it does not close on its own; `dirtyMetal` carries
+ * `envMapIntensity`, and the note that metalness 1 is bare metal rather than
+ * the top of the oxide band.
  */
 export interface AudiMaterialLibrary extends MaterialLibrary {
   /**
@@ -117,12 +122,6 @@ export interface AudiMaterialLibrary extends MaterialLibrary {
   rubber(opts?: RubberOptions): THREE.Material;
   /** As `MaterialLibrary.alloy`, plus the vertex-colour opt-in. */
   alloy(opts?: { polished?: boolean; vertexColors?: boolean }): THREE.Material;
-  /**
-   * As `MaterialLibrary.chrome`, plus the brush direction. Widened because
-   * `createChrome` has always read one and the narrow contract could not
-   * reach it, so the option was unreachable *and* unkeyed — see the entry.
-   */
-  chrome(opts?: ChromeOptions): THREE.Material;
   /** Oxidised grey iron: disc hats and vanes, dust shields, backing plates. */
   castIron(opts?: CastIronOptions): THREE.Material;
   /** The phosphated/painted caliper casting. */
@@ -231,11 +230,22 @@ const METALNESS_RUNGS = [0.05, 0.2, 0.35, 1] as const;
  * by seven per cent) does not hold up here because the lobe is not broad. Two
  * rungs hold the worst shift anywhere in the band to **0.05**, which is inside
  * the ±0.06 `createDirtyMetal`'s own resolution fade already adds across a
- * part. Two rungs, not three or four: a rung costs nothing until a caller
- * lands on it, but a band this narrow with a rung every 0.04 is how you get a
- * material per part, and the only cluster anyone has measured is the
- * extrusion family at ≈0.30. A second cluster earns a third rung when
- * `__AUDI_MAT.raw()` shows one.
+ * part.
+ *
+ * That was the argument before anything was built on it. Measured since, on
+ * the side rub strip's cap at `side` over the whole run between the arches,
+ * the two rungs are **not** interchangeable: p50 134 / p95 178 at 0.32 against
+ * p50 150 / p95 182 at 0.42, and the sky-facing top row goes B−R +41 against
+ * +26. A single rung at 0.37 would have been 0.05 from each, and 0.05 here is
+ * worth about eight grey levels of median and half the blue fringe. So the
+ * band does need more than one rung, and the ladder is not carrying a rung
+ * nobody can tell apart.
+ *
+ * Two rungs, not three or four: a rung costs nothing until a caller lands on
+ * it, but a band this narrow with a rung every 0.04 is how you get a material
+ * per part, and the only cluster anyone has measured is the extrusion family
+ * at ≈0.30–0.45. A second cluster earns a third rung when `__AUDI_MAT.raw()`
+ * shows one.
  *
  * A bare-metal part may still be rough — a sandblasted stainless shield — so
  * the ladder on that rung is the union of both, and nothing on the bare-metal

@@ -380,6 +380,17 @@ export interface AnodisedOptions {
  * two here: it shortens the glint and takes most of the bloom skirt off the
  * moulding under it. A caller on this finish still owes the frame a level, but
  * it is choosing between two rungs and a colour, not fighting the shader.
+ *
+ * ## First caller, and what it got
+ *
+ * `trim/sides.ts` puts the side moulding's bright cap here at `r 0.42`,
+ * `0xd0d4d8`. Over the whole run between the arches at `side`, that takes the
+ * cap from p50 145 / p95 155 / max 158 with **nothing above 176 anywhere** —
+ * a flat ribbon — to p50 150 / p95 182 / max 194, 7.7 % of it above 176. The
+ * reference photographs have the same part clipped at L 237–254 with the row
+ * above it at 85–92, so the direction is right and there is more left in it.
+ * No glint and no bloom skirt at `side`, `front3q` or `wheel`, and the tone
+ * profile does not move because the part is not in the `photomatch` frame.
  */
 export function createAnodised(opts: AnodisedOptions = {}): THREE.MeshPhysicalMaterial {
   return createDirtyMetal({

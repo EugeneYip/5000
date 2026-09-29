@@ -21,6 +21,7 @@
 
 import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
+import { audiMaterials } from '@/materials/library';
 import { QUALITY } from '@/spec';
 import type { BuildContext } from '@/types';
 import { sideNormal, sidePoint, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
@@ -58,32 +59,36 @@ function flankFrames(zRear: number, zFront: number, y: number, n: number): Frame
  * give y 538 → 637) and **≈97 mm** off `GCFS-85`'s door columns. The strip was
  * grown upward with its bottom edge held, which also brought its top to within
  * 11 mm of the bumper mouldings' own bead instead of 65 mm below it. On the
- * real car those two are one continuous line round the corner, and since
- * `5b4becd` they are also one material — see `buildSides`.
+ * real car those two are one continuous line round the corner — see the note
+ * on `capStrip` in `buildSides` for how far ours has got.
  *
  * Both figures are now in `hardpoints.ts` and read from there; this file used
  * to carry local copies of them and a note saying the hardpoints were wrong.
  *
- * ## The bright cap is 14 mm, and its bounding box says 32 mm
+ * ## The bright cap is 13 mm, and its bounding box says 32 mm
  *
  * A trap worth the paragraph, because a review round read the bbox and
  * concluded the cap was twice its height. `__AUDI.bbox('rubStripLine')` gives
  * y **0.606–0.638**, but 0.606 is not on the flank: `rubbingStrip` tapers the
  * section to 0.55 over the last 45 mm at each end so the moulding dies into
  * the arch instead of ending square, and that taper pulls the bead's *scaled*
- * bottom edge down to 0.607 at the two tips. Column-scanned with
- * `__AUDI.pick` anywhere between the arches the cap runs y **0.623–0.638** —
- * 14 mm of vertical extent, 20 mm developed along the surface — and projects
- * 5 px of 30 at `side` and 5–7 px of 27–34 at `front3q`, i.e. **19–21 % of the
- * moulding's band**.
+ * bottom edge to 0.607 at the two tips. The cap is `STRIP_FACE[0..3]` offset
+ * 1.4 mm, so between the arches it is exactly `STRIP_Y + HH − 0.0134` to
+ * `STRIP_Y + HH`, i.e. y **0.6231–0.6365 = 13.4 mm** of a 98 mm band.
  *
- * Measured against that, on `bat3_side_profile.jpg` (front/rear hub centres
- * 1025 px apart for a 2687 mm wheelbase, so 2.62 mm/px) the cap's lit core is
- * 4–6 px = **10–16 mm** of a band 34 px = 89 mm, and on `bat3_front3q.jpg`
- * (2.50 mm/px) it is 5–6 px of 34 = **13–15 mm, 15–18 %**. So the cap is at
- * most 3 pp wide and is not worth changing.
+ * Confirmed by column scan rather than by reading that back off the source:
+ * `__AUDI.pick` over x 420–1260 at `side` gives the cap 4 px at y 0.625–0.635
+ * above 25 px of moulding at 0.541–0.622, and 6–8 px of 23–32 at `front3q`.
+ * **Not one of those rows comes back with an upward-facing normal** — the
+ * whole cap is between n·y 0.24 and 0.86, no row above 0.9 — so the sky-facing
+ * shelf that `5b4becd` found under the front bumper bead is not present here.
+ * That was the first thing to rule out and it is ruled out.
  *
- * (That same trace puts the whole band at **89 mm** where the blueprint and
+ * On `bat3_side_profile.jpg` (front/rear hub centres 1025 px apart for a
+ * 2687 mm wheelbase, so 2.62 mm/px) the cap measures 4.6 px = **12 mm** of a
+ * 36 px = 94 mm band, i.e. **13 %** against our 13.7 %. It is right.
+ *
+ * (That same trace puts the whole band at 89–94 mm where the blueprint and
  * `GCFS-85` give 97–99. One photograph against two calibrated sources is not
  * enough to move `rubStripHeight`, so it is recorded here and reported, not
  * acted on.)
@@ -96,6 +101,30 @@ function flankFrames(zRear: number, zFront: number, y: number, n: number): Frame
  * itself. 601–619 is that paint, so a bead built to it would sit 18 mm below
  * the moulding's top edge with dark plastic above it, which no photograph of
  * the car shows.
+ *
+ * ## The line dies 281 mm short of the rear bumper, and 40 mm above it
+ *
+ * Reported, not fixed: both ends of it are hardpoints and the far end is
+ * `bumpers.ts`. Measured off `__AUDI.bbox` —
+ *
+ *   frontRubStrip  z  0.497 … 1.079   y 0.618–0.632
+ *   rubStripLine   z −3.420 … 0.495   y 0.623–0.638
+ *   rearRubStrip   z −3.814 … −3.701  y 0.582–0.594
+ *
+ * — the front bead wraps 582 mm and meets this cap within 2 mm of z, which is
+ * why the nose reads as one part. The **rear** bead wraps only 113 mm, so
+ * between z −3.420 and −3.701 the bright line simply stops; picked at `side`,
+ * x 1430–1490 returns nothing but `quarterR`, so what looks in the frame like
+ * the moulding carrying on is painted quarter panel in shadow. And the rear
+ * bead's centreline sits at y 0.588 against 0.630 here and 0.625 at the nose
+ * — **42 mm low**, so even where it does exist it is not on this line.
+ *
+ * `bat3_side_profile.jpg` has the bright cap unbroken to within 63 mm of the
+ * rearmost point of the car, at one height the whole way. `HP.rear.rubStripY`
+ * went 0.613 → 0.588 in `7bf4046` on the reading that "0.613 described the old
+ * full-height band, not a bead"; the bead's *height* is what `rubStripHeight`
+ * describes, and its centre still belongs on the line, so that correction
+ * looks like it moved the wrong number. See the stream report.
  */
 const STRIP_HEIGHT = S.rubStripHeight;
 const STRIP_Y = S.rubStripY;
@@ -222,25 +251,54 @@ export function buildSides(ctx: BuildContext): THREE.Group {
 
   /**
    * The moulding's bright cap and the bumper caps' bead are **one extrusion**
-   * on the real car — `bat3_front3q.jpg` shows the line crossing the wheel
-   * arch with nothing but a small step to mark the joint — so this asks for
-   * the bead's material by the bead's own options and gets the same instance
-   * back out of the registry. `bumpers.ts` carries the four-build colour
-   * ladder that settled `0xd0d4d8` against the licence plate.
+   * on the real car — the line crosses both wheel arches with nothing but a
+   * small step at the joint — so this keeps `bumpers.ts`'s colour, `0xd0d4d8`,
+   * which four real builds there settled against the licence plate.
    *
    * It was `chrome({ roughness: 0.2 })`, which quantises to the `chrome:0.180`
    * rung and an effective roughness of 0.152 — a mirror. On a flank that is
-   * the worst place for one: the cap's own crown turns through 69° of sky over
-   * its top 6 mm, so at `side` the line came back **(83,103,138) → (190,174,157)**
+   * the worst place for one: the cap's crown turns through 69° of sky over its
+   * top 6 mm, so at `side` the line came back **(83,103,138) → (190,174,157)**
    * top to bottom, B−R **+55 to −33**, a blue-over-orange pinstripe peaking at
-   * L 174 where the reference reads a neutral L 250 at B−R +19. It also sat
-   * beside the satin bumper bead at the arch and read as a different part.
-   * Do not put it back: `5b4becd` measured `chrome()` at both the 0.152 and
-   * 0.30 rungs blowing the bumper corners and taking the tone profile to 14.0.
+   * L 174 where the reference reads a neutral L 250. Do not put it back:
+   * `5b4becd` measured `chrome()` at both the 0.152 and 0.30 rungs blowing the
+   * bumper corners and taking the tone profile to 14.0.
+   *
+   * ## Why `anodised()` and not the bead's own `dirtyMetal({ metalness: 0.35 })`
+   *
+   * Because at metalness 0.35 two thirds of the response is Lambertian and a
+   * Lambertian bead has no range. Column-scanned at `side` over the whole run
+   * between the arches (y 475–479, x 300–1330), the cap on that finish read
+   * **p50 145, p95 155, max 158, nothing above 176 anywhere** — a flat ribbon.
+   * Both reference photographs have it clipped: `bat3_side_profile.jpg` peaks
+   * **L 253–254 across the front bumper and fender together** and **237–251**
+   * along the rear quarter, with the row immediately above it down at 85–92.
+   * The real extrusion is dark over its shaded edge and blown over its lit
+   * face, thirty millimetres apart.
+   *
+   * Three real builds, one view per boot — a live sweep cannot be trusted here
+   * (`docs/WORKSTREAM.md`) — over that same band:
+   *
+   *   dirtyMetal m0.35 r0.62   p50 145  p95 155  max 158   >176  0.0 %
+   *   anodised         r0.32   p50 134  p95 178  max 192   >176  5.8 %
+   *   anodised         r0.42   p50 150  p95 182  max 194   >176  7.7 %
+   *
+   * `0.42` over `0.32`: the same median as the shipped bead (so the two still
+   * read as one line at the arch) with the range on top of it, and a weaker
+   * blue fringe on the sky-facing top row — B−R +26 against +41, where the
+   * reference reads +13. It is also the rung `createAnodised`'s own three
+   * builds preferred, for the same reason: the narrower rung's glint is longer
+   * and drags a bloom skirt onto the moulding under it.
+   *
+   * ⚠ **`bumpers.ts` has not made this move**, so the bead and the cap are no
+   * longer one registry instance. They are still one colour, and at `side` the
+   * peak steps 163 → 190 across the front joint where the photograph steps by
+   * about nothing — because in the photograph *both* are clipped and it is the
+   * bead that cannot get there. `frontRubStrip`/`rearRubStrip` want exactly
+   * this call; when they take it the two collapse back onto one instance with
+   * no other change.
    */
-  const capStrip = ctx.materials.dirtyMetal({
-    color: 0xd0d4d8, roughness: 0.62, metalness: 0.35, grime: 0.25,
-  });
+  const capStrip = audiMaterials(ctx.materials).anodised({ color: 0xd0d4d8, roughness: 0.42 });
 
   // --- rubbing strip -------------------------------------------------------
   const strip = rubbingStrip();

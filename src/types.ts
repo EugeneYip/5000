@@ -28,7 +28,18 @@ export interface MaterialLibrary {
   /** Tinted, laminated, slightly green-edged automotive glass. */
   glass(opts?: { tint?: number; opacity?: number; interiorSide?: boolean }): THREE.Material;
   /** Polished brightwork — the rings, the window reveal. */
-  chrome(opts?: { roughness?: number }): THREE.Material;
+  chrome(opts?: {
+    /** ≤0.07 is polished plate; above it the part brushes and `brushAxis` bites. */
+    roughness?: number;
+    /**
+     * Object-space direction the brush marks run; most C3 brightwork is
+     * fore-aft. `createChrome` has always read this and the contract did not
+     * offer it, so it was unreachable — and, until the key gained it, two
+     * callers at one rung with different axes shared a material and build
+     * order decided which way the marks ran on both.
+     */
+    brushAxis?: THREE.Vector3;
+  }): THREE.Material;
   /** Satin black window surrounds and B-pillar. */
   blackTrim(): THREE.Material;
   /** Grained bumper/cladding plastic. */
@@ -80,9 +91,23 @@ export interface MaterialLibrary {
   }): THREE.Material;
   /** Castings, heat shields, oxidised iron — anything under the floor line. */
   dirtyMetal(opts?: {
-    color?: number; roughness?: number; metalness?: number;
+    color?: number; roughness?: number;
+    /**
+     * 0.1–0.35 is the useful band for a casting. **1 means bare metal** — an
+     * anodised extrusion, a stainless tip — and is the other end of a
+     * two-valued physical quantity, not the top of that band; it wants
+     * `grime: 0` and `envMapIntensity: 1`, which is what `anodised()` in
+     * `src/materials/library.ts` is.
+     */
+    metalness?: number;
     /** 0 = washed casting, 1 = a decade under a car. */
     grime?: number;
+    /**
+     * IBL strength, which on this project is the specular-occlusion term. The
+     * 0.55 default is the sky fraction a part under the floor line sees; a
+     * bright strip on the outside of the car sees all of it and wants 1.
+     */
+    envMapIntensity?: number;
     vertexColors?: boolean;
   }): THREE.Material;
   /** Oxidised grey iron: disc hats and vanes, dust shields, pad backing plates. */
