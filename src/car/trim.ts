@@ -62,7 +62,8 @@ export function buildTrim(ctx: BuildContext): PartResult {
   group.add(buildRoofRails(ctx));
   group.add(buildMirrors(ctx).group);
   group.add(buildSides(ctx));
-  group.add(buildRearBadges(ctx));
+  const rearBadges = buildRearBadges(ctx);
+  group.add(rearBadges);
   group.add(buildDetails(ctx));
 
   const wipers = buildWipers(ctx);
@@ -79,7 +80,10 @@ export function buildTrim(ctx: BuildContext): PartResult {
   // exists while this builder runs — `Car` adds each part's group as it is
   // built and trim comes after glass but before anything is assembled — so
   // both hand-overs are tried on the frame loop until they take.
-  const riders = [...tailgate.riders, ...spoiler.riders, rear, wipers.rearMount];
+  // `rearBadges` is in this list because it was not, and the scripts and the
+  // rings sat still on the body while the gate swung up — measured by opening
+  // it and reading byte-identical bounding boxes at 0, 0.5 and 1.
+  const riders = [...tailgate.riders, ...spoiler.riders, rear, rearBadges, wipers.rearMount];
   let mounted = false;
   let tick = 0;
 

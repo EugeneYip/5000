@@ -39,10 +39,11 @@ const REAR_Y_TOP = heightAt(Z_TAIL_END, 0.0);
  * blend keeps the corner a radius rather than a step.
  *
  * The local constant this replaced put the tailgate's bottom at 0.988, i.e.
- * essentially at `HP.glass.tailgateGlassBottomY` (0.962). Those are two
- * different things: 0.962 is where the GLASS stops, and it is right; the
- * tailgate itself carries on down to 0.652, and a fixed panel was standing in
- * for it with a shutline across the tail that the real car does not have.
+ * essentially at `HP.glass.tailgateGlassBottomY` (0.962 then, 1.010 now).
+ * Those are two different things: the glass sill is where the GLASS stops, and
+ * it is right; the tailgate itself carries on down to 0.652, and a fixed panel
+ * was standing in for it with a shutline across the tail that the real car
+ * does not have.
  */
 function tailgateHalfWidth(y: number): number {
   const full = rearHalfWidth(y);

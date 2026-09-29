@@ -13,17 +13,21 @@
  * **+X** (`f × u` with f = +Z, u = +Y gives a camera-right of −X). On
  * `bat_rear_straight_b.jpg` the model designation is left of the tailgate
  * centreline, so it belongs at +X; the engine script is at −X. `HP.rear`'s
- * `badgeModelCenter` (+0.42) and `badgeAudiCenter` (−0.42) already say this,
+ * `badgeModelCenter` (+0.36) and `badgeAudiCenter` (−0.36) already say this,
  * and both scripts build straight to the hardpoint's X.
  *
- * ⚠ The SIDE is right; the MAGNITUDE is not, and it is a hardpoint so it is
- * reported rather than worked round here. The 0.42 was read as "264 px left
- * of the body centreline, +416 mm at that frame's 1.574 mm/px" — the same
- * 1810-mm-at-the-lamp-band scale `MODEL_CAP` below now rejects. Re-measured
- * on the corrected 1.324 mm/px the `5000 CD` run spans x 695→860 px, centre
- * 777.5, which is 273 px from the body centreline at 1051 and therefore
- * **+0.362 m**. `badgeModelCenter[0]` wants 0.36, not 0.42; 0.42 × 1.324 /
- * 1.574 = 0.353, so the discrepancy is exactly the scale and nothing else.
+ * The SIDE was always right; the MAGNITUDE was the 1810-mm-at-the-lamp-band
+ * scale that `MODEL_CAP` below also rejects, and it has since been corrected
+ * in the hardpoint. The 0.42 was read as "264 px left of the body centreline,
+ * +416 mm at that frame's 1.574 mm/px"; on the corrected 1.324 mm/px the
+ * `5000 CD` run spans x 695→860 px, centre 777.5, which is 273 px from the
+ * body centreline at 1051 and therefore **+0.362 m**. 0.42 × 1.324 / 1.574 =
+ * 0.353, so the discrepancy was exactly the scale and nothing else.
+ *
+ * Built and measured at ±0.36: `badgeModel` spans x 0.202…0.525 and
+ * `badgeFuelInjection` −0.284…−0.434, so neither clamp in `lay` is engaged —
+ * 135 mm of clear paint to the rings' outer edge at ±0.067 and 225 mm to
+ * `lampOuterX` outboard.
  *
  * (Which physical flank that is follows `hardpoints.ts`: +X is the car's LEFT.
  * Nothing here depends on it — the placement is fixed by the photograph.)
@@ -195,7 +199,7 @@ export function buildRearBadges(ctx: BuildContext): THREE.Group {
   // the reference's engine scripts are a slanted geometric sans, which a font
   // stack does reach, and the wordmark's shapes are not shared with them.
   //
-  // Built to `badgeAudiCenter` (−0.42). This used to add 75 mm to that, which
+  // Built to `badgeAudiCenter` (−0.36). This used to add 75 mm to that, which
   // is why the mesh measured its centre at −0.4945 — a previous fix that
   // landed on one side of the car only.
   //

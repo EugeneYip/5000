@@ -24,13 +24,18 @@
  * measure this part on it.
  *
  * Consequence for this model. The body's centreline profile breaks from the
- * near-horizontal roof extension to the near-vertical tail face at y ≈ 1.138,
- * which is only **53 % of the way down our backlight** (1.285 → 1.010). So the
- * reference's 65 % is *below* our break: the spoiler belongs on the lower,
- * near-vertical part of the glass, not astride the break, and it stands proud
- * **aft** rather than up. That is also what `bat_tailgate_open_spoiler.jpg`
- * shows — the part is bonded to the tailgate, full width, with a defined
- * trailing lip, and is not a roof extension at all.
+ * near-horizontal roof extension to the near-vertical tail face at y ≈ 1.138.
+ * That was 53 % of the way down the backlight while the aperture ran 1.285 →
+ * 1.010; on the corrected 1.375 → 1.010 it is **64.9 %**, which is the
+ * reference's 65 % to within a millimetre. So the spoiler's leading edge lands
+ * on the roll-over itself, not below it, and it still stands proud **aft**
+ * rather than up. That is also what `bat_tailgate_open_spoiler.jpg` shows —
+ * the part is bonded to the tailgate, full width, with a defined trailing lip,
+ * and is not a roof extension at all.
+ *
+ * The two surfaces agree there, so nothing has to choose between them: below
+ * y 1.138 the backlight pane is placed on `rearFaceZ` by `glass/tailgate.ts`'s
+ * own `skin()`, which is the function this file conforms to.
  *
  * The old build stood a 57 mm rail up off the roof extension at z −3.43…−3.70,
  * which put its top edge at y 1.195 — 32 % down the backlight, half as far as
@@ -38,35 +43,18 @@
  * the leading edge is the upper one and the lip is the lower one.
  *
  * The 53 % break was read as a symptom of `HP.glass.tailgateGlassBottomY`
- * being ~50 mm low. It is not: that sill is SETTLED at 1.010 against 994
- * measured. What actually shortens the backlight is the other end —
- * `HP.glass.tailgateGlassTopY`, and the shortfall is bigger than the ~65 mm
- * this note used to quote.
+ * being ~50 mm low. It was not: that sill is SETTLED at 1.010 against 994
+ * measured. What shortened the backlight was the other end,
+ * `HP.glass.tailgateGlassTopY`, and that is now fixed at both ends of the
+ * chain — the hardpoint went 1.285 → **1.375** with the hinge that was
+ * blocking it (`tailgateHingeZ/Y` → the D-pillar, 1.390), and `Z.tgGlassTop`
+ * in `body/panels.ts` is now solved from the hardpoint instead of being the
+ * literal −3.186 that produced the old figure. Built top edge: **1.374**.
  *
- * Re-measured directly on `bat_rear_straight_b.jpg`, roll-rectified (the frame
- * carries a 0.98° roll: the lamp band's gasket minima run −0.0171 px/px across
- * it) and read on the lamp band's own 138.8 px for 184 mm:
- *
- *   roof trailing edge, i.e. the top of the silhouette   row 256 ± 1
- *   top of the clear glass                               row 274 ± 2
- *
- * — **18 px, 24 mm of projected height**, holding across x 800…1185. The same
- * two features in our own `rear` frame are 36 px apart on a 62.2 px band, i.e.
- * 106 mm. Correcting for the photograph's parallax (the roof edge is ~0.77 m
- * further from the lens than the tail plane; the camera height is fixed at
- * 0.798 by the horizon crossing the lamp band at 49 %, and the distance that
- * puts the roof edge on `HP.roofRearY` 1.412 is ~10 m) gives a glass top of
- * **1.375 ± 0.010**, so 1.285 is **90 mm short**, not 76.
- *
- * That in turn re-derives the hinge rather than being blocked by it. The
- * tailgate's top edge has to clear the glass by the header band — 82 mm of
- * surface here, ~15 mm of drop — so `HP.rear.tailgateHingeY` wants **≈1.39**,
- * not 1.340, and since the hinge cannot stand above the roof skin,
- * `tailgateHingeZ` has to come forward from −3.108 to where our roof is still
- * that high, z ≈ −2.97…−3.00 — which is `HP.roof.dPillarZ`, where a wagon's
- * tailgate cut actually is. Reported, not applied.
- *
- * Everything in this file is a fraction of the aperture, so it follows them.
+ * Everything in this file is a fraction of the aperture, so it followed them,
+ * and the 65 % that used to fall below the roll-over now lands on it. One
+ * consequence did NOT self-correct and had to be fixed by hand: see
+ * `SPOILER_HALF_W`.
  */
 
 import * as THREE from 'three';
@@ -93,15 +81,17 @@ const GLASS_DROP = GLASS_TOP_Y - HP.glass.tailgateGlassBottomY;
  * `HP.glass.tailgateGlassBottomY` moves the spoiler with the glass instead of
  * stranding it.
  *
- * 0.665 rather than 0.651 for the leading edge: at 0.651 the tail face is
- * already inside its top corner radius (`rearHalfWidth` falls from 727 mm at
- * y 1.100 to 534 mm by y 1.125), and a full-width part cannot start there.
- * 14 points of backlight is 4 mm of height.
+ * 0.665 rather than 0.651 for the leading edge: on the old 1.285 → 1.010
+ * aperture, 0.651 put the leading edge inside the tail's top corner radius.
+ * On the corrected aperture the two are y 1.1374 and y 1.1323 — 0.6 mm and
+ * 5.7 mm below the roll-over at 1.138 — so the distinction no longer decides
+ * anything, and 0.665 is kept only because it holds the part a section clear
+ * of the crest. Either is inside the ±2 px this was read to.
  */
 const SPOILER_TOP_F = 0.665;
 const SPOILER_BOT_F = 0.825;
-const SPOILER_TOP_Y = GLASS_TOP_Y - GLASS_DROP * SPOILER_TOP_F;   // ≈ 1.102
-const SPOILER_BOT_Y = GLASS_TOP_Y - GLASS_DROP * SPOILER_BOT_F;   // ≈ 1.058
+const SPOILER_TOP_Y = GLASS_TOP_Y - GLASS_DROP * SPOILER_TOP_F;   // ≈ 1.132
+const SPOILER_BOT_Y = GLASS_TOP_Y - GLASS_DROP * SPOILER_BOT_F;   // ≈ 1.074
 const SPOILER_MID_Y = (SPOILER_TOP_Y + SPOILER_BOT_Y) / 2;
 
 /** Read by `wipers.ts`: the blade parks just clear of the leading edge. */
@@ -110,10 +100,25 @@ export const SPOILER_LEADING_Y = SPOILER_TOP_Y;
 /**
  * Half-span. Full width on every reference — on the dead-on frame the wing
  * runs x 597 → 1505 px against a backlight aperture of exactly the same
- * extent. `rearHalfWidth` is 727 mm at the leading edge, so this leaves 27 mm
- * of paint outboard at the tightest station.
+ * extent — less 27 mm so a line of paint or frit shows outboard of each end.
+ *
+ * ⚠ This used to be `min(tailgateGlassHalfW, rearHalfWidth(SPOILER_TOP_Y))`
+ * and that second term is the wrong surface. The wing is bonded to the
+ * BACKLIGHT, not to the painted face outboard of it, so what limits its span
+ * is the pane, which is a constant `tailgateGlassHalfW` over the whole
+ * roll-over. `rearHalfWidth` is the loft's last *section*, and above y ≈ 1.12
+ * that section is the roof's transverse crown, not a tail outline at all: it
+ * falls 601 mm at 1.120 → 356 at 1.132 → 0 at 1.138.
+ *
+ * The old form got away with it only because the leading edge used to sit at
+ * y 1.102, where the tail of the day measured 727 mm and the `min` therefore
+ * picked the glass anyway. When the aperture's top went 1.285 → 1.375 the same
+ * fraction moved the leading edge up to 1.132 — 6 mm under the crown — and the
+ * wing silently halved, to ±318 mm against a 636 mm backlight. It rendered,
+ * front-facing, with a perfectly correct bounding box; it was simply the wrong
+ * part.
  */
-const SPOILER_HALF_W = Math.min(HP.glass.tailgateGlassHalfW, rearHalfWidth(SPOILER_TOP_Y)) - 0.027;
+const SPOILER_HALF_W = HP.glass.tailgateGlassHalfW - 0.027;
 /** Length over which each end dies onto the skin. */
 const SPOILER_END = 0.085;
 
@@ -313,12 +318,13 @@ function buildBand(): THREE.BufferGeometry {
  * pale bar inside the top centre of the backlight — 132 × 27 px.
  *
  * ⚠ The PIXELS were right and the millimetres were not. They were scaled by
- * calling the backlight 1424 mm wide over 940 px, and 1424 is twice the built
- * `tailgateGlassHalfW` 0.712 rather than anything measured — the same circular
- * scale the rest of this elevation has been purged of. On the lamp band's own
- * 1.3256 mm/px those 940 px are 1246 mm, which agrees with the aperture
- * measured directly (956–966 px, 1267–1281 mm). So the unit is **175 × 36 mm**
- * and not 202 × 41; the bar is the same bar, read on the right ruler.
+ * calling the backlight 1424 mm wide over 940 px, and 1424 is twice the
+ * `tailgateGlassHalfW` of the day (0.712) rather than anything measured — the
+ * same circular scale the rest of this elevation has been purged of. On the
+ * lamp band's own 1.3256 mm/px those 940 px are 1246 mm, which agrees with
+ * the aperture measured directly (956–966 px, 1267–1281 mm). So the unit is
+ * **175 × 36 mm** and not 202 × 41; the bar is the same bar, read on the
+ * right ruler.
  *
  * It is an interior-mounted unit: it sits behind the glass on the tailgate's
  * inner face, not on the skin. So it is let *in* along the surface normal, and

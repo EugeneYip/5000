@@ -50,6 +50,29 @@ const toEdge = (b: Bound): EdgeOpt => ({ radius: b.radius, flange: b.flange });
 // Longitudinal landmarks
 // ---------------------------------------------------------------------------
 
+/**
+ * The station at which the centreline roof profile is `y`, over the tail.
+ *
+ * `yTop` falls monotonically from the D-pillar to the tail end, so a bisection
+ * is exact. Used for `Z.tgGlassTop`, which is a *height* hardpoint expressed as
+ * a station and must not be written down as one: it was the literal −3.186,
+ * which is where the profile happens to be 1.286 — i.e. the station that made
+ * the OLD `HP.glass.tailgateGlassTopY` (1.285) come out. That hardpoint moved
+ * to 1.375 when `tailgateHingeZ/Y` went to the D-pillar, and this number did
+ * not follow, so the built backlight went on topping out 91 mm below its own
+ * hardpoint and the tailgate's header band was 218 mm of station instead of 44.
+ */
+function stationAtRoofHeight(y: number): number {
+  let lo = Z_TAIL_END, hi = HP.roof.dPillarZ;
+  if (heightAt(hi, 0) <= y) return hi;
+  if (heightAt(lo, 0) >= y) return lo;
+  for (let i = 0; i < 40; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (heightAt(mid, 0) < y) lo = mid; else hi = mid;
+  }
+  return 0.5 * (lo + hi);
+}
+
 export const Z = {
   noseFace: Z_NOSE_FACE,                  //  0.942
   /**
@@ -76,8 +99,8 @@ export const Z = {
   cPillarRear: -2.648,
   header: HP.headerZ,                     // −1.280
   dPillar: HP.roof.dPillarZ,              // −2.968
-  tgHinge: HP.rear.tailgateHingeZ,        // −3.108
-  tgGlassTop: -3.186,
+  tgHinge: HP.rear.tailgateHingeZ,        // −2.968, the D-pillar
+  tgGlassTop: stationAtRoofHeight(HP.glass.tailgateGlassTopY),
   dPillarRear: -3.606,
   tailEnd: Z_TAIL_END,                    // −3.700
 } as const;
