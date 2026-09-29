@@ -191,18 +191,41 @@ vec3 evalSky(vec3 dir) {
               + 0.20 * skyNoise(ring * 74.0);
   // A soft slab a few degrees up, which is where a distant deck sits when you
   // are standing under it.
-  float bankH = exp(-pow((up - 0.055) / 0.05, 2.0));
-  float bank = bankH * smoothstep(0.40, 0.66, bankN) * uCloud;
-  // Darker, not brighter, and that is forced by where the sky sits.
+  float bankH = exp(-pow((up - 0.052) / 0.058, 2.0));
+  // Two-sided, and it has to be. What was here darkened only, on the argument
+  // -- correct as far as it goes -- that at 222 of 255 ACES is compressing a
+  // twenty per cent lift into two or three levels while downwards there is a
+  // whole stop of room. Measured with the backdrop stood down, that deck gave
+  // the entire visible sky a standard deviation of **five to nine levels**:
+  // 205 to 216 at the rear pose, 199 to 203 at photomatch, a cream card in
+  // every review pose. A single mix that bottoms out at 0.62 of the haze can
+  // only reach -17 % of radiance, which at the shoulder is ten levels.
   //
-  // The dome renders at 222 of 255. ACES is compressing hard by then, so a
-  // twenty per cent *lift* in radiance comes out as two or three levels and
-  // the structure is invisible — measured, adding it changed the frame's
-  // standard deviation by less than half a level. Downwards there is a whole
-  // stop of room, and downwards is also what is true: a deck seen from
-  // underneath at 11° of solar elevation is lit on its top and shows you its
-  // shaded base, which against a bright hazy sky reads as a grey-mauve mass.
-  col = mix(col, hazeCol * (0.62 + 0.55 * forward), clamp(bank * 0.85, 0.0, 1.0));
+  // And the *shape* it was aiming at is not what a photograph has. Over the
+  // owner's frame, the band its tree line stands in puts 1.4 % of its pixels
+  // above 224 and 3.2 % above 200; this render put 0.01 % and 12.6 %. Almost
+  // nothing in a real background lives at the top of the shoulder. It is
+  // either well under it or through it -- and a broken deck raked by an 11
+  // degree sun is exactly the thing that does both at once, a grey-mauve
+  // shaded base with its margins burnt through to the sun behind them.
+  //
+  // The two sides are sized so the mean radiance does not move: this dome is
+  // the light source as well as the background, and presets.ts is explicit
+  // that nothing may be bought by spending its exposure. Measured with the
+  // backdrop stood down, the sky the rear pose sees goes from mean 206.2,
+  // sd 7.9 to mean 201.0, sd 17.7 -- two and a half per cent of mean for
+  // two and a quarter times the spread -- with its tenth and ninetieth
+  // percentiles moving 194/214 to 174/222. On the gate pose the mean moves
+  // 201.3 to 199.2. Composited, the rear frame's tree-line band goes from
+  // 12.6 % over 200 and 0.01 % over 224 to 7.6 % and 1.85 %, against the
+  // photograph's 4.1 % and 1.59 %; the car's own share over 224 does not
+  // move at all, 7.7 % either way.
+  float dens = smoothstep(0.42, 0.60, bankN);
+  float rim  = smoothstep(0.26, 0.38, bankN) * (1.0 - smoothstep(0.38, 0.48, bankN));
+  float base = bankH * dens * uCloud;
+  float burn = bankH * rim * uCloud;
+  col = mix(col, hazeCol * (0.40 + 0.36 * forward), clamp(base, 0.0, 1.0));
+  col = mix(col, hazeCol * (1.50 + 0.85 * forward), clamp(burn * 0.55, 0.0, 1.0));
   // …and the layering itself, which darkens as much as it brightens and is
   // what stops the band reading as a painted ramp.
   float layer = skyNoise(vec2(ring.x * 12.0 + ring.y * 8.5, up * 95.0));

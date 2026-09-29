@@ -229,6 +229,131 @@ reflectedLight.directSpecular *= 0.22;
 const LEAF_SPEC_TO_ALBEDO = 0.026;
 
 /**
+ * The trunks had the crowns' disease and a worse case of it.
+ *
+ * Measured the same way — a real build with `trunkMat`'s albedo zeroed, then
+ * a second with its whole outgoing light zeroed, differenced against the
+ * shipped frame pixel by pixel so the attribution is to the trunks and not to
+ * a band that happens to contain them. Over the 23,437 pixels at `photomatch`
+ * where the trunks contribute more than 20 levels: **18.9 levels of specular
+ * against 12.9 of albedo, 59.5 %.** On the vista trunks at `rear` it is 24.2
+ * against 5.9, which is 80 %. (Boot-to-boot noise over the same mask is
+ * +0.02 and +0.32 of a level, so neither figure is a coin toss.)
+ *
+ * The cause is not the same as the crowns' though, and the difference matters
+ * for the size of the correction. A crown's albedo had been pushed to 0.05 to
+ * make the mass dark. A trunk's is pushed to **0.024** — `barkLift` times the
+ * instance tint — and it is attenuated *twice*: once correctly, by
+ * `envMapIntensity` 0.18 standing in for how little sky a trunk in a grove
+ * can see, and once again by the tint. Real plane bark is one of the palest
+ * natural surfaces there is, 0.25 to 0.40 diffuse. So the trunks are not a
+ * dark surface rendered too bright; they are a *pale* surface whose own
+ * colour has been turned almost off, leaving a sky-coloured Fresnel to stand
+ * in for it — which is why no amount of bark tint ever showed.
+ *
+ * Direct is damped less than the crowns' 0.22: a leaf mass is mostly
+ * self-shadowed and a trunk's lit flank is not, and the sheen along a wet-ish
+ * bole at a raking sun is a real thing a photograph shows.
+ *
+ * Re-measured the same way after this and the reflectance below: at
+ * `photomatch` the core goes to 58.2 of albedo against 3.4 of specular, so
+ * the specular share falls 59.5 % → 5.6 %; on the vista trunks at `rear`,
+ * 80.4 % → 5.4 %. What the tint does is now what is on the screen.
+ */
+const BARK_SELF_OCCLUSION = /* glsl */ `
+reflectedLight.indirectSpecular *= 0.12;
+reflectedLight.directSpecular *= 0.30;
+`;
+
+/**
+ * What is left on a bole that the sun never reaches — sky, and the road and
+ * the trunks around it.
+ *
+ * Measured off the photograph rather than derived: its trunks in the
+ * planting's own shade read 33 to 58 and the ones the sun rakes read 120 to
+ * 155. This is not that ratio, though, and the difference is worth stating —
+ * it is the fraction of a *lit bole's reflectance* that a shaded one keeps in
+ * this renderer, where the sky a trunk sees has already been cut to 0.18 by
+ * `envMapIntensity` above. Set at 0.30 first, on the photograph's ratio
+ * directly, and the shaded trunks came back at a lower decile of 55 against
+ * the photograph's 34; at 0.16 the trunks run 47 / 87 / 135 at the tenth,
+ * fiftieth and ninetieth percentiles, against 34 / 73 / 175 for the
+ * photograph's own five comparable trunks. Reading it as a sky-to-sun ratio
+ * and "correcting" it upwards would undo that and pay the self-occlusion
+ * term twice.
+ */
+const BARK_SKY_SHARE = 0.16;
+
+/**
+ * Plane bark, which is the one tree in a city you can name from a hundred
+ * metres by its trunk alone.
+ *
+ * It sheds in plates: last season's bark comes away in irregular sheets and
+ * what is under it is fresh, pale and nearly white, so the trunk is a jigsaw
+ * of cream over olive-ochre with abrupt edges — not a smooth mottle and not
+ * a noise field. Measured off the owner's photograph on a patch of the near
+ * trunk high enough to be clear of canopy dapple, the top quartile of it runs
+ * 1.51× the patch mean and the bottom quartile 0.88×, a plate-to-underbark
+ * ratio of 1.87:1; further down, where the canopy is throwing shade across it
+ * as well, the same trunk spans 6:1.
+ *
+ * Two things this deliberately does not do.
+ *
+ * **It does not hold its variance as it recedes.** The canopy cut has to,
+ * because its threshold sits far from the median and letting the field
+ * average away changes the *fraction* it cuts, closing the crowns into solid
+ * lobes. This threshold is *at* the median, so coverage is 50 % at every
+ * distance and the only thing averaging costs is contrast — which is exactly
+ * what a mip chain would take off it, and the right answer for a mottle.
+ *
+ * **It does not add light.** The endpoints are multipliers whose mean over a
+ * symmetric field is 1.000 in luminance, so the plates redivide the tint the
+ * instance already carries. A bark pattern that also brightened the trunks
+ * would be unattributable the next time somebody measures this.
+ */
+const BARK_PLATES = /* glsl */ `
+{
+  // The same band-limit the canopy needs, and for the same reason: this noise
+  // has no mip chain either, and a 7 cm plate margin at 260 m is a tenth of a
+  // pixel. Wavelengths are in metres of trunk: 0.63 m for the flank-scale
+  // shading, 0.22 m for the plate and 0.077 m for its ragged edge.
+  float px = max(length(dFdx(vBarkPos)), length(dFdy(vBarkPos)));
+  float a1 = smoothstep(1.0, 2.5, 1.0 / max(1.6 * px, 1e-6));
+  float a2 = smoothstep(1.0, 2.5, 1.0 / max(4.5 * px, 1e-6));
+  float a3 = smoothstep(1.0, 2.5, 1.0 / max(13.0 * px, 1e-6));
+  float a4 = smoothstep(1.0, 2.5, 1.0 / max(34.0 * px, 1e-6));
+  // Stretched 2:1 up the trunk, because a shed plate is longer than it is
+  // wide — it comes away along the grain.
+  vec3 s = vec3(1.0, 0.5, 1.0);
+  float n1 = mix(0.5, leafNoise(vBarkPos * 1.6 * s + 3.0), a1);
+  float n2 = mix(0.5, leafNoise(vBarkPos * 4.5 * s + 19.0), a2);
+  float n3 = mix(0.5, leafNoise(vBarkPos * 13.0 * s + 47.0), a3);
+  float n4 = mix(0.5, leafNoise(vBarkPos * 34.0 * s + 71.0), a4);
+  // Four octaves, and the weights are set by what the *close* poses showed
+  // rather than by the usual halving. At three octaves the coarsest carried
+  // 0.34 of the field, which is a 0.63 m feature — 98 px on the profile
+  // pose's 200 mm lens at 20 m — and with nothing finer inside it the boles
+  // came back as pale poles with dark blotches on them, camouflage rather
+  // than bark. The weight moves down the octaves and a fourth is added at
+  // 3 cm, which is the scale of the crazing inside a plate.
+  float plate = 0.16 * n1 + 0.30 * n2 + 0.32 * n3 + 0.22 * n4;
+  // Centred on the median so the coverage cannot drift with distance, and a
+  // hard-ish ramp because bark comes away as a sheet and not as a gradient.
+  // The ramp is 0.58 of the field's own standard deviation wide, so most of a
+  // trunk sits at one endpoint or the other — a jigsaw, which is what
+  // shedding bark is, rather than a smooth mottle. It cannot be made much
+  // harder than this: the band-limit above only guarantees the surviving
+  // octaves are two and a half pixels or more, so a step narrower than that
+  // would put an aliasing edge back in. The endpoints are 1.8:1 in luminance
+  // — the ratio measured on the photograph's own dapple-free bark patch —
+  // with a mean of exactly 1.000, so the plates redivide the instance tint
+  // and cannot add light to the frame.
+  float shed = smoothstep(0.5 - 0.055, 0.5 + 0.055, plate);
+  diffuseColor.rgb *= mix(vec3(0.760, 0.678, 0.544), vec3(1.252, 1.235, 1.157), shed);
+}
+`;
+
+/**
  * The cut as the **colour pass** uses it — and what was wrong was the
  * frequency, not the threshold.
  *
@@ -592,6 +717,29 @@ vLeafN = normalize(normalMatrix * normal);
   const trunkMat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.92, metalness: 0, vertexColors: true,
   });
+  trunkMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBarkPos;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+#ifdef USE_INSTANCING
+vBarkPos = (instanceMatrix * vec4(position, 1.0)).xyz;
+#else
+vBarkPos = position;
+#endif`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vBarkPos;\n${LEAF_NOISE}`)
+      // After the instance tint, so the plates redivide the colour the bark
+      // tone already chose rather than replacing it.
+      .replace('#include <alphatest_fragment>', `#include <alphatest_fragment>\n${BARK_PLATES}`)
+      .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>\n${BARK_SELF_OCCLUSION}`,
+      );
+  };
+  trunkMat.customProgramCacheKey = () => 'audi-bark-v1';
   const blockMat = new THREE.MeshStandardMaterial({ color: 0x8d8377, roughness: 0.88, metalness: 0 });
 
   /**
@@ -885,6 +1033,8 @@ vLeafN = normalize(normalMatrix * normal);
   let shadeSpread = 1;
   /** tan(solar elevation) the rank was last placed for. */
   let shadeTanElev = 1;
+  /** Where `placeShadeRank` last stood each of the rank's trees, in x,z. */
+  const shadeOffset = new Float32Array(SHADE_COUNT * 2);
   const placeShadeRank = (sunDir: THREE.Vector3, on: boolean): void => {
     const az = Math.hypot(sunDir.x, sunDir.z) || 1e-3;
     const sx = sunDir.x / az;
@@ -904,6 +1054,8 @@ vLeafN = normalize(normalMatrix * normal);
         const us = u * shadeSpread;
         const ox = on ? -sz * us + sx * (v + run) : 0;
         const oz = on ? sx * us + sz * (v + run) : 0;
+        shadeOffset[i * 2] = ox;
+        shadeOffset[i * 2 + 1] = on ? oz : 1e4;
         for (let j = 0; j < per; j++) {
           const k = i * per + j;
           const e = (from + k) * 16;
@@ -919,6 +1071,78 @@ vLeafN = normalize(normalMatrix * normal);
     move(branches, shadeFrom * BRANCHES, BRANCHES, shadeBase.branches);
   };
   placeShadeRank(new THREE.Vector3(0, 1, 0), false);
+
+  /**
+   * How much of the sun reaches each tree's bole — and this is the term that
+   * had been missing, with the bark's own reflectance standing in for it.
+   *
+   * The trunks do not `receiveShadow`, and they cannot usefully: the sun's
+   * frustum is 60 m across, sized for the car and the rank that shades it,
+   * and every trunk in frame at `photomatch` stands 45 m or more down the
+   * boulevard, outside it. So each trunk was receiving the *whole* sun, and
+   * the only thing keeping the colonnade from reading as a row of glowing
+   * poles was a reflectance of 0.024 — a tenth of what plane bark actually
+   * is. That is the crowns' fault one level up: a shading term written into
+   * the albedo, where it cannot respond to anything.
+   *
+   * The grove is five ranks deep and its own geometry answers the question,
+   * so this marches the real ray. From a point on each bole, towards the sun,
+   * against every other tree's crown as one flattened ellipsoid; each crown
+   * crossed transmits what the canopy's own cut transmits, weighted by how
+   * near the ray passes to its centre. O(n^2) over a few hundred trees, run
+   * once per preset change, not per frame.
+   */
+  const boleSun = new Float32Array(trees.length);
+  /**
+   * What one crown lets through. The shadow pass's cut writes depth wherever
+   * its three-octave noise clears 0.56, and that noise has sd 0.185 about a
+   * mean of 0.5, so a ray through the middle of a crown finds it about 37 %
+   * open. Not a tuning constant: change `uLeafBase` and this follows it.
+   */
+  const CROWN_TRANSMIT = 0.37;
+  const computeBoleSun = (sunDir: THREE.Vector3): void => {
+    const sx = sunDir.x, sy = Math.max(sunDir.y, 1e-3), sz = sunDir.z;
+    const ex = (i: number): number =>
+      (i >= shadeFrom ? shadeOffset[(i - shadeFrom) * 2] : 0) + trees[i].x;
+    const ez = (i: number): number =>
+      (i >= shadeFrom ? shadeOffset[(i - shadeFrom) * 2 + 1] : 0) + trees[i].z;
+    for (let i = 0; i < trees.length; i++) {
+      const ti = trees[i];
+      // Two thirds up the bole: the bottom of a trunk is in everything's
+      // shadow and the top is in none, and one sample has to stand for both.
+      const px = ex(i), py = ti.bole * 0.62, pz = ez(i);
+      let transmit = 1;
+      // Its own crown counts, and has to: at noon the ray leaves the bole
+      // almost straight up and the only thing over it is its own canopy.
+      for (let j = 0; j < trees.length && transmit > 0.02; j++) {
+        const tj = trees[j];
+        const hy = (tj.h - tj.bole) * 0.5;
+        const cy = tj.bole + hy * 1.15;
+        // Ray against the crown as one flattened ellipsoid, in the space
+        // where that ellipsoid is a unit sphere. Testing it at the crown's
+        // centre *height* instead — which is the obvious shortcut and was the
+        // first thing tried — samples one horizontal slice out of a body
+        // seven metres deep, and at 11.5° of solar elevation that slice sits
+        // 34 m up-sun of the bole: a lattice question, answered no almost
+        // every time. It reported 110 of 126 boles in full sun.
+        const ux = (px - ex(j)) / tj.r;
+        const uy = (py - cy) / hy;
+        const uz = (pz - ez(j)) / tj.r;
+        const vx = sx / tj.r, vy = sy / hy, vz = sz / tj.r;
+        const vv = vx * vx + vy * vy + vz * vz;
+        const uv = ux * vx + uy * vy + uz * vz;
+        const disc = uv * uv - vv * (ux * ux + uy * uy + uz * uz - 1);
+        if (disc <= 0) continue;
+        const sq = Math.sqrt(disc);
+        if ((-uv + sq) / vv <= 0) continue;                 // crown is behind
+        // The chord, as a fraction of the longest one through this crown: a
+        // ray clipping the rim crosses almost no canopy, one through the
+        // middle crosses all of it.
+        transmit *= 1 - (1 - CROWN_TRANSMIT) * Math.min(sq / Math.sqrt(vv), 1);
+      }
+      boleSun[i] = transmit;
+    }
+  };
 
   crowns.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * LOBES * 3), 3);
   trunks.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * 3), 3);
@@ -1321,7 +1545,18 @@ vLeafN = normalize(normalMatrix * normal);
       // sky of 181, i.e. 0.53. The boulevard read as a colonnade in fog
       // because its planting was half a stop from the sky behind it.
       const lift = 0.042 + up * 0.08 + LEAF_SPEC_TO_ALBEDO;
-      const barkLift = 0.032 + up * 0.062;
+      // A reflectance, and a reflectance does not know what time it is.
+      //
+      // This was `0.032 + up * 0.062` — a self-occlusion term written into
+      // the albedo, which is the fault this round is about, and which had it
+      // an order of magnitude under what plane bark is. With the sun's own
+      // occlusion now marched per tree by `computeBoleSun`, the number here
+      // can be what it should always have been: 0.42 against the palest
+      // instance tint is a reflectance of 0.241, against the darkest 0.024,
+      // and measured plane bark runs 0.25 to 0.40 on a freshly shed plate
+      // and well under 0.1 on the retained bark at the bole.
+      computeBoleSun(sunDir);
+      const barkLift = 0.42;
       crownMat.color.setRGB(1, 1, 1);
       trunkMat.color.setRGB(1, 1, 1);
       blockMat.color.setHex(0x6e6a64).multiplyScalar(0.11 + up * 0.28);
@@ -1362,20 +1597,30 @@ vLeafN = normalize(normalMatrix * normal);
         const k = THREE.MathUtils.smoothstep(d, -0.15, 0.78);
         paint(farCrowns, i, k, 0xa89a4a, 0x38492c, farJit[i], lift);
       }
+      // The vista's boles stand inside a bank three hundred metres deep, so
+      // whatever the sun is doing it is not reaching them: a flat shaded
+      // share rather than a marched one, at the same 0.30 floor the near
+      // trunks use for a bole in full shade.
       for (let i = 0; i < farTrunk.length; i++) {
-        paint(farTrunks, i, farTrunk[i][5], 0xc6bda8, 0x443f34, 1, barkLift);
+        paint(farTrunks, i, farTrunk[i][5], 0xc6bda8, 0x443f34, 1, barkLift * BARK_SKY_SHARE);
       }
       farCrowns.instanceColor!.needsUpdate = true;
       farTrunks.instanceColor!.needsUpdate = true;
       // Plane bark is the one tree in a city you can identify from a hundred
       // metres by its trunk: it sheds in plates and reads as pale mottled
       // cream over olive-grey, not as the near-black post it was.
+      //
+      // The per-tree gain is what the grove's own geometry hands back, and it
+      // is the thing that turns a row of identical posts into a colonnade:
+      // the photograph's near trunks run from 33 where a crown stands up-sun
+      // of them to 155 where none does, and every one of ours read the same.
       for (let i = 0; i < trees.length; i++) {
         const t = barkTone[i];
+        const g = barkLift * (BARK_SKY_SHARE + (1 - BARK_SKY_SHARE) * boleSun[i]);
         trunkMat.color.setRGB(1, 1, 1);
-        paint(trunks, i, t, 0xc6bda8, 0x443f34, 1, barkLift);
+        paint(trunks, i, t, 0xc6bda8, 0x443f34, 1, g);
         for (let b = 0; b < BRANCHES; b++) {
-          paint(branches, i * BRANCHES + b, t * 0.8, 0xb4ab96, 0x3c382e, 1, barkLift);
+          paint(branches, i * BRANCHES + b, t * 0.8, 0xb4ab96, 0x3c382e, 1, g);
         }
       }
       crowns.instanceColor!.needsUpdate = true;

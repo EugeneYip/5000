@@ -278,6 +278,16 @@ export const PRESETS: Record<string, EnvPreset> = {
       // the photograph, white-balanced, reads `#9b8c6b` through the branches,
       // which is warmer than either of these. The road now comes back at
       // `#787e92`, saturation 0.18 against the photograph's 0.27.
+      //
+      // ⚠ **`#9b8c6b` is sky MIXED WITH TWIGS, and it has already been
+      // misquoted once as "the photograph's sky is 130".** It is L 141, and
+      // it is not a sky reading: a block search over the upper 40 % of the
+      // frame for bright, low-variance, non-warm patches finds **no open sky
+      // anywhere** — every candidate is a building facade. The upper half of
+      // that photograph is plane canopy, towers and distant trees. Setting
+      // this beside our own pure-sky 213 overstated the gap, and the
+      // "tree-to-sky contrast 2.5:1 against 1.35:1" that followed inherits
+      // the same error. Compare **band statistics**, not this number.
       zenith: 0x6e93c0,
       // Warm, not neutral-cool, and this one is arithmetic rather than taste.
       //
