@@ -16,7 +16,7 @@
  * The strip is swept along the body's own surface rather than along a straight
  * line, because the flank has 19° of tumblehome at strip height and a strip
  * built on a plane would sink into the door at the middle and lift off it at
- * the ends.
+ * the ends. Its *section* is laid on that surface too — see `onSkin`.
  */
 
 import * as THREE from 'three';
@@ -25,7 +25,7 @@ import { audiMaterials } from '@/materials/library';
 import { QUALITY } from '@/spec';
 import type { BuildContext } from '@/types';
 import { Z_TAIL_END } from '@/car/body/surface';
-import { sideNormal, sidePoint, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
+import { sideNormal, sidePoint, sideX, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
 import { badgeText } from './glyphs';
 import {
   at, clamp, DEG, dish, framesFrom, lathe, lerp, merge, mesh, mirrorX, offsetPolyline,
@@ -78,12 +78,15 @@ function flankFrames(zRear: number, zFront: number, y: number, n: number): Frame
  * `STRIP_Y + HH`, i.e. y **0.6231–0.6365 = 13.4 mm** of a 98 mm band.
  *
  * Confirmed by column scan rather than by reading that back off the source:
- * `__AUDI.pick` over x 420–1260 at `side` gives the cap 4 px at y 0.625–0.635
- * above 25 px of moulding at 0.541–0.622, and 6–8 px of 23–32 at `front3q`.
- * **Not one of those rows comes back with an upward-facing normal** — the
- * whole cap is between n·y 0.24 and 0.86, no row above 0.9 — so the sky-facing
- * shelf that `5b4becd` found under the front bumper bead is not present here.
- * That was the first thing to rule out and it is ruled out.
+ * `__AUDI.pick` over x 300–1440 at `side` gives the cap 4 px at y 0.625–0.635
+ * above 25 px of moulding at 0.541–0.622, and 6–7 px at `rear3q`. The
+ * sky-facing shelf that `5b4becd` found under the front bumper bead is not
+ * here: `rubStrip` returns **no row above n·y 0.9 in any scanned column** at
+ * either view. The cap's own topmost row does reach 0.91–0.94 in three of the
+ * `rear3q` columns, one pixel each of six, which is a rolled-over bead
+ * catching sky and is what the reference has too — `bat3_side_profile.jpg`
+ * clips that row at L 237–254. The failure mode to watch for is a *shelf*:
+ * half a part's pixels at 0.98, which is what the front bumper had.
  *
  * On `bat3_side_profile.jpg` (front/rear hub centres 1025 px apart for a
  * 2687 mm wheelbase, so 2.62 mm/px) the cap measures 4.6 px = **12 mm** of a
@@ -117,16 +120,42 @@ function flankFrames(zRear: number, zFront: number, y: number, n: number): Frame
  * why the nose reads as one part. The **rear** bead wraps only 113 mm, so
  * between z −3.420 and −3.701 the bright line simply stops; picked at `side`,
  * x 1430–1490 returns nothing but `quarterR`, so what looks in the frame like
- * the moulding carrying on is painted quarter panel in shadow. And the rear
- * bead's centreline sits at y 0.588 against 0.630 here and 0.625 at the nose
- * — **42 mm low**, so even where it does exist it is not on this line.
+ * the moulding carrying on is painted quarter panel in shadow.
  *
- * `bat3_side_profile.jpg` has the bright cap unbroken to within 63 mm of the
- * rearmost point of the car, at one height the whole way. `HP.rear.rubStripY`
- * went 0.613 → 0.588 in `7bf4046` on the reading that "0.613 described the old
- * full-height band, not a bead"; the bead's *height* is what `rubStripHeight`
- * describes, and its centre still belongs on the line, so that correction
- * looks like it moved the wrong number. See the stream report.
+ * ## The step is 28 mm now, and this is the side that has to move
+ *
+ * `2e684c5` settled `HP.rear.rubStripY` at **0.603**, measured per column
+ * against that column's own taillamp gasket minima so the frame's ~0.5° roll
+ * cancels, with `bumperTopY` 0.609 re-confirmed by the same method. That is
+ * the best-anchored figure on the car and it widened the step to 28 mm. This
+ * cap spans `STRIP_Y + HH − 0.0134 … STRIP_Y + HH` = **0.6231–0.6365**; the
+ * rear bead spans 0.597–0.609 and its top edge *is* `bumperTopY`. So on the
+ * flank the cap's top edge is the moulding's top edge and on the bumper the
+ * bead's top edge is the moulding's top edge, and the two want to be the same
+ * number.
+ *
+ * **It is the position that is wrong, not the height.** Re-measured on
+ * `bat3_side_profile.jpg` (hub centres 1025.1 px for 2687 mm, 2.6212 mm/px;
+ * the moulding's structure per column is paint / notch / bright cap / black
+ * band / lower cladding) the whole moulding is **89–94 mm** cap-top to
+ * band-bottom, and **88–91 mm** on `bat_side_profile.jpg`, the red car, by the
+ * same method. Ours is 98. Closing a 27.5 mm step by cutting the band instead
+ * of moving it needs a **70.5 mm** band, below every source there is — the two
+ * photographs, the calibrated blueprint's 99 and `GCFS-85`'s ~97.
+ *
+ * So the band moves down bodily: `HP.side.rubStripY` **0.5875 → 0.560**, which
+ * puts this cap's top edge on 0.609 exactly and its centre on 0.6023 against
+ * the rear bead's 0.603. Reported, not patched — this file reads the
+ * hardpoint. (The 0.554 floated in `hardpoints.ts`'s own note pairs the cap's
+ * *top* with the bead's *centre*; matching tops, centres or bottoms all give
+ * 0.560–0.5614, because the two beads are 13.4 and 12 mm.)
+ *
+ * `bat_rear3q_left_a.jpg` at 3× shows why the top edges are the thing to
+ * match: one unbroken bright line from the quarter round the corner onto the
+ * bumper, and the black band under it getting **deeper** on the bumper, not
+ * moving. `bumperTopY` 0.609 over `bumperBottomY` 0.496 is 113 mm against this
+ * band's 98, so at `rubStripY` 0.560 the two share a top edge and the bumper
+ * hangs 15 mm lower — which is the photograph.
  */
 const STRIP_HEIGHT = S.rubStripHeight;
 const STRIP_Y = S.rubStripY;
@@ -149,18 +178,47 @@ const STRIP_Y = S.rubStripY;
  * bright cap unbroken to within 63 mm of the rearmost point of the car, at
  * one height the whole way, which is what this now does.
  *
- * Still wrong and NOT worked around here: the rear bead's centreline sits at
- * `HP.rear.rubStripY` 0.588 against this line's 0.630, so the two meet in z
- * and step 42 mm in y. That is `bumpers.ts`'s hardpoint and is reported, not
- * patched — see the stream report.
+ * Still open and NOT worked around here: the two meet in z and step 28 mm in
+ * y. `HP.rear.rubStripY` 0.603 is the anchored end of that step, so the
+ * correction belongs at `HP.side.rubStripY` — see the note on `STRIP_Y`.
  */
 const STRIP_REAR_Z = Z_TAIL_END;
 
 const HH = STRIP_HEIGHT / 2;
 
-/** Outer face of the moulding: a soft crown, fullest a little above centre. */
+/**
+ * Outer face of the moulding: a soft crown, fullest a little above centre.
+ *
+ * ## The 14.2 mm crown is right, and it is not why the flank beats the bumper
+ *
+ * The strip is the widest thing on the car and that part is correct: the body
+ * loft's own maximum is **0.8929** at z −0.92 (t = `T.wide`, y ≈ 0.591), so
+ * with this crown the car measures **1814 mm over the mouldings** and 1786 mm
+ * over paint — the published width, at a station forward of the rear axle,
+ * which is the only place `422abf4` allows it. Trimming the crown to fix the
+ * dead-astern silhouette would break a sourced dimension to chase one.
+ *
+ * What beats the rear bumper dead astern is the flank **aft** of the rear
+ * axle, and it is the body's plan, not this section. `body/surface.ts`'s
+ * `xWide` runs 0.862 at z −2.687 (`archLipXRear`), 0.861 at −2.760 — and then
+ * back **out to 0.876 at −2.900** before falling to 0.848 at −3.100. That
+ * knot was written when `archLipXRear` was still `archLipX` 0.891; `f99feff`
+ * pulled the crown pin down and left it, so the rear arch crown is now a local
+ * *minimum* with a 14 mm bulge 213 mm behind it. Scanned row by row at `rear`,
+ * every silhouette hit from y 0.43 to 0.96 comes off z −2.91…−3.10, and at the
+ * band's own rows it is this strip at **|x| 0.885, z −2.943**. Projected, that
+ * bulge beats the bumper at both cameras — 0.0694 against 0.0669 at the
+ * reference's 12 m, 0.0331 against 0.0309 at our 26 m `rear` pose. Reported to
+ * the body stream; nothing here can reach it.
+ */
 const STRIP_FACE: Pt[] = [
-  [0.0000, HH],
+  // The two extreme-height points are 1.5 mm UNDER the skin, not on it.
+  // `onSkin` puts x = 0 exactly on the door, which makes the 16 mm back shelf
+  // coplanar with the paint it is supposed to hide behind: one pixel of it
+  // came back at `ny` 0.98 from `rear3q`, and coplanar faces shimmer under
+  // motion whichever way the depth test falls. Buried, the shelf can never be
+  // the frontmost hit at any grazing angle.
+  [-0.0015, HH],
   [0.0058, HH - 0.0022],
   [0.0104, HH - 0.0064],
   [0.0132, HH - 0.0134],
@@ -168,7 +226,7 @@ const STRIP_FACE: Pt[] = [
   [0.0132, -HH + 0.0150],
   [0.0102, -HH + 0.0068],
   [0.0054, -HH + 0.0022],
-  [0.0000, -HH],
+  [-0.0015, -HH],
 ];
 
 function stripSection(scale: number): Pt[] {
@@ -176,13 +234,51 @@ function stripSection(scale: number): Pt[] {
   return [...face, [-0.016, -HH * scale], [-0.016, HH * scale]];
 }
 
+const STRIP_FRAMES = 94;
+
+/**
+ * Lay a section on the door skin rather than on a plane tangent to it.
+ *
+ * `STRIP_FACE`'s x is **proud of the skin at that point's own height**, not an
+ * offset from one tangent plane. The frames are built at `STRIP_Y`, so a
+ * section used raw puts every point on the tangent plane there, and a 98 mm
+ * band on a flank whose half-width changes with height then floats off it.
+ * Walked station by station through the loft, the tangent construction left
+ * the band's **top edge 0.1–7.1 mm** and its **bottom edge 0.3–9.1 mm** proud
+ * of the skin — worst through the doors and over the rear arch, exactly where
+ * the flank is fullest. A proud edge exposes the 16 mm back shelf behind it,
+ * and `__AUDI.pick` at `rear3q` duly returned **two `rubStrip` pixels at
+ * n·y 0.98** in the column at z −2.87, the shelf facing the sky: the
+ * `5b4becd` / `6714c4e` failure in miniature. On the skin those rows are gone
+ * — no `rubStrip` row above n·y 0.9 in any column scanned at `side` or
+ * `rear3q`. Same lesson as `underbody/liners.ts` in `f99feff` and `panels.ts`'s
+ * `wheelHouse` before it: query the surface at the feature's own height
+ * instead of pinning it to one value.
+ *
+ * It costs 1.7 mm of silhouette and that is a gain too: the crown's maximum
+ * goes **0.9089 → 0.9072**, i.e. 1817.8 mm over the mouldings to **1814.4**,
+ * against the published 1814. And it holds wherever `rubStripY` goes — at
+ * 0.560 the tangent construction would put those edges 0.2–8.1 mm proud all
+ * over again, on a band that by then straddles the body's widest line.
+ */
+function onSkin(z: number, f: Frame, sec: ReadonlyArray<Pt>): Pt[] {
+  const d = new THREE.Vector3();
+  return sec.map(([lx, ly]) => {
+    d.copy(sidePoint(z, STRIP_Y + ly)).sub(f.o);
+    return [d.dot(f.r) + lx, d.dot(f.u)] as Pt;
+  });
+}
+
 function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeometry } {
-  const frames = flankFrames(STRIP_REAR_Z, S.rubStripFrontZ, STRIP_Y, 94);
+  const frames = flankFrames(STRIP_REAR_Z, S.rubStripFrontZ, STRIP_Y, STRIP_FRAMES);
   const span = Math.abs(S.rubStripFrontZ - STRIP_REAR_Z);
   const capFrac = 0.045 / span;
+  const zAt = (j: number): number => lerp(STRIP_REAR_Z, S.rubStripFrontZ, j / STRIP_FRAMES);
+  const taper = (t: number): number =>
+    lerp(0.55, 1, smoothstep(clamp(Math.min(t, 1 - t) / capFrac, 0, 1)));
 
   const body = sweep(
-    (_j, t) => stripSection(lerp(0.55, 1, smoothstep(clamp(Math.min(t, 1 - t) / capFrac, 0, 1)))),
+    (j, t) => onSkin(zAt(j), frames[j], stripSection(taper(t))),
     frames,
     { closed: true, capStart: true, capEnd: true, uvScale: 0.25 },
   );
@@ -191,9 +287,9 @@ function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeome
   // so the two can never drift apart.
   const line = offsetPolyline(STRIP_FACE.slice(0, 4), -0.0014);
   const bright = sweep(
-    (_j, t) => {
-      const k = smoothstep(clamp(Math.min(t, 1 - t) / capFrac, 0, 1));
-      return line.map(([x, y]) => [x * lerp(0.55, 1, k), y * lerp(0.55, 1, k)] as Pt);
+    (j, t) => {
+      const k = taper(t);
+      return onSkin(zAt(j), frames[j], line.map(([x, y]) => [x * k, y * k] as Pt));
     },
     frames,
     { uvScale: 0.25 },
@@ -364,20 +460,32 @@ export function buildSides(ctx: BuildContext): THREE.Group {
   // are four copies of one moulding and nothing needs them apart.
   {
     const flaps: THREE.BufferGeometry[] = [];
+    const [FW, FH] = [0.200, 0.178];
+    const flapCenterY = 0.218;
     // A flap bolts to the OUTSIDE of the arch's trailing lip, so its outboard
-    // face has to clear `archLipX`. Sat on the tyre's outer face instead
-    // (x 0.845, which is where the tread is) the top two thirds of it end up
-    // inside the quarter panel and only the part hanging below the rocker
-    // shows — a floating blade rather than a mud flap.
-    const outboard = S.archLipX + 0.006;
+    // face has to clear the lip — but the lip is *where the flap is*, not at
+    // the arch crown. `S.archLipX + 0.006` was 0.897 for both flaps, and
+    // `archLipX` is the half-width at the FRONT arch's crown: at the stations
+    // these hang from, the body has tucked in to **0.773** (front) and
+    // **0.759** (rear) at the flap's own top edge, so the blades stood 124 and
+    // 138 mm outboard of the car. That is the bug `f99feff` fixed in
+    // `underbody/liners.ts` and `panels.ts`'s `wheelHouse` before it — a lip
+    // pinned to one constant walking out through the skin — and after
+    // `f99feff` split the rear arch off the front, `archLipX` was not even the
+    // right constant for the rear flap.
+    //
+    // The flap's top sits at wheel-centre height, which is where the arch
+    // opening's trailing edge is at its widest, so that is the height to ask
+    // the surface about.
     for (const axleZ of [S.archFrontCenter[2], S.archRearCenter[2]]) {
       // Just aft of where the arch opening's trailing edge meets the body, so
       // the flap reads as bolted to that lip rather than floating behind it.
       const z = axleZ - S.archRadius - 0.012;
-      const g = roundedBox(0.200, 0.178, 0.008, 0.004, 3);
+      const outboard = sideX(z, flapCenterY + FH / 2) + 0.006;
+      const g = roundedBox(FW, FH, 0.008, 0.004, 3);
       // Leaning back at the bottom, the way a rubber flap hangs at rest.
       g.rotateX(-7 * DEG);
-      g.translate(outboard - 0.100, 0.218, z);
+      g.translate(outboard - FW / 2, flapCenterY, z);
       flaps.push(g, mirrorX(g));
     }
     group.add(mesh('mudFlaps', merge(flaps), plastic));
