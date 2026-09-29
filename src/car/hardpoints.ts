@@ -489,16 +489,30 @@ export const HP = {
     bumperBottomY: 0.496,
     bumperZ: TAIL,
     /**
-     * 0.613 described the old full-height band, and I then moved this to
-     * 0.588 — **the wrong number**. That was a report of where the rear bead
-     * happened to sit, encoded as though it were where the bead belongs. The
-     * bead's *height* is `rubStripHeight`; its *centre* stays on the line,
-     * and the front bead is at 0.625 and the flank cap at 0.630. A continuous
-     * bright line cannot step down 42 mm at the rear arch, and
-     * `bat3_side_profile.jpg` shows it unbroken at one height to within 63 mm
-     * of the rearmost point of the car.
+     * Third value, and this one is anchored rather than argued.
+     *
+     * 0.613 described the old full-height band. A stream then reported where
+     * its bead *happened* to sit, 0.588, and I encoded that as where the bead
+     * *belongs* — wrong. I then moved it to 0.628 to put it on the flank cap's
+     * line, which was the right instinct resolved in the wrong direction:
+     * with `rubStripHeight` 0.012 that puts the bead 13-25 mm **above the top
+     * of the moulding it caps** (`bumperTopY` 0.609), which is impossible.
+     *
+     * 0.603 is measured per column against **that column's own** taillamp
+     * gasket minima, which cancels the frame's ~0.5 deg roll: the cap's centre
+     * sits 76 px below the lamp bottom on a 139 px band, 100.6 mm under
+     * `lampBottomY`. Taking a single global lamp row instead read 35 mm low.
+     *
+     * The continuity is real — `bat_rear3q_left_a.jpg` shows one unbroken
+     * line from the flank round the corner — but it has to be resolved at the
+     * **flank**, not here. `HP.side.rubStripY` 0.5875 plus its 0.098 height
+     * puts the flank cap at 0.6365, and this correction widens that step from
+     * 17 mm to 28. The rear figure is now anchored feature-to-feature inside
+     * one dead-on frame; the flank's is not, and wants ~0.554 at its present
+     * height or a shorter band. Reported, not moved: 33 mm of flank strip is
+     * a visible change and belongs with someone holding the flank reference.
      */
-    rubStripY: 0.628,
+    rubStripY: 0.603,
     rubStripHeight: 0.012,
 
     /** In the TAILGATE, set into the ribbed panel between the lamps. */
