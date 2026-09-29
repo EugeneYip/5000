@@ -162,6 +162,17 @@ every stream running at once, not per-stream. Two streams both wrote
   `{ includeHidden: true }` to get the old behaviour, which is the right tool
   for a bit-identical A/B: hide a thing, keep the ray set, and only the pixels
   move.
+- **Never threshold a reference photograph on luminance.** The red car on
+  `scratchpad/ref3/bat_side_profile.jpg` has paint at RGB (160, 1, 0) —
+  **luma 34**, below the luma-60 line that separates black plastic from paint
+  on the silver car. A luma scan of that frame classifies the entire flank as
+  trim: every door column drops out silently, the rear quarter survives
+  because the light is different there, and you get a confident slope fitted
+  to one end of a car. That is exactly what produced "the red car is level to
+  4 mm", which stood for two rounds and blocked the strip line. Segment on
+  chroma, or on `V = max(R, G, B)` — paint reads 160-180 and trim 5-20 on
+  **both** cars. The tell that you have this bug is a column count far below
+  what the span should give you; print it.
 - **The gate is bimodal across boots.** The same committed build read tone
   profile 11.4, 11.4 and 10.8 on three identical runs, with `dRGB` 31.9 vs
   33.2 and the car mask 16.6 vs 16.7 % tracking the same two states.

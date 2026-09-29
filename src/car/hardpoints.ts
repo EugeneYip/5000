@@ -222,6 +222,65 @@ export const HP = {
      * reference photographs — the strip was nearly half width. Grown upward
      * with its bottom edge held, which also brings its top to within 11 mm of
      * the bumper mouldings' own strip instead of 65 mm below it.
+     *
+     * ## Why this has not moved, after four rounds of proposals
+     *
+     * It has been asked to go to 0.554, to 0.560 and to 0.540. Each was
+     * derived by holding the band **flat** and solving for the height that
+     * best closes the step at the rear joint. All three are wrong, because
+     * the premise is: **the real car's strip line is not level.**
+     *
+     * Both BaT flanks agree it rises. Measured twice, independently, with
+     * different edge definitions — the bright cap's top edge, and the top of
+     * the dark moulding band under it:
+     *
+     *     cap top, yaw-corrected      silver +42.5   red +32.6  mm / wheelbase
+     *     moulding top, uncorrected   silver +43.8   red +38.8
+     *
+     * (The uncorrected pair runs high by exactly the yaw correction, which is
+     * what makes them the same measurement.) It is not the ground fit tilting:
+     * the **rocker cover's** top edge, scanned the same way in the same
+     * frames, rises +20.0 / +11.9 with four times the scatter — consistent
+     * with level. A tilted datum would tilt both lines together. One rises
+     * 40 mm and the other does not.
+     *
+     * The earlier "the red car is level to 4 mm" reading, which is what made
+     * a flat band look defensible, was an artefact: it segmented on luminance
+     * at 60, and that car's red paint is RGB (160,1,0), **luma 34**. Every
+     * door column was classified as black plastic and silently dropped; only
+     * the rear quarter survived, and a slope fitted to one end of a car is
+     * not a slope. Segment on chroma or `V = max(R,G,B)` here — see the trap
+     * in `docs/WORKSTREAM.md`.
+     *
+     * ## So rake it — and here is why that is still blocked
+     *
+     * The measured line is **+8.75 mm per metre aft**, cap top 0.566 at
+     * z +0.495 running to 0.602 at z −3.70. Applying it needs an anchor, and
+     * neither end will take one:
+     *
+     *     anchored at the rear  (cap top 0.609)  ->  0.5723 at the front joint,
+     *                                                a 60 mm step against the
+     *                                                front bead's 0.6325
+     *     anchored at the front (cap top 0.6325) ->  0.669 at the rear joint,
+     *                                                a 60 mm step against the
+     *                                                rear bead's 0.609
+     *     anchored in the middle                 ->  ~30 mm at BOTH ends,
+     *                                                worse than today's 4 and
+     *                                                27.5
+     *
+     * The 60 mm is not the flank's. It is `HP.front`, which sits high above
+     * the road: amber corner lens bottom measures 611.9 mm against
+     * `lampBottomY` 0.652, and the front bead ~570 against a cap top of
+     * 632.5. The rear, by contrast, is right to 6 mm. **The strip line cannot
+     * be made one line until the front elevation comes down**, and every
+     * attempt to solve it inside the flank has been solving someone else's
+     * error with this number. Leave it flat at 0.5875 until then: today's
+     * joints are 4 mm at the front and 27.5 at the rear, and every proposed
+     * flat value trades that for two bad ones.
+     *
+     * Also measured, not acted on: `rubStripHeight` 0.098 against 84.5-86
+     * (silver) and 87-92 (red) cap-top to band-bottom — a second photograph
+     * pair against the blueprint's 99 and `GCFS-85`'s 97.
      */
     rubStripY: 0.5875,
     rubStripHeight: 0.098,
