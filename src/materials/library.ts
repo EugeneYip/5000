@@ -115,8 +115,8 @@ export interface AudiMaterialLibrary extends MaterialLibrary {
   padFriction(opts?: { vertexColors?: boolean }): THREE.Material;
   /**
    * As `MaterialLibrary.lens`, plus the cat's-eye return and the fluted
-   * lens's spread of the image behind it. A headlamp is a mirror with a
-   * scatterer at its focus and a diffuser over the front; those two options
+   * lens's homogenisation of the image behind it. A headlamp is a mirror with
+   * a scatterer at its focus and a diffuser over the front; those two options
    * are what make it read as one flat block of returned sun rather than as a
    * bowl with the sun's image somewhere on it. See `materials/lamp.ts`.
    */
@@ -458,6 +458,7 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
       const key = [
         'lens', hex(color), o?.prismatic ? 'prism' : 'smooth', (o?.opacity ?? 1).toFixed(2),
         (o?.retroGain ?? 0).toFixed(2), (o?.retroLobe ?? 2).toFixed(1), (o?.spread ?? 0).toFixed(2),
+        (o?.homogenise ?? 0).toFixed(2), (o?.cavity ?? 0.7).toFixed(2),
       ].join(':');
       return shared(key, () => createLens(color, o));
     },

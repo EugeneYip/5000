@@ -80,40 +80,106 @@ const LENS_BODY = 0.0042;
  *
  * `retroGain` is the one term that is flat across the aperture, because every
  * point of a paraboloid maps to the same focus and the focus is what returns
- * the light — see `LENS_RETRO` in `materials/lamp.ts` for the mechanism. So
- * it is set to fill the troughs and no further: 0.5 takes the 192-224 share
- * of the glass from 7.7/17.7 % to 3.4/5.2 % while moving `above 240` by less
- * than two points.
+ * the light — see `LENS_RETRO` in `materials/lamp.ts` for the mechanism. It
+ * is set to fill the troughs and no further: 0.5.
  *
- * **It is deliberately small, and the sweep is why.** At 0.8 the glass goes
- * to 238-240 and the amber corner to 177 against the photograph's 162; at
- * 1.2, 239-242 and 183; at 2.2 the lamp is 242-247 and simply blown. The
- * whole-car tone profile is flat across all of it — 15.4 before, 15.1-15.2
- * anywhere in 0.4-0.8, 15.3 by 1.2 — so the *only* thing distinguishing
- * these settings is the lamp's own numbers, and they say 0.5.
+ * **It is deliberately small, and the sweep is why.** Swept alone it buys
+ * level, not shape. On the full glass rectangle (x 534-649, y 427-480 at
+ * 1600x900) it moves the aperture's *mean* 235.2 -> 237.6 -> 239.8 -> 243.3
+ * at gain 0 -> 0.5 -> 1.0 -> 1.8 while `above 240` climbs 38 -> 43 -> 50 ->
+ * 73 % against the photograph's 23 %, and the column range only falls from 28
+ * to 15 because everything under it has been pushed into the clip. Burying a
+ * lobe is not removing one.
  *
- * `spread` is the fluted lens scattering the bowl's mirror image, which is
- * the other half of the same physics and takes the lobe down rather than
- * filling around it. It is held at 0.05 because past about 0.1 it stops being
- * the lens and starts being the renderer: three's transmission is a
- * screen-space buffer, so a wide blur on a 120 px lens pulls the dark grille
- * and bumper in around the edges. At 0.22 that cost the glass 14 levels and
- * dragged the *whole car's* median from 95 to 81 through the bloom pass.
+ * ## What removed it: `homogenise`
  *
- * Neither figure belongs in `spec.ts`: they are not factory numbers. The
- * model and the units are in `materials/lamp.ts`; the measurement is in
+ * The lobes and the vignette are **entirely** the transmitted image of the
+ * bowl. That is measured, not inferred — driving this lens's `transmission`
+ * to zero live in the `photomatch` frame takes the aperture from 222-239 down
+ * its height and 221-248 across it to 243-247 in both directions, flat to a
+ * grey level and a half, while zeroing the front-surface Fresnel moves the
+ * column range by 0.0 and zeroing the internal reflection by 1.2. There is
+ * nothing else in the shader that could be making the shape.
+ *
+ * `homogenise` is the fluted lens doing to that image what a fluted lens
+ * does: scattering it through a cone wider than the cavity, so what leaves
+ * the aperture is the cavity's *average* radiance rather than whatever sits
+ * behind the pixel. `materials/lamp.ts` § `LENS_CAVITY` has the model. It is
+ * what removed the shape. Read three pixels in from the aperture's own edge,
+ * `photomatch` at 1600x900, against the white-balanced photograph:
+ *
+ *                       off        0.60       0.70       photo
+ *   row range          15.3       11.6       11.4        10.8
+ *   column range       26.4       15.7       13.7        12.0
+ *
+ * There is no lobe and no vignette left at either setting. 0.60 rather than
+ * 0.70 for two reasons that both point the same way: it is worth 0.2 more of
+ * the whole-car tone profile, and it leaves 40 % of the transmitted image
+ * instead of 30 %, which is the difference between the bulb and the chamber
+ * divider being faintly visible in the `headlight` close-up and the aperture
+ * being blank. The photograph has them faintly visible.
+ *
+ * ## Why the level is four grey levels hot, deliberately
+ *
+ * `cavity` is what the flat field is worth, and it is **not** set where the
+ * lamp alone wants it. At 0.59 the aperture is the best match this model can
+ * make — mean 234.0 against the photograph's 232.4 and `above 240` 24.5 %
+ * against 23.3 %, both inside noise. It is not used, because the lamp is not
+ * the only thing that reads it: swept live in one boot, the *whole car's*
+ * median tracks the aperture's clip almost one for one — 96 at `homogenise`
+ * 0, 93 at 0.6/0.64, 91 at 0.7/0.64, 89 at 0.8/0.59 — because the bloom pass
+ * carries the lamps' `above 240` content out over the whole nose and, at this
+ * radius, over the roof and flanks as well. Taking the aperture down to its
+ * own correct level takes 4-6 levels off every panel on the car with it, and
+ * the tone profile goes 14.1 -> 15.9.
+ *
+ * That coupling is a *defect elsewhere*, and this is the measurement that
+ * exposes it: the car's own lighting is four to six levels short in the
+ * midtones — the photograph holds 14.5 % of the car in 80-96 and 10.4 % in
+ * 96-112 where this render holds 11.0 % and 8.0 % — and it was being held up
+ * by headlamps blown well past what the photograph shows. `src/scene` owns
+ * that. **Whoever raises it should come back here and take `cavity` to
+ * 0.59**, which is a one-line change and is where the lamp measures right.
+ *
+ * Until then 0.64: it keeps the flat aperture, it takes `above 224` over the
+ * whole car from 7.2 % to 7.5 % and the tone profile from 14.1 to 13.8, and
+ * it leaves the aperture 4 levels hot at 35 % `above 240` against 23 %.
+ *
+ * `spread` is **0 now, and this is why**: it asked three's transmission for
+ * the same convolution, and three's transmission is a screen-space mip.
+ * Swept in this frame it does not flatten the aperture at all — column range
+ * 27.6 at 0.05, 27.6 at 0.18, 26.1 at 0.35 — while the mean falls 235 -> 228
+ * -> 194 as the blur reaches outside the lens and averages in the grille. At
+ * the settled `homogenise` it is worth 0.2 of a grey level in every statistic
+ * the aperture has, so it is not worth a second shader program.
+ *
+ * None of these figures belongs in `spec.ts`: they are not factory numbers.
+ * The model and the units are in `materials/lamp.ts`; the measurement is in
  * `docs/REFERENCE-PHOTO.md`.
  *
  * Typed through `LensOptions` rather than written inline at the call because
  * `src/types.ts` carries its own copy of the lens option list and that copy
- * does not know about either option yet — the same stopgap `trim/plate.ts`
- * uses for the sheeting, and it comes out when the contract catches up.
+ * does not know about any of these options yet — the same stopgap
+ * `trim/plate.ts` uses for the sheeting, and it comes out when the contract
+ * catches up.
  */
 const OPTIC: LensOptions = {
   prismatic: true,
   retroGain: 0.5,
   retroLobe: 2,
-  spread: 0.05,
+  // Not higher: the bulb, its shield and the chamber divider are what the
+  // photograph still shows faintly through the glass, and they live in the
+  // transmitted image this mixes away. At 0.8 the `headlight` close-up is a
+  // blank white block.
+  homogenise: 0.60,
+  // Below the 0.70 an ideally diffusing cavity of these proportions would
+  // have — rho*f/(1 - rho(1 - f)) for 88 % walls and a third-open aperture —
+  // because this one is not diffusing: a mirror cavity puts part of its
+  // return into the retro lobe rather than into the average, and that part is
+  // `retroGain` above. Swept against the photograph's aperture, 0.56 lands
+  // the mean at 232.1 and 0.64 at 236.6; see above for why it is the high end
+  // of that and what has to change before it comes down.
+  cavity: 0.64,
 };
 
 /**

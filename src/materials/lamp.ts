@@ -69,8 +69,27 @@ export interface LensOptions {
    * a mirror image and the sun lands on it as a single hot lobe per chamber.
    * Does not touch the surface's own specular, which is a moulded finish and
    * is set by `roughness`.
+   *
+   * **It cannot carry the whole spread, and measurement is why** — see
+   * `homogenise`, which is the term that actually flattens an aperture.
    */
   spread?: number;
+  /**
+   * **Flute homogenisation.** The share of the aperture's exit radiance that
+   * has been scattered by the lens's own flutes through a cone wider than the
+   * cavity behind it, and therefore carries that cavity's *average* radiance
+   * rather than whatever happens to sit directly behind the pixel.
+   *
+   * `0`, the default, adds no code to the shader and is a plain window. See
+   * `LENS_CAVITY`.
+   */
+  homogenise?: number;
+  /**
+   * Apparent diffuse reflectance of the cavity, seen through its own
+   * aperture — the level `homogenise` mixes towards. Only read when
+   * `homogenise` is above zero. See `LENS_CAVITY`.
+   */
+  cavity?: number;
 }
 
 /** Acrylic. */
@@ -86,6 +105,8 @@ uniform vec4 uLensBody;
 uniform float uLensIor;
 // x cat's-eye gain  y its lobe power  z transmitted-image spread
 uniform vec3 uLensRetro;
+// x flute homogenisation  y apparent cavity reflectance
+uniform vec2 uLensCavity;
 
 ${GLSL_LIB}
 ${GLSL_SURFACE}
@@ -433,6 +454,11 @@ vec3 audiLensAbsorb = exp(-audiLensSigma * audiLensPath * uLensBody.x);
 
 vec3 audiLensGlint = vec3(0.0);
 vec3 audiLensRetro = vec3(0.0);
+// Direct irradiance on the lens face, collected in the directional loop
+// because the irradiance three has in scope at the transmission stage holds
+// the ambient and probe terms only — the sun goes through RE_Direct into
+// reflectedLight and never reaches a variable that survives to there.
+vec3 audiLensDirect = vec3(0.0);
 // Scale factor handed to the transmission volume: true slab path, lengthened
 // again wherever the prism is cut deepest. The colour itself comes from the
 // attenuation over that distance, not from a tint on the surface.
@@ -571,6 +597,91 @@ const LENS_RETRO = /* glsl */ `
 }
 `;
 
+/**
+ * Collect the sun's projected irradiance for `LENS_CAVITY`.
+ *
+ * Unshadowed, for the reason set out at length for the cat's-eye above and in
+ * `materials/printed.ts`: the photograph's lamp reads 232 with the car under
+ * the grove, and what fills a cavity whose aperture faces the low sun is the
+ * whole sun-side sky, not the sun's disc alone. The directional loop is also
+ * the only light loop this may run in — the lamp's own beam is a spotlight,
+ * so a cavity term gathered from every light would switch itself on with the
+ * headlights, which is the one state it must never contribute to.
+ */
+const LENS_DIRECT = /* glsl */ `
+audiLensDirect += directionalLight.color
+  * max(dot(geometryNormal, directionalLight.direction), 0.0);
+`;
+
+/**
+ * **Why an aperture is flat, and why the renderer cannot make it flat.**
+ *
+ * The sun off the reflector is the whole of the structure in an unlit lamp,
+ * and this is measured rather than argued: driving `transmission` to zero on
+ * the headlamp lens in the `photomatch` frame collapses the aperture from
+ * 222-239 down its height and 221-248 across it to **243-247 both ways**,
+ * flat to a grey level and a half. Every lobe, every gradient and the whole
+ * vignette are the transmitted image of the bowl; nothing else in this shader
+ * contributes any of it. The same probe run against the front-surface Fresnel
+ * (`specularIntensity` 0.18 -> 0) and against the internal reflection
+ * (`uLensOptics.w` 0.88 -> 0) moved the aperture's column range by 0.0 and
+ * 1.2 grey levels respectively, so neither is a candidate.
+ *
+ * The photograph has no structure of that kind: 228-240 corner to corner,
+ * column range 13 and row range 10, with the only variation in it being the
+ * bulb hardware showing faintly through. So the model has to remove the
+ * bowl's image, not add something on top of it.
+ *
+ * ## The flutes do it, and they do it by convolution
+ *
+ * A fluted lens is a lenslet array. What leaves the aperture in a given
+ * direction is not the bowl at that point but the bowl *convolved* with the
+ * lens's scattering kernel, over a cone tens of degrees wide. A 52 mm cavity
+ * behind a kernel that broad is averaged out completely: the integral stops
+ * depending on where in the aperture you look. That is why the real part is a
+ * block, and it is the same reason a ground-glass screen shows an even field.
+ *
+ * ## `spread` is the wrong domain for it, and the sweep says so
+ *
+ * `spread` asks three's transmission for that convolution, and three's
+ * transmission is a *screen-space* mip of the opaque buffer. Blurring in
+ * screen space does not stay inside the aperture: it averages in the grille
+ * and the bumper around the lamp. Swept in the same frame, the aperture's
+ * column range does not move at all — 27.6 at spread 0.05, 27.6 at 0.18,
+ * 26.1 at 0.35 — while the mean falls 235 -> 228 -> 194. All cost, no
+ * flattening. Raising the lens's own `roughness` to 0.6 does the same thing
+ * harder: 188 mean, column range still 25.
+ *
+ * So the convolution is done here instead, in the one term that does not need
+ * neighbouring pixels: mix the transmitted image towards the cavity's
+ * *average* radiance. That average is modelled as a Lambertian of apparent
+ * reflectance `uLensCavity.y` under the irradiance the aperture actually
+ * receives — which is what an integrating cavity is. Sphere theory puts that
+ * reflectance at rho*f/(1 - rho(1 - f)); for this lamp's 88 % aluminised
+ * walls and an aperture about a third of the internal area, 0.70. Swept
+ * against the photograph the headlamp wants 0.59, and it should: 0.70 is the
+ * figure for a cavity that *diffuses*, and a mirror cavity puts part of its
+ * return into the retro lobe rather than into the average. `headlamp.ts`
+ * carries the sweep and says why the value it ships is higher still.
+ *
+ * This is a redistribution, not a source: it replaces transmitted light
+ * rather than adding to it, so the aperture's mean is preserved and only its
+ * variance falls. The *directional* excess over that average stays where it
+ * was, in the cat's-eye term above — which is exactly what a retroreflector
+ * is, and why `LENS_RETRO`'s units (1.0 = a Lambertian of the same albedo)
+ * and this term's are the same units.
+ *
+ * Tinted by `audiLensAbsorb` like everything else that has been inside the
+ * lamp: an amber section returns amber, a clear section returns the sun.
+ */
+const LENS_CAVITY = /* glsl */ `
+totalDiffuse = mix(
+  totalDiffuse,
+  uLensCavity.y * (audiLensDirect + irradiance + iblIrradiance)
+    * RECIPROCAL_PI * audiLensAbsorb,
+  uLensCavity.x );
+`;
+
 const LENS_APPLY = /* glsl */ `
 {
   float audiBlaze = max(audiTir, audiWall);
@@ -615,6 +726,8 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
   const retroGain = Math.max(opts.retroGain ?? 0, 0);
   const retroLobe = opts.retroLobe ?? 2;
   const spread = Math.max(opts.spread ?? 0, 0);
+  const homogenise = THREE.MathUtils.clamp(opts.homogenise ?? 0, 0, 1);
+  const cavity = Math.max(opts.cavity ?? 0.70, 0);
   const tint = new THREE.Color().setHex(color, THREE.SRGBColorSpace);
 
   const uniforms = {
@@ -669,6 +782,7 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
     uLensBody: { value: new THREE.Vector4(2.0, 0.09, 0.07, 0.64) },
     uLensIor: { value: LENS_IOR },
     uLensRetro: { value: new THREE.Vector3(retroGain, retroLobe, spread) },
+    uLensCavity: { value: new THREE.Vector2(homogenise, cavity) },
   };
 
   const material = new THREE.MeshPhysicalMaterial({
@@ -758,7 +872,8 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
     // settings — each splices GLSL of its own — so they have to key apart or
     // a headlamp and a taillamp would collapse onto one compiled program and
     // wear each other's optics.
-    key: `audi-lens-${prismatic ? 'prism' : 'smooth'}${retroGain > 0 ? '-retro' : ''}${spread > 0 ? '-spread' : ''}-v6`,
+    key: `audi-lens-${prismatic ? 'prism' : 'smooth'}${retroGain > 0 ? '-retro' : ''}`
+      + `${spread > 0 ? '-spread' : ''}${homogenise > 0 ? '-cavity' : ''}-v7`,
     uniforms,
     defines: prismatic ? { AUDI_PRISMATIC: 1 } : undefined,
     expandChunks: ['lights_fragment_begin', 'transmission_fragment'],
@@ -784,9 +899,9 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
       // cone about the *view* axis, and the shadow map answers a question
       // about the sun's disc alone. The photograph settles it — its plate and
       // its headlamp both read ~236 in the same shade.
-      ...(retroGain > 0 ? [{
+      ...(retroGain > 0 || homogenise > 0 ? [{
         find: 'getDirectionalLightInfo( directionalLight, directLight );',
-        replace: `$&\n${LENS_RETRO}`,
+        replace: `$&${homogenise > 0 ? `\n${LENS_DIRECT}` : ''}${retroGain > 0 ? `\n${LENS_RETRO}` : ''}`,
       }] : []),
       { find: '#include <lights_fragment_end>', replace: `$&\n${LENS_APPLY}` },
       // A fluted lens spreads what is behind it. Applied here rather than to
@@ -806,8 +921,12 @@ export function createLens(color: number, opts: LensOptions = {}): THREE.MeshPhy
         replace: 'material.thickness = thickness * audiLensThickScale;',
       },
       {
+        // One needle, both terms, in the order they have to run: the flutes
+        // homogenise what came *through* the lens, and the dye's own bulk
+        // scatter is then added on top of the result rather than being
+        // averaged into it.
         find: 'totalDiffuse = mix( totalDiffuse, transmitted.rgb, material.transmission );',
-        replace: /* glsl */ `$&
+        replace: /* glsl */ `$&${homogenise > 0 ? LENS_CAVITY : ''}
 // The dye is a scattering medium, not just an absorber: the body stays
 // luminous in shade instead of going to a dead black. This is the difference
 // between a lamp that glows and a lamp that is a red sticker.
@@ -820,6 +939,7 @@ totalDiffuse += (irradiance + iblIrradiance) * RECIPROCAL_PI * audiLensAbsorb * 
   // Only lenses whose program actually carries the splices, so a sweep that
   // reports a change has made one.
   if (retroGain > 0 || spread > 0) lensLive.push(uniforms.uLensRetro);
+  if (homogenise > 0) cavityLive.push(uniforms.uLensCavity);
 
   return material;
 }
@@ -882,9 +1002,19 @@ export function createEmissive(color: number, intensity: number): THREE.MeshStan
  * frames at the old value.
  */
 const lensLive: Array<THREE.IUniform<THREE.Vector3>> = [];
+const cavityLive: Array<THREE.IUniform<THREE.Vector2>> = [];
 
 (globalThis as Record<string, unknown>).__AUDI_LENS = {
   read: () => lensLive.map((u) => ({ gain: u.value.x, lobe: u.value.y, spread: u.value.z })),
+  readCavity: () => cavityLive.map((u) => ({ homogenise: u.value.x, cavity: u.value.y })),
+  setCavity: (homogenise: number, cavity?: number) => {
+    for (const u of cavityLive) {
+      u.value.x = homogenise;
+      if (cavity !== undefined) u.value.y = cavity;
+    }
+    globalThis.dispatchEvent?.(new Event('audi:materials-dirty'));
+    return cavityLive.length;
+  },
   set: (gain: number, lobe?: number, spread?: number) => {
     for (const u of lensLive) {
       u.value.x = gain;
