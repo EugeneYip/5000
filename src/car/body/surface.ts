@@ -379,11 +379,19 @@ const xWide = spline(
   // knot at -2.687 an upward tangent into a flat segment, and a Catmull-Rom
   // with equal endpoints and a non-zero end tangent bulges: 1.4 mm above
   // `archLipX` at z -2.32, in the middle of the quarter panel.
-  [-2.760, 0.8610],
-  [-2.900, 0.8760],
-  [-3.100, 0.8480],
-  [-3.300, 0.8190],
-  [-3.550, 0.7930],
+  //
+  // −2.900 was 0.8760 and that was **my bug**: these knots were tabulated
+  // against a crown of 0.891, and when `f99feff` pulled the pin to 0.862 it
+  // left them. The rear arch crown became a local minimum with a **14 mm
+  // bulge 213 mm behind it**, and every dead-astern silhouette row from
+  // y 0.43 to 0.96 came off z −2.91…−3.10 — so the bulge, not the arch, was
+  // setting the car's width. Re-tabulated monotone from the new pin, holding
+  // the tail end so `rearHalfWidth` does not move.
+  [-2.760, 0.8605],
+  [-2.900, 0.8545],
+  [-3.100, 0.8390],
+  [-3.300, 0.8150],
+  [-3.550, 0.7900],
   [Z_TAIL_END, 0.776],
 );
 
