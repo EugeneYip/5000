@@ -25,9 +25,11 @@ import { DEG, at, lathe, merge, mesh, roundedBox, type Pt } from './util';
  * anywhere on it, and the emissions sticker on the right, white inside a thin
  * pink border. White-balanced and measured on their own interiors they are
  * (220, 227, 232) and (210, 208, 219) — 85 % and 48 % of their own area above
- * level 224. Between them they are 0.449 % of the car and nearly a fifth of
- * everything it puts above 224, so getting them dark costs the highlight
- * bucket real ground.
+ * level 224. Between them they are about 0.38 % of the car and 0.19 % of it
+ * above 224 — which is **1.8 %** of the photograph's 10.2 % total, not "nearly
+ * a fifth" as this said at first. A fifth is the grille surround's number
+ * (1.89 % of the car) and I conflated the two. Small, then — but it was worth
+ * fixing because it cost the highlight bucket its whole share, not part of it.
  *
  * What was here before was one portrait sticker with a dark green band across
  * its top third and a navy numeral filling its middle. It measured mean 183
