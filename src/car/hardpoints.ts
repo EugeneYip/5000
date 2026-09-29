@@ -175,6 +175,27 @@ export const HP = {
     archFrontCenter: [BODY.trackFront / 2, R, 0] as [number, number, number],
     archRearCenter: [BODY.trackRear / 2, R, -BODY.wheelbase] as [number, number, number],
     archLipX: HW - 0.016,
+    /**
+     * The REAR arch lip, split out because one constant could not serve both.
+     *
+     * A dead-astern frame constrains every visible station, not only the tail
+     * face: a station Δ metres forward images Δ/(D+Δ) smaller. Solving the
+     * camera distance out through the tyre constraint makes the bound at the
+     * rear axle independent of the lamp band's assumed width u, so it does
+     * not depend on the scale settled in the note on `rear.lampInnerX`:
+     *
+     *     x_arch <= 1.0745 − 0.1562 u    ->  0.840 at u = 1.50, 0.871 at 1.30
+     *
+     * `archLipX` 0.891 is outside that at any u, and no section shape rescues
+     * it: holding 0.891 at y 0.600 and reaching 0.840 a hundred millimetres
+     * above needs a crease this car does not have. 0.862 is the least change
+     * the bound allows, taken deliberately so that being wrong costs less.
+     *
+     * Consequence worth stating: the 1814 mm maximum width is then **not**
+     * over the rear arch. It has to lie at z >= −1.9, forward of the rear
+     * axle, which is also the only place the reference frame allows it.
+     */
+    archLipXRear: HW - 0.045,
     archRadius: R + 0.082,
     /** Arches are not circular — they flatten at the top. */
     archFlatten: 0.88,

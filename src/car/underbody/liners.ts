@@ -15,11 +15,27 @@
 import * as THREE from 'three';
 import { BODY, tyreRadius } from '@/spec';
 import { HP } from '@/car/hardpoints';
-import { archTopY } from '@/car/body/surface';
+import { archTopY, halfWidthAt, tAtY } from '@/car/body/surface';
 import { grid, merge, lerp, clamp } from './geom';
 
 const R = tyreRadius();
-const LIP_X = HP.side.archLipX;
+/**
+ * The lip has to ride on the body's own arch edge, not on a constant.
+ *
+ * `HP.side.archLipX` is the half-width at the arch **crown**; held along the
+ * whole arch it walks out through the skin as the body tucks in fore and aft.
+ * At the rear arch's trailing end the body is 0.833 and this lip sat at
+ * 0.883 — 50 mm proud. `panels.ts`'s `wheelHouse` already learned this; the
+ * liner did not, and narrowing the rear arch made it worse.
+ *
+ * Queried off the surface at the lip's own y, with the crown value as the
+ * fallback for stations the query cannot resolve.
+ */
+function lipXAt(z: number, y: number): number {
+  const t = tAtY(z, y);
+  const w = Number.isFinite(t) ? halfWidthAt(z, t) : NaN;
+  return Number.isFinite(w) && w > 0.2 ? w : HP.side.archLipX;
+}
 const ARCH_R = HP.side.archRadius;
 
 /** Liner radius: far enough off the tyre to clear it at full bump and lock. */
@@ -43,7 +59,8 @@ function liner(axleZ: number, sign: 1 | -1, depth: number): THREE.BufferGeometry
     // Radial stiffening ribs and the moulded-in dirt trap at the rear.
     y -= 0.0045 * Math.cos(a * 46) * b;
     y -= 0.006 * Math.cos(b * 22) * (0.4 + 0.6 * b);
-    const x = sign * lerp(LIP_X - 0.008, LIP_X - depth, k);
+    const lipX = lipXAt(z, y);
+    const x = sign * lerp(lipX - 0.008, lipX - depth, k);
     return out.set(x, y, z);
   };
 

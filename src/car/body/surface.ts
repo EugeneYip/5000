@@ -369,12 +369,17 @@ const xWide = spline(
   [0.500, 0.884],
   [0.100, 0.891],
   [-1.600, HP.side.archLipX],                    // 0.891
-  [-2.687, HP.side.archLipX],
+  // The rear arch crown is its OWN pin now — see `archLipXRear`. One constant
+  // served both arches, and the dead-astern bound puts the rear at <= 0.840
+  // to 0.871 against 0.891, so the rear could not be corrected while the
+  // front held it. 0.862.
+  [-2.200, 0.8760],
+  [-2.687, HP.side.archLipXRear],
   // Pinned where the curve already ran. Without it the tail's taper gives the
   // knot at -2.687 an upward tangent into a flat segment, and a Catmull-Rom
   // with equal endpoints and a non-zero end tangent bulges: 1.4 mm above
   // `archLipX` at z -2.32, in the middle of the quarter panel.
-  [-2.760, 0.8900],
+  [-2.760, 0.8610],
   [-2.900, 0.8760],
   [-3.100, 0.8480],
   [-3.300, 0.8190],
