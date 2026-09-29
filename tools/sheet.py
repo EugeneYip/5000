@@ -203,6 +203,50 @@ def wb(a):
     return np.clip(a * np.array([0.9478, 1.0129, 1.0727]), 0, 255)
 
 
+
+# The render's own neutral, and why this is a diagnostic and not a correction.
+#
+# `WB_GAIN` neutralises the PHOTOGRAPH against its licence plate. Nothing
+# neutralises the render, so every colour line above compares a white-balanced
+# photograph against an unbalanced render. Measured: the photograph's raw plate
+# is (250.9, 234.8, 222.0), B-R -28.9 — a warm low sun on warm film — and
+# `WB_GAIN` takes it to (237.6, 237.6, 237.9), B-R +0.4. The render's plate
+# reads B-R -11.4 and stays there.
+#
+# So there is an ~11-unit warm floor under every B-R reading in the frame. It
+# is most of the -15 seen on the headlamp lens and a good part of the -17 on
+# the horizon band, and anyone reading "the whole car is too warm" off those is
+# reading the asymmetry as much as the render.
+#
+# It is NOT the bonnet's dRGB. Balancing both sides moves that from 33.1 to
+# 33.9, because the bonnet's error is R +31 / G +12 with B already exact.
+#
+# Deliberately not applied to the gate. Balancing the render would make the
+# metric ask the scene's illuminant to be neutral, and the scene's illuminant
+# is *supposed* to be a warm low sun — the photograph's own raw plate is warmer
+# than ours, not cooler. Neutralising the render to score better would take the
+# golden hour out of a golden-hour photograph. Reported so it can be read past.
+PLATE_BOX = (0.455, 0.570, 0.545, 0.640)   # render frame fractions, photomatch
+
+
+def render_wb_note(a):
+    """Print the render's own white point, measured on the plate."""
+    h, w = a.shape[:2]
+    x0, y0, x1, y1 = PLATE_BOX
+    s = a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)].reshape(-1, 3)
+    if len(s) < 50:
+        return
+    lum = s.mean(axis=1)
+    field = s[lum > np.percentile(lum, 60)]        # the white field, not the legend
+    mu = field.mean(axis=0)
+    if mu.min() < 120:                              # not looking at the plate
+        return
+    print(f"      render white point, on the plate: "
+          f"({mu[0]:.0f},{mu[1]:.0f},{mu[2]:.0f})  B-R {mu[2] - mu[0]:+.0f}"
+          f"   vs the photo's balanced plate B-R +0")
+    print(f"      so ~{abs(mu[2] - mu[0]):.0f} units of every B-R gap above is the gate "
+          f"comparing a balanced photo with an unbalanced render — read past it")
+
 def compare_to_photo(render_path: Path):
     if not REFERENCE_PHOTO.exists():
         sys.exit(f"reference photograph not found at {REFERENCE_PHOTO}")
@@ -367,6 +411,7 @@ def compare_to_photo(render_path: Path):
         print(f"      B-R {pm[2] - pm[0]:+.0f} vs {rp[2] - rp[0]:+.0f}"
               f"   — the paint in this frame is nearly all bonnet, and a bonnet"
               f" mirrors the sky")
+        render_wb_note(a)
     print(f"  car mask: {'exact silhouette' if exact else 'ROW-MEDIAN GUESS — shoot with --mask'}"
           f"  ({100 * car_mask.mean():.1f}% of frame)")
     print(f"  tone profile {tone_tv:.1f}% apart from the photograph (aim < 8)")
