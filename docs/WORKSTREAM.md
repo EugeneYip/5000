@@ -154,6 +154,14 @@ every stream running at once, not per-stream. Two streams both wrote
 - Nothing in a real car is a perfectly sharp edge. Every visible edge gets a
   radius (`QUALITY.edgeRadius`). This single habit does more for realism than
   any texture.
+- **`__AUDI.pick` drops hidden geometry by default now.** Three's raycaster
+  does not test `visible`, so `headlampShaft` — a 16 m cone of scattered air
+  that is off unless the lamps are lit, with a frame-sized bounding box — was
+  the frontmost hit on 35 % of samples aimed at the front of the car, and it
+  cost three separate rounds probe cycles before each noticed. Pass
+  `{ includeHidden: true }` to get the old behaviour, which is the right tool
+  for a bit-identical A/B: hide a thing, keep the ray set, and only the pixels
+  move.
 - **The gate is bimodal across boots.** The same committed build read tone
   profile 11.4, 11.4 and 10.8 on three identical runs, with `dRGB` 31.9 vs
   33.2 and the car mask 16.6 vs 16.7 % tracking the same two states.

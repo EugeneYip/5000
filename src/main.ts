@@ -33,7 +33,7 @@ interface AudiDebugApi {
   setArticulation(name: string, open: number): void;
   setUiVisible(v: boolean): void;
   setMaskMode(mode: 'off' | 'car' | 'paint'): void;
-  pick(x: number, y: number): Record<string, unknown>[];
+  pick(x: number, y: number, opts?: { includeHidden?: boolean }): Record<string, unknown>[];
   census(): Record<string, number>;
   bbox(match: string): Record<string, unknown>[];
   setPose(name: string, patch: Record<string, unknown>): unknown;
@@ -226,7 +226,7 @@ async function main(): Promise<void> {
      * the registry issued, so a defect can be attributed before it is
      * theorised about.
      */
-    pick(x, y) {
+    pick(x, y, opts) {
       const ray = new THREE.Raycaster();
       ray.setFromCamera(new THREE.Vector2(x * 2 - 1, -(y * 2 - 1)), stage.camera);
       const path = (o: THREE.Object3D): string => {
@@ -237,7 +237,23 @@ async function main(): Promise<void> {
         return parts.join('/');
       };
       const r3 = (v: number): number => Math.round(v * 1000) / 1000;
-      return ray.intersectObject(stage.scene, true).slice(0, 8).map((h) => {
+      // Three's raycaster does not test `visible`, so hidden geometry answers
+      // probes. `headlampShaft` is a 16 m cone of scattered air that is off
+      // unless the lamps are lit, and its bounding box spans the whole frame
+      // — it has been the frontmost hit on half the samples in three separate
+      // rounds and cost each of them probe cycles before they noticed.
+      //
+      // So hidden hits are dropped by default. `includeHidden` puts them
+      // back, because that same blindness to `visible` is the right tool for
+      // a bit-identical A/B: hide a thing, keep the ray set, and only the
+      // pixels move.
+      const shown = (o: THREE.Object3D): boolean => {
+        for (let n: THREE.Object3D | null = o; n; n = n.parent) if (!n.visible) return false;
+        return true;
+      };
+      const hits = ray.intersectObject(stage.scene, true)
+        .filter((h) => opts?.includeHidden || shown(h.object));
+      return hits.slice(0, 8).map((h) => {
         const m = h.object as THREE.Mesh;
         const mat = Array.isArray(m.material) ? m.material[0] : m.material;
         // World normal, because the usual answer to "why is this pixel the
