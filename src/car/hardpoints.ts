@@ -260,7 +260,16 @@ export const HP = {
      * roof profile at that station is 1.338, so no point on the tailgate can
      * be higher. With the header band and a 4 mm lap the glass tops out here.
      */
-    tailgateGlassTopY: 1.285,
+    /**
+     * 1.285 -> 1.375, measured rather than inherited. Roll-rectified on
+     * `bat_rear_straight_b.jpg`, the roof's trailing edge is at row 256 +- 1
+     * and the top of the clear glass at 274 +- 2 — **18 px, 24 mm of
+     * projected height**, steady across x 800-1185. Our `rear` frame puts the
+     * same two features 36 px apart on a 62.2 px band, i.e. 106 mm.
+     * Parallax-corrected against a camera height of 0.798 (from the horizon
+     * falling 49 % down the lamp band) this is 1.375 +- 0.010.
+     */
+    tailgateGlassTopY: 1.375,
     /**
      * Raised from 0.962, which sat 23 mm BELOW `beltY` — a backlight sill
      * under the beltline, where the reference has the tailgate's shoulder
@@ -306,7 +315,21 @@ export const HP = {
      * a ratio of 0.843, giving 0.710-0.717. The tail has been narrowed; the
      * 0.745 the glazing built to is not reachable on the corrected body.
      */
-    tailgateGlassHalfW: 0.712,
+    /**
+     * 0.712 -> 0.636. The 0.843 ratio the old figure was derived from is
+     * sound; what was wrong is that it was multiplied by `lampOuterX` 0.85,
+     * which is now 0.75. Confirmed by direct measurement rather than left to
+     * inheritance: scanning outward for the first painted column, the
+     * aperture is 956 px at the sill and 966 at its widest = 1267-1281 mm,
+     * half-width **0.634-0.640**, and against the lamp band's 1143 px that is
+     * a ratio of 0.845 — so ratio and absolute now agree.
+     *
+     * **This cannot move without the body's last section moving with it.**
+     * The built silhouette at the lamp band is 0.828-0.844 against 0.770
+     * measured, so narrowing the glass alone turns a 56 mm painted reveal
+     * into 190. See `halfWidthAt(Z_TAIL_END)` in `body/surface.ts`.
+     */
+    tailgateGlassHalfW: 0.636,
     /*
      * KNOCK-ON, NOT YET APPLIED. The derivation above is a ratio — backlight
      * aperture is 0.843 of the taillamp band — and it is sound, but the
@@ -330,8 +353,18 @@ export const HP = {
   // -------------------------------------------------------------------------
   rear: {
     /** Tailgate shutline: it wraps up into the roof. */
-    tailgateHingeZ: TAIL + 0.708,
-    tailgateHingeY: 1.34,
+    /**
+     * Was TAIL + 0.708 / 1.340. That pair is an accurate reading of our own
+     * roof profile and the wrong station to hang a tailgate from: it is
+     * 140 mm aft of `roof.dPillarZ`, and it is what made `tailgateGlassTopY`
+     * "unreachable" at anything above 1.285. A top edge clearing 1.375 by the
+     * header band's ~15 mm of drop puts the hinge at ~1.39, and a hinge
+     * cannot stand above the roof skin — ours is 1.390 at z −2.965. So the
+     * hinge belongs at the D-pillar, where a wagon's tailgate cut actually
+     * is.
+     */
+    tailgateHingeZ: TAIL + 0.848,
+    tailgateHingeY: 1.39,
     tailgateBottomY: 0.652,
 
     /**
@@ -425,8 +458,15 @@ export const HP = {
      */
     /** Dropped to clear the black band under the backlight. */
     badgeY: 0.95,
-    badgeAudiCenter: [-0.42, 0.92, TAIL + 0.036] as [number, number, number],
-    badgeModelCenter: [0.42, 0.92, TAIL + 0.036] as [number, number, number],
+    /**
+     * +-0.42 -> +-0.36. The same 13 % scale error as the lamp band: 0.42 was
+     * read against "lamp band ends = body silhouette = 1814 mm", and the tail
+     * tucks in to ~1600 there. 0.42 / 1.136 = 0.37. An earlier round called
+     * +0.421 "right to 4 mm" against the photograph — that reading used the
+     * uncorrected scale, so it agreed with itself and not with the car.
+     */
+    badgeAudiCenter: [-0.36, 0.92, TAIL + 0.036] as [number, number, number],
+    badgeModelCenter: [0.36, 0.92, TAIL + 0.036] as [number, number, number],
     badgeRingsCenter: [0, 0.927, TAIL + 0.038] as [number, number, number],
 
     /**
