@@ -388,6 +388,48 @@ export const HP = {
      * mix the two cars' rear measurements.
      */
     /**
+     * ## The scale was challenged and it stands — but not for the reasons
+     * given, and `6df1ff9`'s camera distance is wrong.
+     *
+     * A later reading claimed the rear frame's own tyres refute k = 1.3256.
+     * Settled by measuring the taillamp band's **absolute height on two FLANK
+     * photographs of two different cars**, each scaled only on the published
+     * 2687 mm wheelbase and neither using a rear frame: 186.8 and 184.0 mm,
+     * agreeing to 1.5 %. Against 138.9 px for the same feature in
+     * `bat_rear_straight_b.jpg` that is **k = 1.334 +- 0.03**. 1.3256 is 0.6 %
+     * low, 1.21 is excluded at about 4 sigma, and every hardpoint below is at
+     * most 6 mm out — inside the spread that produced it. **Nothing moved.**
+     *
+     * What does not survive is "6 +- 3 m". Take k = 1.3256 as given and ask
+     * what rear track the frame's own tyre span implies:
+     *
+     *     D = 6 m   ->  1577 mm    impossible on an 1814 mm body
+     *     D = 9 m   ->  1504 mm
+     *     D = 12 m  ->  1468 mm    the brochure figure
+     *
+     * So the scale and the distance were mutually inconsistent with their own
+     * frame. It is 9-13 m — a 135-160 mm lens. The distance was never
+     * independent: the only absolute vertical in a dead-on rear view is the
+     * car's own height, and a 3.8 % slip in the roof-to-contact span drags D
+     * from 8.8 m to 6.0.
+     *
+     * Three smaller corrections in the challenge itself, all of which nearly
+     * cancelled: the tyre span is 1179.3 px at its widest, not 1173 (that row
+     * is 115 below it); the section is **205, not 185** — both BaT cars are
+     * CS/CD Turbo quattro Avants on 205/60R15, not the 5000 S's 185/70 HR14;
+     * and the lever is **0.84 m, not 1.129**, because a tyre's widest locus is
+     * a circle about the axle and the point that projects widest is its
+     * rearmost. And the depth ordering in that challenge was inverted: the
+     * camera is behind the car, so the tail is NEARER than the axle and a
+     * smaller mm/px there is the right sign.
+     *
+     * Two cautions about `6df1ff9`'s own chain: its "15-in rim flange" leg is
+     * the photographed car's wheel and not this model's (6J x 14 on 185/70),
+     * and it is +-3 % on where you put the edge, so "four features agreeing to
+     * 0.4 %" flatters it. And the 1.504 rear track it reports as "the
+     * published quattro figure" is not published anywhere in
+     * `docs/REFERENCE-VEHICLE.md`; `BODY.trackRear` stays 1.468.
+     *
      * Re-derived 2026-09-28 by photogrammetry from four independent scale
      * features agreeing to 0.4 % (wheelbase 2687, overall length 4895, 15-in
      * rim flange, and a camera resection whose by-product — rear track
