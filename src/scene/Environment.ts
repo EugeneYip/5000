@@ -581,6 +581,12 @@ export async function buildEnvironment(
       return backdrop.shadeFootprint();
     },
     footprint: () => backdrop.shadeFootprint(),
+    /** Stand the vista down and redraw, for the A/B that prices it. */
+    vista: (on: boolean) => {
+      const r = backdrop.setVistaVisible(on);
+      globalThis.dispatchEvent(new Event('audi:materials-dirty'));
+      return r;
+    },
     reset: () => applyPreset(PRESETS[preset.name] ?? preset),
   };
 

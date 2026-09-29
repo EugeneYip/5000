@@ -13,6 +13,17 @@
  * up-sun of it, so the sun's frustum reaches out that far and the crowns
  * write a leaf-cut depth so what lands on the road is dapple. The vista does
  * not cast — it is two hundred metres outside that frustum.
+ *
+ * **There are two leaf cuts in this file and they are not two settings of
+ * one thing.** `LEAF_CUT` is the shadow pass's, and it stands in for a
+ * penumbra the depth map cannot draw, so it is finer and deeper than
+ * anything visible. `LEAF_CUT_VISIBLE` is the colour pass's, and it stands
+ * in for the mip chain procedural noise has never had, so it is band-limited
+ * to the pixel and rescaled to hold its own variance. The near planting and
+ * the vista then share that one shader at two settings, because a crown at
+ * 30 m and a crown at 260 m are the same object at two sampling rates and
+ * not two different objects. Anything that moves all of them together will
+ * be wrong in most of them.
  */
 
 import * as THREE from 'three';
@@ -31,6 +42,12 @@ export interface BackdropHandle {
   };
   /** Probe only: scale the shading row's pitch across the sun. */
   setSpread(s: number): number;
+  /**
+   * Probe only: stand the vista down, so the A/B that asks what it is worth
+   * can be run without a rebuild. It neither casts nor receives, so hiding it
+   * changes nothing else in the frame.
+   */
+  setVistaVisible(on: boolean): boolean;
   /**
    * Ground footprint of the shading rank's own shadow, in metres from the
    * subject, in the sun's frame — `across` its bearing and `along` it. Null
@@ -72,7 +89,11 @@ float leafNoise(vec3 x) {
 `;
 
 /**
- * The cut. Two things are substituted per pass.
+ * The cut, as the **shadow pass** uses it. The colour pass has its own, below,
+ * and the two must stay apart: this one is standing in for a penumbra, and
+ * the other one is standing in for a mip chain.
+ *
+ * Two things are substituted per pass.
  *
  * `LEAF_EDGE` because the silhouette of a lobe is whatever is looking at it —
  * the camera in the colour pass, the sun in the shadow pass — and those are
@@ -100,6 +121,207 @@ const LEAF_CUT = /* glsl */ `
   // uniform cut just gives a solid ball with freckles.
   float edge = smoothstep(0.34, 0.98, LEAF_EDGE);
   if (v < LEAF_BASE + LEAF_RIM * edge) discard;
+}
+`;
+
+/**
+ * Standard deviation of one octave of `leafNoise` over [0, 1].
+ *
+ * Needed as a number rather than a feeling, because the coverage below is
+ * the probability that the noise clears its threshold, and a probability
+ * needs a spread. Trilinear-smoothstep interpolation of eight independent
+ * uniforms has variance (1/12) * E[w^2 + (1-w)^2]^3, and for w = 3t^2 - 2t^3
+ * that expectation is 0.7429, giving sd 0.185. Measured over the compiled
+ * shader it comes back 0.18, which is the same number.
+ */
+const LEAF_SIGMA = '0.185';
+
+/**
+ * How much brighter the margin of a leaf mass is than the mass behind it.
+ *
+ * Standing in for the coverage this pass cannot composite: a pixel the cut
+ * only just passes is part leaf and part whatever is behind, and on the
+ * `rear` band that is a leaf at 75 against a sky at 213, so twice the leaf
+ * is about the honest average and a little over is where the margin starts
+ * to read as the translucent edge it also is. A multiplier on the crown's
+ * own colour rather than an absolute tone, which is what stops it printing a
+ * halo of the wrong hue when the preset changes.
+ */
+const LEAF_FRINGE_GAIN = '2.6';
+
+/**
+ * Clump shading — the part that stops a crown being one colour.
+ *
+ * The instance tint already decides whether a *lobe* faces the sun, which is
+ * a two-metre decision. Inside that lobe there was nothing: at the `rear`
+ * pose a crown covers three hundred pixels and every one of them was the
+ * same brown. Photographed, the same mass is not: measured off the owner's
+ * frame the sunward clumps are (92, 77, 45) and the shaded ones (61, 55, 45)
+ * — a stop and a half apart and two to one warm — and they alternate at
+ * roughly half a metre, which is the scale `leafClump` runs at.
+ *
+ * So the clump term drives a *colour* and not only a level, and the first
+ * attempt at it failed for a reason worth recording: endpoints picked for
+ * hue alone were 14 % apart in luminance, so the crown changed colour and
+ * did not change tone, and at 300 px it still read flat. The pair below is
+ * 1.57:1 in luminance with a midpoint that is neutral to one part in fifty,
+ * so it redivides the crown's existing colour between its lit and shaded
+ * clumps rather than adding anything to the sum — which is what keeps a
+ * per-fragment term out of the paint's colour gate.
+ */
+const LEAF_SHADE = /* glsl */ `
+{
+  float k = clamp(0.5 + 0.5 * LEAF_STRUCT * leafClump, 0.0, 1.0);
+  vec3 warmShade = mix(vec3(0.685, 0.764, 1.175), vec3(1.390, 1.210, 0.800), k);
+  diffuseColor.rgb *= warmShade * mix(${LEAF_FRINGE_GAIN}, 1.0, leafFringe);
+}
+`;
+
+
+/**
+ * What a crown puts on screen that is **not** its own colour.
+ *
+ * Measured three ways on the same `rear` band. As shipped it reads 75.5.
+ * Zero the crowns' albedo outright and it reads 71.1. Zero their whole
+ * outgoing light and it still reads 65.4 — that floor is the exponential fog
+ * and the bloom off a 213-level sky, and at 260 m it is two thirds of the
+ * band. Of the third that is actually the crown, **more than half was a 0.04
+ * dielectric Fresnel returning the sky** rather than the crown's own colour:
+ * 5.7 levels of specular against 4.4 of albedo. At `photomatch`, where the
+ * fog is half a per cent, the same pair is 54.8 and 33.8, so the crown's own
+ * light is 21 levels there and the specular is a fifth of them.
+ *
+ * That is the same fault a previous round found on the trunks — "a trunk
+ * with a 0.007 albedo was rendering at level 122" — and lowering
+ * `envMapIntensity` only scaled it down, because that scales the specular
+ * and the albedo together and the albedo was never the part doing the work.
+ * With the tint carrying a fifth of the signal, every per-instance colour,
+ * the sunward-to-shaded lerp and any per-fragment clump shading are being
+ * applied to a fifth of what is on screen, which is why a crown reads as one
+ * flat tone whatever is done to its colour.
+ *
+ * The albedo had been pushed down to about 0.05 to make the mass dark, and
+ * that is the wrong place for it: self-occlusion attenuates the *light* a
+ * patch of canopy receives, not the fraction it reflects, and it attenuates
+ * the specular exactly as much as the diffuse. Put it on the specular and
+ * the albedo can carry the tone instead — at which point the crowns respond
+ * to the sun, which they never have.
+ */
+const LEAF_SELF_OCCLUSION = /* glsl */ `
+reflectedLight.indirectSpecular *= 0.11;
+reflectedLight.directSpecular *= 0.22;
+`;
+
+/**
+ * The albedo that replaces the specular taken off above, as a reflectance.
+ *
+ * Additive rather than a multiplier on `lift`, and the difference is
+ * measurable: what was removed is a fraction of a *constant* 0.04 Fresnel,
+ * so what replaces it is a constant too. Scaling `lift` over-pays at a high
+ * sun, where the albedo term is already twice what it is at golden hour —
+ * on the `noon` control that put 6.5 levels on the tree band where this puts
+ * 4, with every band from the bonnet down moving under 0.2.
+ *
+ * 0.026 is set by measurement, not derivation: it is what lands the
+ * golden-hour canopy on 55.4 against the photograph's own near-left canopy
+ * at 54.8 and the previous build's 54.8.
+ */
+const LEAF_SPEC_TO_ALBEDO = 0.026;
+
+/**
+ * The cut as the **colour pass** uses it — and what was wrong was the
+ * frequency, not the threshold.
+ *
+ * A leaf-cut alpha *texture* has a mip chain: minify it and the fine holes
+ * average into a grey, so what an alpha test gets at distance is a smooth
+ * field. Procedural noise has none. Every octave keeps full amplitude however
+ * small it lands on screen, so the cut goes on producing full-contrast detail
+ * after that detail has shrunk past the pixel. Shot dead-on from 26 m through
+ * the 200 mm `rear` lens the vista's third octave lands at 0.7 px and its
+ * second at 1.7 px, and the band measures a 99th-percentile pixel Laplacian
+ * of 193 against the photograph's 111, with 59 % of it at one end of the
+ * range or the other against the photograph's 40 %. That is the "blown-out
+ * blotches" reading, and no value of `base` or `rim` reaches it.
+ *
+ * Two things are done here that the depth pass deliberately does not do.
+ *
+ * **The octaves are band-limited.** `dFdx`/`dFdy` of the lobe position give
+ * the world metres a pixel covers, so each octave's wavelength is known in
+ * pixels and is faded out below about two of them, its contribution replaced
+ * by its own mean.
+ *
+ * **What survives is rescaled to hold the variance.** This is the same
+ * correction a mip-mapped alpha test needs and for the same reason: averaging
+ * the fine detail away shrinks the spread, the threshold then cuts a
+ * different fraction than it did at full resolution, and a canopy closes up
+ * into a solid lobe as it recedes. Rescaling by the ratio of the full spread
+ * to the surviving one keeps the *statistics* of the cut fixed while its
+ * *scale* coarsens, which is what a real canopy does.
+ *
+ * What is **not** done is partial coverage, and it was built before it was
+ * rejected. Mixing the sky's own radiance in by the uncovered fraction,
+ * before tone mapping where the two are still radiances, is the textbook
+ * answer and it is wrong here: inside a grove a hole does not show sky, it
+ * shows the next lobe. The rim term leaves a wide band of every crown partly
+ * open, so blending that band towards the horizon printed a bright halo round
+ * all six hundred of them and took the `rear` band from 107 to 127 mean. It
+ * also exposed the lobes' own facets, because the binary noise had been
+ * dithering the interpolated-normal rim term and a smooth coverage does not.
+ * Order-independent compositing is what this needs; alpha-to-coverage on a
+ * 2x MSAA target offers three levels, which is worse than what the 16-sample
+ * jittered accumulation already does to a binary cut's silhouette.
+ */
+const LEAF_CUT_VISIBLE = /* glsl */ `
+float leafClump;
+float leafFringe;
+{
+  float px = max(length(dFdx(vLeafPos)), length(dFdy(vLeafPos)));
+  // Each octave's wavelength in pixels, and how much of it survives. Below
+  // one pixel a feature can only alias; above two and a half it is detail.
+  // Nothing here is tuned — it is the sampling theorem with a ramp on it.
+  float a1 = smoothstep(1.0, 2.5, 1.0 / max(3.2 * LEAF_FREQ * px, 1e-6));
+  float a2 = smoothstep(1.0, 2.5, 1.0 / max(7.6 * LEAF_FREQ * px, 1e-6));
+  float a3 = smoothstep(1.0, 2.5, 1.0 / max(18.0 * LEAF_FREQ * px, 1e-6));
+  float n1 = mix(0.5, leafNoise(vLeafPos * 3.2 * LEAF_FREQ), a1);
+  float n2 = mix(0.5, leafNoise(vLeafPos * 7.6 * LEAF_FREQ + 11.0), a2);
+  float n3 = mix(0.5, leafNoise(vLeafPos * 18.0 * LEAF_FREQ + 31.0), a3);
+  float v = 0.62 * n1 + 0.26 * n2 + 0.12 * n3;
+  // Hold the spread. Capped at 2.4x, because past that the survivor is one
+  // octave and stretching it only turns a soft field into a hard one.
+  float sRem = sqrt(0.3844 * a1 * a1 + 0.0676 * a2 * a2 + 0.0144 * a3 * a3);
+  v = 0.5 + (v - 0.5) * min(0.6829 / max(sRem, 1e-3), 2.4);
+  // Thin towards the rim of the lobe: a leaf mass has no hard edge, and a
+  // uniform cut just gives a solid ball with freckles.
+  float edge = smoothstep(0.34, 0.98, LEAF_EDGE);
+  float t = LEAF_BASE + LEAF_RIM * edge;
+  // Four and a half pixels of margin inside the cut, wherever it lands.
+  //
+  // A discard is binary and the pixel it lands in is not: the true answer at
+  // a silhouette is part leaf and part whatever is behind, and with six
+  // hundred crowns overlapping there is no honest way to composite that
+  // order-independently here. What there is, is the fact that the part-leaf
+  // pixel is *brighter* — the margin of a canopy is thin, backlit and
+  // transmitting, which the photograph measures directly at (92, 77, 45)
+  // against (61, 55, 45) for the mass behind it. So the pixels just inside
+  // the cut are lifted instead of composited, and because the width comes
+  // from fwidth it is the same few pixels at 20 m and at 290 m. Without it
+  // the whole vista reads as torn paper: every edge in the band is a razor,
+  // which is the one thing no photograph of foliage has.
+  float fw = max(fwidth(v), 1e-5);
+  if (v < t) discard;
+  leafFringe = smoothstep(0.0, 4.5 * fw, v - t);
+  // Clump shading, on its own wavelength rather than the cut's.
+  //
+  // Inside a lobe the old shader had exactly one colour, so a crown filling
+  // 300 px of the rear frame was 300 px of flat brown: all the detail it had
+  // was in the discard, which is to say at the silhouette. A plane's canopy
+  // is clumped at roughly half a metre, which is 19 px at the vista's range
+  // and 35 px at the near row's, so this is a *world* frequency and not a
+  // multiple of the cut's — the cut's wavelength is set by what it has to
+  // close and is far too fine to read as leaves.
+  float sa = smoothstep(1.0, 2.5, 1.0 / max(1.8 * px, 1e-6));
+  leafClump = (0.62 * mix(0.5, leafNoise(vLeafPos * 1.8 + 57.0), sa)
+             + 0.38 * n2 - 0.5) / ${LEAF_SIGMA};
 }
 `;
 
@@ -157,7 +379,7 @@ export function createBackdrop(): BackdropHandle {
    * rim, which is what thins the mass at the edge. Three texture-free octaves
    * and a discard, on geometry that is a few hundred pixels at most.
    */
-  const colourCut = (freq: string, base: string, rim: string) =>
+  const colourCut = (freq: string, base: string, rim: string, struct: string) =>
     (shader: THREE.WebGLProgramParametersWithUniforms): void => {
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vLeafPos;')
@@ -172,7 +394,20 @@ vLeafPos = position;
         );
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\nvarying vec3 vLeafPos;\n${LEAF_NOISE}`)
-        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${LEAF_CUT}`)
+        .replace(
+          '#include <clipping_planes_fragment>',
+          `#include <clipping_planes_fragment>\n${LEAF_CUT_VISIBLE}`,
+        )
+        // After `<color_fragment>`, so the clump term modulates the instance
+        // tint the sun direction already chose rather than replacing it.
+        .replace(
+          '#include <alphatest_fragment>',
+          `#include <alphatest_fragment>\n${LEAF_SHADE}`.replace('LEAF_STRUCT', struct),
+        )
+        .replace(
+          '#include <lights_fragment_end>',
+          `#include <lights_fragment_end>\n${LEAF_SELF_OCCLUSION}`,
+        )
         // The lobe's own silhouette: the interpolated view normal's lateral
         // component, which is one at the rim and zero facing the camera.
         .replace('LEAF_EDGE', 'length(vNormal.xy) / max(length(vNormal), 1e-3)')
@@ -180,8 +415,8 @@ vLeafPos = position;
         .replace('LEAF_BASE', base)
         .replace('LEAF_RIM', rim);
     };
-  crownMat.onBeforeCompile = colourCut('1.0', '0.40', '0.26');
-  crownMat.customProgramCacheKey = () => 'audi-canopy-v3';
+  crownMat.onBeforeCompile = colourCut('1.0', '0.40', '0.26', '1.0');
+  crownMat.customProgramCacheKey = () => 'audi-canopy-v4';
 
   /**
    * The same cut for the vista, at a quarter of the wavelength and a sixth of
@@ -197,17 +432,41 @@ vLeafPos = position;
    * dense and soft, because at that range the leaves and the sky between them
    * have already averaged into one tone.
    *
-   * So 2.6x the frequency, which puts a hole at 4 px in that pose and under a
-   * pixel in every other, and a base of 0.16 against 0.40 so the core is
-   * nearly closed. The rim term goes *up* rather than down, 0.26 to 0.42:
-   * the ragged silhouette is the one thing this cut is still being asked to
-   * produce at this distance, and it is what a solid lobe cannot give.
+   * That was answered first with 2.6x the frequency and a base of 0.16, and
+   * the frequency went the wrong way. At 0.16 the core is 2.7 standard
+   * deviations under the noise's mean, so it is 99.6 % closed — every hole
+   * in the vista came from the rim term alone, and the result is exactly
+   * what the `rear` pose showed: a flat solid lobe with a 4 px speckled
+   * fringe round it. Finer is not denser. It is the same openness at a scale
+   * the eye reads as grain.
+   *
+   * So the frequency comes down to 0.9 — an 11 px wavelength at the `rear`
+   * pose, 12 cm of leaf clump at 260 m, which is about the scale a canopy
+   * does break up at — while the density stays where it was. 0.20 is 1 %
+   * open through the core against the near row's 0.40, which is 21 %, and
+   * that is the right relation: a sight line into the vista crosses three
+   * staggered ranks and a thicket, and one into the kerbside row crosses a
+   * single tree.
+   *
+   * Swept at 0.32 / 0.26 / 0.20 against both poses that see this bank, and
+   * the two agree, which is the useful part — a more open vista lights the
+   * `rear` band up (blown-sky share 22.6 / 16.7 / 11.9 %) and lights the
+   * windscreen up with it, because the transmitted image is the same bank
+   * seen from the other end (patch mean 98.9 / 96.6 / 92.7 and its 176-plus
+   * population 5.4 / 4.3 / 1.8 %). 0.20 is the best of the three on both,
+   * and on the second it is better than what it replaces, which read 97.0
+   * and 3.2 %.
+   *
+   * The rim stays high at 0.30 — the ragged silhouette is most of what this
+   * cut is being asked for at this distance and a solid lobe cannot give it
+   * — but below the 0.42 it had, because with real amplitude back in the
+   * field the rim no longer has to carry the whole job alone.
    */
   const vistaMat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true,
   });
-  vistaMat.onBeforeCompile = colourCut('2.6', '0.16', '0.42');
-  vistaMat.customProgramCacheKey = () => 'audi-vista-v1';
+  vistaMat.onBeforeCompile = colourCut('0.9', '0.20', '0.38', '1.2');
+  vistaMat.customProgramCacheKey = () => 'audi-vista-v2';
 
   /**
    * The cut again for the shadow pass, at a different frequency and depth —
@@ -788,9 +1047,14 @@ vLeafN = normalize(normalMatrix * normal);
       const fy = 0.16 + 0.84 * farRnd();
       const dx = Math.cos(a) * rad * (1.0 - 0.45 * fy);
       const dz = Math.sin(a) * rad * (1.0 - 0.45 * fy);
-      // Seven lobes where the near trees carry twenty, so each one is bigger:
+      // Six lobes where the near trees carry twenty, so each one is bigger:
       // at 230 m the mass is what reads and the lobe count is not resolvable.
-      const rr = r * (0.42 + 0.28 * farRnd());
+      // Bigger again than they were, because a ring of six balls at 0.42–0.70
+      // of the crown radius leaves sky between them, and against a 213-level
+      // sky every one of those gaps is a hole in the tree line. The
+      // photograph's canopy at this range is 85–90 % closed with the sky
+      // coming through as sparkles.
+      const rr = r * (0.56 + 0.30 * farRnd());
       farLobe(x + dx, bole + crownH * fy, z + dz, rr, rr * 0.78, rr * 0.96, dx, dz,
         0.80 + farRnd() * 0.40);
     }
@@ -837,6 +1101,24 @@ vLeafN = normalize(normalMatrix * normal);
 
   // The two ends, at x ±142 because that is what the photomatch frame covers
   // at this depth: a 40 mm lens is ±24°, so its edge at 230 m out is x ∓104.
+  //
+  // **Three ranks and not four, and the fourth was built and measured.** Dead
+  // astern through a 200 mm lens this bank is the whole upper frame, and with
+  // three ranks its gaps still line up often enough to leave holes of bare
+  // 213-level sky through the tree line; a fourth at 286 m closed them, and
+  // it is only 6 k triangles on a mesh that already carries 49 k. It took the
+  // `rear` band's blown-sky share from 22.4 % to 16.8 % and its mean from 106
+  // to 97, which is the right direction on both.
+  //
+  // It cost the tone profile 11.4 to 11.7, three runs each way, and the
+  // mechanism is not a coincidence: the rays that leave the windscreen do so
+  // at 0.0-2.3 deg of elevation, which at 214-286 m is y 1.1-12.6 m, and the
+  // `rear` frame's own 2.9 deg half-angle covers y -12 to +13.5 at the same
+  // range. **The two poses are looking at the same part of the same bank**,
+  // so anything that closes the tree line for one darkens the transmitted
+  // image for the other, and the gate's 64-80 bucket is already 16.4 %
+  // against the photograph's 11.6 %. There is no height separation to be had
+  // and no way to have the density without the transmission.
   farBank((u, v) => [u, -(202 + v)], -142, 142, 3, [0, 28]);
   farBank((u, v) => [u, +(202 + v)], -142, 142, 3, [0, 28]);
   /**
@@ -960,6 +1242,11 @@ vLeafN = normalize(normalMatrix * normal);
       shadeSpread = s;
       return shadeSpread;
     },
+    setVistaVisible(on) {
+      farCrowns.visible = on;
+      farTrunks.visible = on;
+      return on;
+    },
     shadeFootprint() {
       if (!shadeRankOn) return null;
       // Across the sun the shadow is as wide as the row plus a crown either
@@ -1007,6 +1294,7 @@ vLeafN = normalize(normalMatrix * normal);
       trunkMat.envMapIntensity = 0.18;
       blockMat.envMapIntensity = 0.45;
 
+
       // Distant foliage in low sun goes almost black against the sky; at noon
       // it is merely dark. Tying it to elevation keeps the silhouette honest.
       //
@@ -1032,7 +1320,7 @@ vLeafN = normalize(normalMatrix * normal);
       // 0.22 — where this render had canopy 96 and trunks 115-134 against a
       // sky of 181, i.e. 0.53. The boulevard read as a colonnade in fog
       // because its planting was half a stop from the sky behind it.
-      const lift = 0.042 + up * 0.08;
+      const lift = 0.042 + up * 0.08 + LEAF_SPEC_TO_ALBEDO;
       const barkLift = 0.032 + up * 0.062;
       crownMat.color.setRGB(1, 1, 1);
       trunkMat.color.setRGB(1, 1, 1);
