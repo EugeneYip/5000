@@ -135,7 +135,16 @@ export const HP = {
     bumperZ: NOSE,
     /** Bright strip along the bumper's UPPER EDGE, not across its face. */
     rubStripY: 0.625,
-    rubStripHeight: 0.046,
+    /**
+     * **Developed width of the bright bead ALONG the moulding's surface**, not
+     * a height. 0.046 described a 46 mm band no photograph supports, and it
+     * was what let `rubStrip()` author its own polyline 10.5 mm behind and
+     * 1.8 mm above the crown and re-skin the moulding's whole 43 mm shelf in
+     * bright metal — 22 px projected against the photograph's 6-8, with half
+     * of it facing straight up at the sky. Measured on the reference the bead
+     * is 11-14 mm on the owner's photograph and 17.5 on `bat3_front3q.jpg`.
+     */
+    rubStripHeight: 0.015,
     /** Amber marker at the bumper's outboard end. */
     markerX: 0.822,
     markerY: 0.512,
@@ -383,7 +392,13 @@ export const HP = {
     bumperTopY: 0.609,
     bumperBottomY: 0.496,
     bumperZ: TAIL,
-    rubStripY: 0.613,
+    /**
+     * 0.613 described the old full-height band. The bead's own centre is
+     * 25 mm below it, and `rubStripHeight` is the developed arc width of the
+     * bright cap — see the note on the front pair.
+     */
+    rubStripY: 0.588,
+    rubStripHeight: 0.012,
 
     /** In the TAILGATE, set into the ribbed panel between the lamps. */
     /** Centred in the tailgate aperture, which is what actually locates it. */

@@ -154,6 +154,20 @@ every stream running at once, not per-stream. Two streams both wrote
 - Nothing in a real car is a perfectly sharp edge. Every visible edge gets a
   radius (`QUALITY.edgeRadius`). This single habit does more for realism than
   any texture.
+- **A live sweep in one boot is not reliable on this app.** Two failure modes,
+  both of which have nearly shipped a wrong conclusion. Mutating a property on
+  an existing material does **not** re-upload its uniforms — three only
+  refreshes when the material id or `version` changes, and `roughness`,
+  `color` and `envMapIntensity` bump neither, so one sweep can silently report
+  the same frame three times. And `material.clone()` on an `extend()`ed
+  material loses about **12 grey levels** on its own, so a "restored" clone
+  reads lower than the original. Assign a **new material object**, and confirm
+  anything that matters with a real build. Playwright will also hand back a
+  stale swap-chain frame: put a throwaway screenshot between two settles.
+- **To get the live scene graph from a probe, hook
+  `Raycaster.prototype.intersectObject`** — `__AUDI.pick` passes `stage.scene`
+  straight into it. Patching `WebGLRenderer.render` catches nothing, because
+  it is an instance property and not a prototype method.
 - **+X is the car's LEFT.** `hardpoints.ts` said "+X right" for most of this
   project's life and the mesh names follow that, so `mirrorSailRight` is at +X
   and `doorFR` is on the left. A review reported the fuel filler on the wrong
