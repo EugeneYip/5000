@@ -321,6 +321,7 @@ function buildStreet(): Furniture {
       const h = 8.6 + (i % 3) * 1.5;
 
       const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.name = 'ibl:trunk';
       trunk.position.set(x, 3.5, z);
       group.add(trunk);
       trunks.push({ mesh: trunk, nx: -x, nz: -z });
@@ -332,6 +333,7 @@ function buildStreet(): Furniture {
         const crown = new THREE.Mesh(canopyGeo, canopyMat);
         const cx = x + (b - 1) * 1.5 + (i % 2) * 0.4;
         const cz = z + (b - 1) * 1.0;
+        crown.name = 'ibl:crown';
         crown.position.set(cx, h + (b === 1 ? 1.0 : 0), cz);
         crown.scale.set(2.8 - b * 0.3, 2.0 - b * 0.18, 2.7 - b * 0.28);
         group.add(crown);
@@ -374,6 +376,7 @@ function buildStreet(): Furniture {
   const blockMeshes: THREE.Mesh[] = [];
   for (const [x, y, z, sx, sy, sz] of blocks) {
     const m = new THREE.Mesh(blockGeo, facadeMat);
+    m.name = 'ibl:block';
     m.position.set(x, y, z);
     m.scale.set(sx, sy, sz);
     group.add(m);
@@ -545,6 +548,7 @@ function buildStreet(): Furniture {
     lobe.position.set(PROBE.x + ux * dist, PROBE.y + uy * dist, PROBE.z + uz * dist);
     lobe.scale.set(dist * ang, dist * ang * 0.74, dist * ang);
     lobe.rotation.set(crnd() * 3, crnd() * 3, crnd() * 3);
+    lobe.name = 'ibl:leaf';
     canopyGroup.add(lobe);
     leaves.push({ mesh: lobe, ux, uy, uz, rank: crnd(), veil: crnd() < VEIL_FRAC });
   }
@@ -1008,8 +1012,53 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
    * here scaled real constants from a global, which means a render can silently
    * stop being the render the code describes.
    */
+  /**
+   * Radiance of the proxy world in a given direction, in the linear units the
+   * cubemap is baked in — a narrow-FOV render of the bake scene from the probe,
+   * read back as floats with tone mapping off.
+   *
+   * This is the question every "where is the bonnet's colour coming from" round
+   * has had to answer and none has had a tool for. A panel at `metalness: 1.0`
+   * is a mirror, so its colour *is* this function evaluated along its own
+   * reflection vector; combined with the `ibl:` mesh names above (toggle a
+   * class of them and re-sample) it attributes a panel's cast to one surface of
+   * the proxy world rather than to a hypothesis about one.
+   */
+  let dbgRt: THREE.WebGLRenderTarget | null = null;
+  const dbgCam = new THREE.PerspectiveCamera(8, 1, 0.1, 400);
+  const dbgAt = new THREE.Vector3();
+  const sample = (
+    dirs: ReadonlyArray<readonly [number, number, number]>,
+    fovDeg = 8,
+  ): number[][] => {
+    const N = 24;
+    if (!dbgRt) dbgRt = new THREE.WebGLRenderTarget(N, N, { type: THREE.FloatType });
+    const buf = new Float32Array(N * N * 4);
+    const prevTarget = renderer.getRenderTarget();
+    const prevTone = renderer.toneMapping;
+    renderer.toneMapping = THREE.NoToneMapping;
+    dbgCam.fov = fovDeg;
+    dbgCam.updateProjectionMatrix();
+    dbgCam.position.copy(PROBE);
+    const out: number[][] = [];
+    for (const d of dirs) {
+      dbgAt.set(PROBE.x + d[0], PROBE.y + d[1], PROBE.z + d[2]);
+      dbgCam.lookAt(dbgAt);
+      dbgCam.updateMatrixWorld(true);
+      renderer.setRenderTarget(dbgRt);
+      renderer.render(scene, dbgCam);
+      renderer.readRenderTargetPixels(dbgRt, 0, 0, N, N, buf);
+      let r = 0, g = 0, b = 0;
+      for (let i = 0; i < N * N; i++) { r += buf[i * 4]; g += buf[i * 4 + 1]; b += buf[i * 4 + 2]; }
+      out.push([r / (N * N), g / (N * N), b / (N * N)]);
+    }
+    renderer.setRenderTarget(prevTarget);
+    renderer.toneMapping = prevTone;
+    return out;
+  };
+
   (globalThis as unknown as Record<string, unknown>).__IBL_DBG = {
-    scene, cubeRT, renderer, probe: PROBE, groundUniforms,
+    scene, cubeRT, renderer, probe: PROBE, groundUniforms, sample,
     rebake: (p: EnvPreset, s: { x: number; y: number; z: number }): void =>
       bake(p, new THREE.Vector3(s.x, s.y, s.z)),
   };
