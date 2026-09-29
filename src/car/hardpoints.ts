@@ -426,11 +426,16 @@ export const HP = {
     bumperBottomY: 0.496,
     bumperZ: TAIL,
     /**
-     * 0.613 described the old full-height band. The bead's own centre is
-     * 25 mm below it, and `rubStripHeight` is the developed arc width of the
-     * bright cap — see the note on the front pair.
+     * 0.613 described the old full-height band, and I then moved this to
+     * 0.588 — **the wrong number**. That was a report of where the rear bead
+     * happened to sit, encoded as though it were where the bead belongs. The
+     * bead's *height* is `rubStripHeight`; its *centre* stays on the line,
+     * and the front bead is at 0.625 and the flank cap at 0.630. A continuous
+     * bright line cannot step down 42 mm at the rear arch, and
+     * `bat3_side_profile.jpg` shows it unbroken at one height to within 63 mm
+     * of the rearmost point of the car.
      */
-    rubStripY: 0.588,
+    rubStripY: 0.628,
     rubStripHeight: 0.012,
 
     /** In the TAILGATE, set into the ribbed panel between the lamps. */

@@ -605,6 +605,28 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
    * 0.152. Reported — do not reach for `chrome()` to get it, the rung that
    * exists blows the corners (see above, and the round's report).
    */
+  /*
+   * TESTED AND REJECTED: `anodised({ color: 0xd0d4d8, roughness: 0.42 })`.
+   *
+   * The round that added that rung measured it on the FLANK cap, where it
+   * takes the part from no pixel above 176 anywhere to 7.7 % of it, and
+   * recommended the same one-line change here. It does not transfer. At
+   * `photomatch` the front bead goes from
+   *
+   *     208.7 208.8 209.2 209.2 209.4      (this)
+   *     205.1 205.1 205.6 205.7 205.9      (anodised 0.42)
+   *
+   * i.e. still dead flat, no range gained at all — while the road outboard of
+   * the bumper lifts 67.4 -> 72.0 and the car's below-40 share falls
+   * 7.4 -> 6.1 %. Tone profile 11.2 -> 12.0.
+   *
+   * The difference is geometry, not material. On the flank in `side` the cap
+   * is at a grazing angle to a low sun and a metalness-1 surface separates
+   * into a dark two thirds and a clipping third; on the nose in `photomatch`
+   * it faces a camera with the sun behind it, and metal at roughness 0.42
+   * just returns the sky evenly. The bead is flat here because of where it
+   * points, and no rung on the ladder fixes that.
+   */
   const strip = ctx.materials.dirtyMetal({
     color: 0xd0d4d8, roughness: 0.62, metalness: 0.35, grime: 0.25,
   });
