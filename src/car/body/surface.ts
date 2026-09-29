@@ -216,15 +216,18 @@ const xBelt = spline(
   [-0.345, 0.862],
   [-0.520, 0.857],
   [-1.600, BODY.tumblehomeTop],                  // 0.855
-  [-2.600, 0.854],
-  [-2.978, 0.850],
+  [HP.side.doorRearZ, 0.8535],                   // -2.463, the quarter's front edge
   // The tail's taper in plan. These were 0.843 / 0.836 / 0.822, so the
   // beltline ran nearly parallel to the centreline right to the back of the
   // car and the tailgate came out a full-width slab. Then 0.838 / 0.820 /
-  // 0.795, which was still 100 mm a side wide: see the note on `dloFullX`
-  // below for the measurement these and the levels under them now come from.
-  [-3.300, 0.817],
-  [-3.500, 0.764],
+  // 0.795, then 0.850 at −2.978 / 0.817 / 0.764 — and that last set is where
+  // the taper was found to start 700 mm too far aft. See the note on
+  // `dloFullX` below.
+  [-2.687, 0.830],
+  [-2.900, 0.800],
+  [-3.100, 0.774],
+  [-3.300, 0.750],
+  [-3.500, 0.722],
   [Z_TAIL_END, 0.692],
 );
 
@@ -289,11 +292,56 @@ const dloFullY = spline(
  * the dlo-mid level almost all the way onto the roof edge, which is what the
  * 13 mm between them at y 1.109 and 1.122 means.
  *
- * In z the taper is spread over the rear overhang as (delta at the tail) x
- * s^2 with s = 0 at z −2.978 and 1 at `Z_TAIL_END`, so it starts flat at the
- * D-pillar and steepens into the corner. Nothing forward of −2.978 moves:
- * the maximum half-width over the rear arch, the wheelbase and the whole side
- * elevation are untouched.
+ * ## In z: the taper began 700 mm too far aft, and that is now fixed
+ *
+ * It used to be spread over the rear overhang as (delta at the tail) x s^2
+ * with s = 0 at z −2.978, which is flat at the D-pillar and steepens into the
+ * corner — so by z −3.30 only a fifth of it had happened and the loft still
+ * held 0.866 where the tail face is 0.776. `0199dd9` found the consequence
+ * the hard way: narrowing the tail FACE alone made the corner sliver WIDER,
+ * 15 mm to 90, because in a dead-astern view the silhouette is not the face.
+ * It is whatever station of the quarter the camera can still see past the
+ * lamp — and the face, being the nearest thing to the camera, is the one
+ * station that cannot be it.
+ *
+ * The taper now starts at `HP.side.doorRearZ` (−2.463), the quarter panel's
+ * own front edge, and runs monotonically to the face. `xWide` keeps its pin
+ * at `HP.side.archLipX` at the arch crown, so the maximum half-width, the
+ * wheelbase and the whole side elevation are still untouched; everything
+ * forward of the rear door's shutline is byte-identical.
+ *
+ * ## What the photograph bounds, and what it does not
+ *
+ * The dead-astern frame bounds the half-width at EVERY visible station, not
+ * just at the face, because a station delta metres forward of the tail plane
+ * images at delta/(D+delta) less. Measured on the same frame: the tyre span
+ * is 1.032 of the taillamp band and the tyres' widest locus is 0.84 m forward
+ * of the tail plane, which with a 1468 mm rear track on 205-section tyres
+ * (both photographed cars are Turbo quattros) puts D at 12 m; the silhouette
+ * across the lamp band is 1.013 of the band — 12 px of paint outboard of one
+ * lamp and 3 of the other, the car carrying a little yaw — which at
+ * `lampOuterX` 0.750 is 0.763 apparent per side. So
+ *
+ *     x(z)  <=  0.763 x (12 + delta) / 12,     delta = 3.786 + z
+ *
+ * and the loft now lands within 2-14 mm of that from z −3.0 aft, against
+ * 40-70 mm over it before.
+ *
+ * Forward of the arch the same bound gives 0.833 at the rear axle and 0.858
+ * at z −2.30, against the 0.888 this loft carries at the taillamp band's
+ * height from z −1.6 all the way back. **That is where the remaining
+ * dead-astern reveal comes from, and it cannot be fixed here**: it needs
+ * `HP.side.archLipX` (`HW − 0.016`, 0.891) to come in at the rear, and no
+ * section shape can hold 0.891 at y 0.600 and reach 0.832 at y 0.75 a
+ * hundred millimetres above it without a crease. Reported, not worked
+ * around. The bound is robust to the lamp band's own width u, because a
+ * wider band forces a longer camera distance through the tyre constraint and
+ * gives back the foreshortening it borrowed. Eliminating D leaves
+ *
+ *     x_arch  <=  1.0745 − 0.1562 u
+ *
+ * — 0.840 at u = 1.50, and still 0.871 at a band as narrow as 1.30. Built:
+ * 0.8875.
  *
  * The earlier ratio table is kept because it is still the check on the shape:
  *
@@ -326,9 +374,11 @@ const xWide = spline(
   // knot at -2.687 an upward tangent into a flat segment, and a Catmull-Rom
   // with equal endpoints and a non-zero end tangent bulges: 1.4 mm above
   // `archLipX` at z -2.32, in the middle of the quarter panel.
-  [-2.900, 0.8888],
-  [-3.200, 0.877],
-  [-3.500, 0.833],
+  [-2.760, 0.8900],
+  [-2.900, 0.8760],
+  [-3.100, 0.8480],
+  [-3.300, 0.8190],
+  [-3.550, 0.7930],
   [Z_TAIL_END, 0.776],
 );
 
@@ -435,8 +485,9 @@ const flankCrown = spline(
   [0.000, 0.006],
   [-0.455, 0.008],
   [-2.585, 0.008],
-  [-3.100, 0.009],
-  [-3.300, 0.024],
+  [-3.000, 0.009],
+  [-3.300, 0.014],
+  [-3.500, 0.024],
   [Z_TAIL_END, 0.040],
 );
 

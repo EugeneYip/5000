@@ -24,6 +24,7 @@ import { HP } from '@/car/hardpoints';
 import { audiMaterials } from '@/materials/library';
 import { QUALITY } from '@/spec';
 import type { BuildContext } from '@/types';
+import { Z_TAIL_END } from '@/car/body/surface';
 import { sideNormal, sidePoint, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
 import { badgeText } from './glyphs';
 import {
@@ -102,10 +103,11 @@ function flankFrames(zRear: number, zFront: number, y: number, n: number): Frame
  * the moulding's top edge with dark plastic above it, which no photograph of
  * the car shows.
  *
- * ## The line dies 281 mm short of the rear bumper, and 40 mm above it
+ * ## The line used to die 281 mm short of the rear bumper, and 40 mm above it
  *
- * Reported, not fixed: both ends of it are hardpoints and the far end is
- * `bumpers.ts`. Measured off `__AUDI.bbox` —
+ * The z gap is closed — see `STRIP_REAR_Z` below. The 42 mm step in y is
+ * still there and is `bumpers.ts`'s hardpoint. Measured off `__AUDI.bbox`
+ * before the change —
  *
  *   frontRubStrip  z  0.497 … 1.079   y 0.618–0.632
  *   rubStripLine   z −3.420 … 0.495   y 0.623–0.638
@@ -129,6 +131,31 @@ function flankFrames(zRear: number, zFront: number, y: number, n: number): Frame
 const STRIP_HEIGHT = S.rubStripHeight;
 const STRIP_Y = S.rubStripY;
 
+/**
+ * Aft end of the flank moulding.
+ *
+ * `HP.side.rubStripRearZ` is TAIL + 0.398 (−3.418) and the rear bumper's own
+ * bead starts at −3.701, so 283 mm of the car's most prominent bright line
+ * simply did not exist — picked at `side`, what read as the moulding carrying
+ * on is painted quarter panel in shadow. The front end does not have that
+ * hole: `rubStripFrontZ` 0.495 lands within 2 mm of `frontRubStrip`'s 0.497,
+ * which is what makes the nose read as one part. So the rear hardpoint is not
+ * describing the same thing its own front counterpart describes, and the
+ * value that matches it is where the rear bead begins.
+ *
+ * `Z_TAIL_END` is that station: `bumpers.ts` builds `rearRubStrip` from the
+ * body's last lofted station aft, so deriving from it here means the two
+ * cannot drift apart when either moves. `bat3_side_profile.jpg` has the
+ * bright cap unbroken to within 63 mm of the rearmost point of the car, at
+ * one height the whole way, which is what this now does.
+ *
+ * Still wrong and NOT worked around here: the rear bead's centreline sits at
+ * `HP.rear.rubStripY` 0.588 against this line's 0.630, so the two meet in z
+ * and step 42 mm in y. That is `bumpers.ts`'s hardpoint and is reported, not
+ * patched — see the stream report.
+ */
+const STRIP_REAR_Z = Z_TAIL_END;
+
 const HH = STRIP_HEIGHT / 2;
 
 /** Outer face of the moulding: a soft crown, fullest a little above centre. */
@@ -150,8 +177,8 @@ function stripSection(scale: number): Pt[] {
 }
 
 function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeometry } {
-  const frames = flankFrames(S.rubStripRearZ, S.rubStripFrontZ, STRIP_Y, 86);
-  const span = Math.abs(S.rubStripFrontZ - S.rubStripRearZ);
+  const frames = flankFrames(STRIP_REAR_Z, S.rubStripFrontZ, STRIP_Y, 94);
+  const span = Math.abs(S.rubStripFrontZ - STRIP_REAR_Z);
   const capFrac = 0.045 / span;
 
   const body = sweep(
