@@ -261,12 +261,16 @@ const STRIP_FRAMES = 94;
  * 0.560 the tangent construction would put those edges 0.2–8.1 mm proud all
  * over again, on a band that by then straddles the body's widest line.
  */
-function onSkin(z: number, f: Frame, sec: ReadonlyArray<Pt>): Pt[] {
+function onSkinAt(z: number, f: Frame, y0: number, sec: ReadonlyArray<Pt>): Pt[] {
   const d = new THREE.Vector3();
   return sec.map(([lx, ly]) => {
-    d.copy(sidePoint(z, STRIP_Y + ly)).sub(f.o);
+    d.copy(sidePoint(z, y0 + ly)).sub(f.o);
     return [d.dot(f.r) + lx, d.dot(f.u)] as Pt;
   });
+}
+
+function onSkin(z: number, f: Frame, sec: ReadonlyArray<Pt>): Pt[] {
+  return onSkinAt(z, f, STRIP_Y, sec);
 }
 
 function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeometry } {
@@ -295,6 +299,124 @@ function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeome
     { uvScale: 0.25 },
   );
   return { body, bright };
+}
+
+// ---------------------------------------------------------------------------
+// Lower body cladding — the two-tone
+// ---------------------------------------------------------------------------
+
+/**
+ * The rocker cover, and it was simply missing: our flank ran painted from the
+ * moulding's bottom edge all the way under the sill.
+ *
+ * §2.2 calls it — *"below the moulding the rocker area is finished in the same
+ * dark grey, giving a two-tone effect on light-coloured cars"* — and both
+ * flank photographs have it, referenced to the **measured contact line** and
+ * not to the hub (`b7157e3`: both photographed cars sit ~24 mm down on their
+ * tyres, so a hub-referenced flank reading comes back ~25 mm high).
+ *
+ * ## Where its edges are
+ *
+ * Segmented on **chroma**, not luminance. On the red car the paint's luma is
+ * ~35, *under* the 60-luma threshold that separates "black plastic" from
+ * "paint" on the silver one, so a luma scan calls red paint plastic and finds
+ * a cladding 200 mm deep. `V = max(R,G,B)` separates both: paint is 160-180,
+ * this part is 5-20 and neutral on **both** cars, which is what proves it is
+ * a separate part and not the flank falling into shade.
+ *
+ * Column-scanned every 20 px along the doors, corrected for each frame's own
+ * yaw (measured by the scale that maps the front wheel onto the rear one:
+ * 1.005 on the silver car, 1.020 on the red):
+ *
+ *     top edge   silver 371 +- 1.5    red 363 +- 2      rise over WB +3 / +6 mm
+ *     bottom     silver 247 +- 8      red ~250 (the road edge is soft)
+ *
+ * So 0.367 and level, within the 8 mm the two cars disagree by, and its bottom
+ * is the sill's own underside — which is why it is taken from the loft's floor
+ * knot here rather than tabulated: the part wraps under the rocker and the
+ * reference simply stops being able to see it.
+ *
+ * ## What is NOT here
+ *
+ * The 130 mm between the moulding's bottom edge (~510) and this part's top
+ * edge (367) is **body colour**, not a light-grey panel. It reads as a
+ * distinct grey on the silver car — R≈G≈B 124/126/128 against 163/170/178 for
+ * the paint 200 mm higher — but that is silver paint turning away from the sky,
+ * and the red car settles it: the same band measures 160/1/1 there, pure paint.
+ */
+const CLAD_TOP_Y = 0.367;
+/**
+ * Where the loft's floor knot is, so the cover dies under the sill instead of
+ * ending on a visible edge part-way down it. `sideX` is flat below ~0.235
+ * (`tAtY` has saturated at `T.floor`), so anything lower would stack section
+ * points on one skin point.
+ */
+const CLAD_BOT_Y = 0.244;
+const CLAD_MID_Y = (CLAD_TOP_Y + CLAD_BOT_Y) / 2;
+const CLAD_HH = (CLAD_TOP_Y - CLAD_BOT_Y) / 2;
+
+/**
+ * Ends 25 mm short of the arch opening's lip at the cover's own top edge — on
+ * `bat3_side_profile.jpg` at 5x the aft end stands 26 mm ahead of the rear
+ * arch lip with painted quarter between the two. `archRadius` is the lip's
+ * horizontal semi-axis and `archFlatten` its vertical one, the same
+ * superellipse `body/surface.ts` cuts the arch with, evaluated at `CLAD_TOP_Y`
+ * rather than at the crown — pinning an end to `archRadius` itself is the
+ * `mudFlaps` / `liners.ts` bug in its longitudinal form.
+ */
+function archHalfSpanAt(y: number): number {
+  const b = S.archRadius * S.archFlatten;
+  const dy = Math.abs(y - HP.wheelRadius) / b;
+  const n = 2.55;
+  return S.archRadius * Math.pow(Math.max(0, 1 - Math.pow(Math.min(dy, 1), n)), 1 / n);
+}
+
+/**
+ * Section, in the frame's own right/up coordinates, where `x` is **proud of
+ * the skin at that point's own height** — `onSkinAt` puts each point on
+ * `sidePoint` first. So this describes a 4 mm cover, not a 4 mm plane.
+ *
+ * Both extreme-height points are 2 mm UNDER the skin. A cover whose top edge
+ * is level with the paint puts its 14 mm back shelf coplanar with the panel it
+ * hides, which is the failure `b7157e3` found on the rubbing strip and
+ * `5b4becd` on the front bead: the shelf becomes the frontmost hit at a
+ * grazing angle and comes back facing the sky. Buried, it cannot.
+ */
+const CLAD_FACE: Pt[] = [
+  [-0.0020, CLAD_HH],
+  [0.0012, CLAD_HH - 0.0042],
+  [0.0032, CLAD_HH - 0.0092],
+  [0.0038, CLAD_HH - 0.0190],
+  [0.0040, -CLAD_HH + 0.0420],
+  [0.0036, -CLAD_HH + 0.0170],
+  [0.0026, -CLAD_HH + 0.0072],
+  [-0.0020, -CLAD_HH],
+];
+
+function lowerCladding(): THREE.BufferGeometry {
+  const span = archHalfSpanAt(CLAD_TOP_Y) - 0.025;
+  const zFront = -span;
+  const zRear = S.archRearCenter[2] + span;
+  const n = 76;
+  const frames = flankFrames(zRear, zFront, CLAD_MID_Y, n);
+  const zAt = (j: number): number => lerp(zRear, zFront, j / n);
+  const capFrac = 0.055 / Math.abs(zFront - zRear);
+  const sec: Pt[] = [...CLAD_FACE, [-0.014, -CLAD_HH], [-0.014, CLAD_HH]];
+
+  return sweep(
+    (j, t) => {
+      // Dying into the arch rather than ending square: the last 55 mm draw the
+      // face back to the skin, so the end cap is buried and never silhouettes.
+      // Only the proud part tapers — the two buried edges and the back shelf
+      // keep their depth, or the ends would surface and go coplanar with the
+      // rocker exactly where the taper is meant to hide them.
+      const k = lerp(0.10, 1, smoothstep(clamp(Math.min(t, 1 - t) / capFrac, 0, 1)));
+      return onSkinAt(zAt(j), frames[j], CLAD_MID_Y,
+        sec.map(([x, y]) => [x > 0 ? x * k : x, y] as Pt));
+    },
+    frames,
+    { closed: true, capStart: true, capEnd: true, uvScale: 0.25 },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -427,6 +549,12 @@ export function buildSides(ctx: BuildContext): THREE.Group {
   const strip = rubbingStrip();
   group.add(mesh('rubStrip', merge([strip.body, mirrorX(strip.body)]), plastic));
   group.add(mesh('rubStripLine', merge([strip.bright, mirrorX(strip.bright)]), capStrip));
+
+  // --- lower body cladding -------------------------------------------------
+  {
+    const g = lowerCladding();
+    group.add(mesh('lowerCladding', merge([g, mirrorX(g)]), plastic));
+  }
 
   // Small oval "audi" on the front-fender section of the moulding, just aft of
   // the front wheel arch (§2.6).
