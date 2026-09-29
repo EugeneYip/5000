@@ -24,7 +24,7 @@ import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
 import { LIGHTS, QUALITY } from '@/spec';
 import type { BuildContext } from '@/types';
-import { rearFaceZ, rearHalfWidth } from './bodyref';
+import { rearFaceZ, rearHalfWidth, sideX } from './bodyref';
 import {
   at, clamp, framesXZ, lathe, lerp, merge, mesh, offsetPolyline, profileStrip,
   roundedBox, smoothstep, sweep, type Frame, type Pt,
@@ -71,8 +71,8 @@ function spine(faceZ: number, sign: 1 | -1, samples = 6): Array<[number, number]
 }
 
 /**
- * Plan-form of the TAIL moulding: the tail's own rear face, carried aft by the
- * standoff `HP.rear.bumperZ` asks for at the centreline.
+ * Plan-form of the TAIL moulding: the body's own outline at the moulding's
+ * height, pushed out along that outline's **normal**.
  *
  * The nose's `PLAN` was being swept at both ends of the car and the two
  * plan-forms are nothing like each other. The nose falls away from the
@@ -80,33 +80,101 @@ function spine(faceZ: number, sign: 1 | -1, samples = 6): Array<[number, number]
  * rear face is flat to |x| ≈ 0.55 and then wraps hard. Swept at the tail,
  * `PLAN` put the moulding 38 mm forward of its own crown at x 0.569 where the
  * body had moved 3 mm, so everything outboard of about half-width sat *behind*
- * the sheet metal and `body.ts`'s `rearLower` occluded it. `__AUDI.pick`
- * straight at the bumper returned `rearLower` first and `rearBumper` 16 mm
- * behind it from |x| ≈ 0.5 outwards.
+ * the sheet metal and `body.ts`'s `rearLower` occluded it.
  *
- * It survived three reviews because the old moulding was 244 mm tall: the
- * middle metre of it still read as a black bar and nobody asked why the ends
- * faded. At the re-derived 113 mm there is not enough left to hide the fault.
+ * ## …and then it was offset the wrong way, which is this round's finding
  *
- * Built from `rearFaceZ` rather than written down, so the moulding wraps
- * exactly where the body does and a change to the tail's section cannot leave
- * it buried again.
+ * The version that fixed the above still displaced the outline purely **aft**
+ * and stopped at `rearHalfWidth(midY) − 0.006`, so the moulding was built
+ * 6 mm *inside* the body at every height and could not be the silhouette
+ * anywhere. On `bat_rear_straight_b.jpg` it is. Measured centre-free, as
+ * (right edge − left edge) at the 50 % crossing so no estimate of the car's
+ * centreline enters:
+ *
+ *     taillamp band  452   → 1620.5 px = 1168.5
+ *     black moulding 425.5 → 1646   px = 1220.5   ratio **1.044**
+ *     apron below it 446.5 → 1627   px = 1180.5   ratio 1.010
+ *
+ * — the moulding stands ~34 mm a side proud of the tail and the apron does
+ * not. The two midpoints agree to half a pixel (1035.8 against 1036.3), which
+ * is the check that the two spans are commensurate. The car's shaded flank
+ * makes the left edge the soft one, ±2–3 px, so the ratio is 1.03–1.045; 1.04
+ * is taken. (The 1.07 this round was briefed with is high, but the finding it
+ * carries is the same one: the bumper is the widest thing on the car.)
+ *
+ * A bumper is a shell laid *on* the panel, so the fix is to offset along the
+ * outline's own normal instead of along −Z: at the centreline the normal is
+ * −Z and the crown still lands on `HP.rear.bumperZ` to the micron, and at the
+ * corner the normal has swung outboard and the same standoff buys the
+ * proudness the photograph shows. Tapering it back through the wrap lands the
+ * widest station at **x 0.803** — picked, not computed — against
+ * `rearHalfWidth(0.80) × 1.04 = 0.805`. `__AUDI.pick` on `rear` finds
+ * `rearBumper` itself frontmost there, so it is a real edge and not something
+ * buried behind the quarter panel.
+ *
+ * The outline is carried on past the corner and up the flank so the moulding
+ * dies *inside* the quarter panel rather than ending in the silhouette — the
+ * old code bought that by never being proud at all.
+ *
+ * Returns the section depth per station too: the plan turns through ~45° in
+ * 80 mm at the corner, a radius of about 100 mm, and a 116 mm return folds
+ * through itself on the inside of a turn that tight. Depth is driven off the
+ * plan's own heading here rather than off |x| as the nose's is, because the
+ * run-on doubles back in x and |x| cannot tell the two passes apart.
  */
-function tailPlan(midY: number, samples = 40): Array<[number, number]> {
-  // Constant along the span, and set by the hardpoint: at the centreline the
-  // crown lands on `HP.rear.bumperZ` exactly, as it did before.
+/** How far past the tail's corner the moulding runs before it is buried. */
+const TAIL_RUN_ON = 0.22;
+/** Half-width at which the standoff starts giving itself back through the wrap. */
+const TAIL_WRAP_X = 0.74;
+/** How far inside the quarter panel the buried end finishes. */
+const TAIL_TUCK = 0.009;
+
+function tailPlan(midY: number): { plan: Array<[number, number]>; depths: number[] } {
   const standoff = rearFaceZ(0, midY) - HP.rear.bumperZ;
-  const xEnd = rearHalfWidth(midY) - 0.006;
-  const half: Array<[number, number]> = [];
-  for (let i = 0; i <= samples; i++) {
-    const x = (xEnd * i) / samples;
-    // The last eighth of the span gives the standoff back, so the moulding
-    // dies into the quarter panel instead of ending in the silhouette.
-    const k = 1 - smoothstep(clamp((x / xEnd - 0.875) / 0.125, 0, 1));
-    half.push([x, rearFaceZ(x, midY) - standoff * k]);
+  const hw = rearHalfWidth(midY);
+  const zCorner = rearFaceZ(hw, midY);
+
+  // The body's own outline at this height, across the tail face and then
+  // forward along the flank.
+  const nFace = 34, nSide = 12;
+  const outline: Array<[number, number]> = [];
+  for (let i = 0; i <= nFace; i++) {
+    const x = (hw * i) / nFace;
+    outline.push([x, rearFaceZ(x, midY)]);
   }
+  for (let i = 1; i <= nSide; i++) {
+    const z = zCorner + (TAIL_RUN_ON * i) / nSide;
+    outline.push([sideX(z, midY), z]);
+  }
+
+  const arc = [0];
+  for (let i = 1; i < outline.length; i++) {
+    arc.push(arc[i - 1] + Math.hypot(outline[i][0] - outline[i - 1][0], outline[i][1] - outline[i - 1][1]));
+  }
+  let s0 = arc[nFace];
+  for (let i = 0; i <= nFace; i++) if (outline[i][0] >= TAIL_WRAP_X) { s0 = arc[i]; break; }
+  // Hold the buried end at full tuck over the last stations instead of only
+  // reaching it at the very tip: a plan that grazes the skin for 100 mm
+  // leaves the moulding's crown flickering through the quarter panel.
+  const s1 = arc[arc.length - 1] - TAIL_RUN_ON * 0.4;
+
+  const half: Array<[number, number]> = [];
+  const halfDepth: number[] = [];
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[Math.max(0, i - 1)];
+    const b = outline[Math.min(outline.length - 1, i + 1)];
+    const tx = b[0] - a[0], tz = b[1] - a[1];
+    const len = Math.hypot(tx, tz) || 1;
+    const d = lerp(standoff, -TAIL_TUCK, smoothstep(clamp((arc[i] - s0) / (s1 - s0), 0, 1)));
+    half.push([outline[i][0] + (tz / len) * d, outline[i][1] - (tx / len) * d]);
+    halfDepth.push(lerp(0.255, 0.055, clamp(Math.abs(tz / len) / 0.45, 0, 1)));
+  }
+
   const left = half.slice(1).reverse().map(([x, z]) => [-x, z] as [number, number]);
-  return [...left, ...half];
+  return {
+    plan: [...left, ...half],
+    depths: [...halfDepth.slice(1).reverse(), ...halfDepth],
+  };
 }
 
 /**
@@ -131,6 +199,22 @@ function tailPlan(midY: number, samples = 40): Array<[number, number]> {
  * *backwards* for any `h` under 17 mm, so `0.014` laid the tail's last four
  * stations back up the face it had just come down, and the bead's real bottom
  * was `t - 0.013` with a 3 mm fold-back hanging off it.
+ *
+ * Re-measured this round and 0.012 stands: the cap runs 7–9 px across the
+ * span of `bat_rear_straight_b.jpg`, 8 px typical = 10.6 mm projected, and
+ * the built bead comes back 4 px against the photograph's 3.6 once the two
+ * frames are put on the same lamp-band scale.
+ *
+ * Where it sits, though, is not what the hardpoint says. Read per column
+ * against that column's OWN taillamp gasket minima — which cancels the ~0.5°
+ * of roll in the frame, and taking a single global lamp row instead is what
+ * made an earlier pass of this measurement read 35 mm low — the cap's centre
+ * is 76 px below the lamp's bottom on a 139 px band, i.e. 100.6 mm under
+ * `lampBottomY`: **0.603**, with its top on 0.609. So `HP.rear.bumperTopY`
+ * 0.609 is right to the millimetre and `HP.rear.rubStripY` 0.628 is 25 mm
+ * high — it stands the bead 19 mm ABOVE the moulding it is supposed to cap.
+ * Nothing reads `HP.rear.rubStripY`; the bead is derived from the moulding's
+ * own profile here. Reported.
  *
  * `HP.front.rubStripHeight` should be 0.015 and `HP.rear` wants its own —
  * both reported, neither edited here.
@@ -157,6 +241,8 @@ export interface BumperSpec {
   beadWidth: number;
   /** Plan-form, as (half-width, z). The nose's `PLAN` is not reusable here. */
   plan: Array<[number, number]>;
+  /** Section depth per plan station — how far the return reaches into the body. */
+  depths: number[];
 }
 
 /** How far the face falls back from its crown at height `y`. */
@@ -170,23 +256,69 @@ function crown(s: BumperSpec, y: number): number {
 }
 
 /**
- * The top roll, from the back of the shelf round to the head of the face.
+ * The top roll, from the back of the shelf round to the head of the face —
+ * and the point within it at which the bright bead starts.
  *
  * Split out of `outerProfile` because `rubStrip` walks the same points: a bead
  * authored on a curve of its own drifts off the surface it is meant to cap,
  * and the previous one did — it began 10.5 mm further back and 1.8 mm higher
  * than the moulding's own crown, so it re-skinned the whole shelf instead of
  * capping its edge.
+ *
+ * The two ends of the car need different rolls and this used to be one
+ * function serving both. On the nose `HP.front.bumperZ` puts the moulding's
+ * top out in front of the lamps as a genuine 43 mm shelf and the crown stands
+ * 11 mm *above* `bumperTopY`; that is the 5000's face and it is deliberate.
+ * At the tail it was simply inherited, and it is what this round found.
  */
-function crownProfile(s: BumperSpec): Pt[] {
+interface Crown {
+  pts: Pt[];
+  /** Index into `outerProfile` where the bead begins. */
+  beadAt: number;
+}
+
+function crownProfile(s: BumperSpec): Crown {
   const t = s.topY;
-  return [
-    [-0.0325, t + 0.0110],
-    [-0.0182, t + 0.0072],
-    [-0.0092, t + 0.0034],
-    [-0.0040, t - 0.0018],
-    [-0.0026, t - 0.0078],
-  ];
+  if (s.sign > 0) {
+    return {
+      pts: [
+        [-0.0325, t + 0.0110],
+        [-0.0182, t + 0.0072],
+        [-0.0092, t + 0.0034],
+        [-0.0040, t - 0.0018],
+        [-0.0026, t - 0.0078],
+      ],
+      beadAt: 5,
+    };
+  }
+  /*
+   * The tail's roll, crested exactly on `HP.rear.bumperTopY`.
+   *
+   * Inheriting the nose's put the crest at `topY + 0.011` and gave it a 24 mm
+   * near-horizontal run to get there, and dead astern that cost 9 projected
+   * pixels above the bead where the photograph has body colour. Five of those
+   * nine picked back with a world normal of **ny +0.99** — the same
+   * upward-facing shelf mirroring the sky that `5b4becd` found on the nose,
+   * one car-width of it, on a part whose whole job is to read matte.
+   *
+   * A bumper does have a top surface, so the sky-facing run is not removed,
+   * only shortened and levelled: 2.6 mm of rise over 18 mm instead of 11 mm
+   * over 24, which at the 0.49° depression of the `rear` pose is under a
+   * pixel. Below the crest `d` increases monotonically, so no part of this
+   * roll faces the road — the trap `5b4becd` hit laying the nose's bead from
+   * the turn and picking back ny −0.64.
+   */
+  return {
+    pts: [
+      [-0.0268, t - 0.0026],
+      [-0.0165, t - 0.0011],
+      [-0.0110, t - 0.0003],
+      [-0.0090, t],
+      [-0.0076, t - 0.0036],
+      [-0.0068, t - 0.0082],
+    ],
+    beadAt: 3,
+  };
 }
 
 /** Outer profile of the moulding, face and both rolls, top to bottom. */
@@ -194,7 +326,7 @@ function outerProfile(s: BumperSpec): Pt[] {
   const t = s.topY;
   const b = s.bottomY;
   return [
-    ...crownProfile(s),
+    ...crownProfile(s).pts,
     ...profileStrip(t - 0.016, b + 0.024, 9, (y) => crown(s, y)),
     [crown(s, b + 0.015) - 0.0022, b + 0.0150],
     [crown(s, b + 0.007) - 0.0076, b + 0.0070],
@@ -208,8 +340,13 @@ function outerProfile(s: BumperSpec): Pt[] {
 function section(s: BumperSpec, depth: number): Pt[] {
   const outer = outerProfile(s);
   const back = -depth;
+  // The return's top edge. The nose carries it 19 mm above `bumperTopY`
+  // because its crown genuinely stands that proud; at the tail the same
+  // figure turns the last few millimetres before the skin into a sky-facing
+  // ramp, so it sits just clear of the crest instead.
+  const backTop = s.topY + (s.sign > 0 ? 0.0190 : 0.0030);
   return [
-    [back, s.topY + 0.0190],
+    [back, backTop],
     ...outer,
     [back * 0.86, s.bottomY - 0.0120],
     [back, s.bottomY - 0.0140],
@@ -220,7 +357,7 @@ function buildMoulding(s: BumperSpec): { geo: THREE.BufferGeometry; frames: Fram
   const pts = s.plan;
   const frames = framesXZ(pts, 0).map((f) => (s.sign > 0 ? f : { ...f, r: f.r.clone().negate() }));
   const geo = sweep(
-    (j) => section(s, lerp(0.255, 0.062, wrapK(pts[j][0]))),
+    (j) => section(s, s.depths[j]),
     frames,
     { closed: true, capStart: true, capEnd: true, flip: s.sign > 0, uvScale: 0.18 },
   );
@@ -273,6 +410,15 @@ function walk(pts: ReadonlyArray<Pt>, from: number, width: number): Pt[] {
  * way: 24 mm of lit band from a 14 mm setting. Walking the moulding's own
  * profile for `beadWidth` of arc puts every millimetre of the part under one
  * number, and that number is what a photograph of the car measures.
+ *
+ * ## Where it starts is per end, and the tail's was wrong
+ *
+ * The nose starts the bead where `crownProfile` hands over to the face, one
+ * point past the shelf's turn. Carried to the tail that left 27 mm of black
+ * moulding standing above the bead — 9 projected pixels dead astern — where
+ * `bat_rear_straight_b.jpg` has the bright cap as the topmost thing on the
+ * bumper with body colour directly over it and only a 1–2 px shutline
+ * between. So the tail's `beadAt` is the crest itself.
  */
 function rubStrip(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
   // Starting at the crown's 45° turn was the obvious reading and it is wrong:
@@ -284,7 +430,7 @@ function rubStrip(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
   // where `crownProfile` stops and `crown()` takes over, and where every
   // reference photograph puts it.
   const full = outerProfile(s);
-  const along = walk(full, crownProfile(s).length, s.beadWidth);
+  const along = walk(full, crownProfile(s).beadAt, s.beadWidth);
   // Proud of the moulding, as an applied extrusion is. At 2.5 mm/px this is
   // sub-pixel in the review frames and reads as the crisp line it is.
   const lifted = offsetPolyline(along, -0.0017);
@@ -633,6 +779,7 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
   const paint = ctx.materials.paint();
   const dark = ctx.materials.blackTrim();
 
+  const frontPlan = spine(HP.front.bumperZ, 1);
   const front: BumperSpec = {
     faceZ: HP.front.bumperZ,
     topY: HP.front.bumperTopY,
@@ -640,8 +787,10 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     sign: 1,
     valanceBottomY: HP.front.valanceBottomY,
     beadWidth: FRONT_BEAD_WIDTH,
-    plan: spine(HP.front.bumperZ, 1),
+    plan: frontPlan,
+    depths: frontPlan.map(([x]) => lerp(0.255, 0.062, wrapK(x))),
   };
+  const tail = tailPlan((HP.rear.bumperTopY + HP.rear.bumperBottomY) / 2);
   const rear: BumperSpec = {
     faceZ: HP.rear.bumperZ,
     topY: HP.rear.bumperTopY,
@@ -650,7 +799,8 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     // No rear valance figure is published; carry the front's drop across.
     valanceBottomY: HP.rear.bumperBottomY - (HP.front.bumperBottomY - HP.front.valanceBottomY),
     beadWidth: REAR_BEAD_WIDTH,
-    plan: tailPlan((HP.rear.bumperTopY + HP.rear.bumperBottomY) / 2),
+    plan: tail.plan,
+    depths: tail.depths,
   };
 
   const f = build(front);
