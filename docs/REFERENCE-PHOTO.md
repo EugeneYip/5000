@@ -81,6 +81,53 @@ Face `#f2f0ea`, characters `#1d2a4a`. The separator is a keystone, not a dot
 and not a comma — it reads comma-like in the photograph only because of the
 film grain and the shallow angle.
 
+## The datum for any reading off a flank photograph
+
+**Reference to the tyre's contact line, never to the hub.**
+
+A loaded tyre is not a circle. Both BaT flank cars measure hub-to-contact
+279.1 and 291.3 mm (silver, front and rear) and 266.9 and 279.8 (red) against
+a free radius of ~304 mm for the 185/70 HR14 — they sit about 25 mm down on
+their sidewalls with a driver's weight and a full tank on them. So a height
+taken as "hub centre minus free radius" comes back **~25 mm high**, uniformly,
+on every feature in the frame.
+
+That is not a small error here. It is most of the difference between the front
+bead being 40 mm out and being 62 mm out, and it was live in the hardpoints
+until `b7157e3`. `scratchpad/cl2_datum.py` finds both contact lines and the
+ground line through them; use it rather than re-deriving.
+
+The same script reports the frame's **tilt**, which is not the same thing as
+the ground line's slope — the hub-to-hub line and the contact line disagree
+by a few tenths of a degree because the two tyres deflect differently. Fit the
+ground line through the two contact patches and ignore the hubs entirely.
+
+**Yaw matters too, and it is not negligible.** A constant mm/px is only correct
+at the mean depth over the wheelbase. The scale that maps the front wheel patch
+onto the rear one is 1.0050 on the silver car and 1.0200 on the red, so height
+readings want ×1.005/×1.018 at the nose and ×0.995/×0.982 at the tail. It is a
+1-2% correction and it is what takes a cross-check from 8 mm to 4.8 mm.
+
+## Two things measured off the flank photographs, recorded here so they are not
+## re-derived
+
+- **The bright strip line rises over the wheelbase**: +42.5 mm (silver) and
+  +32.6 (red) on the bright cap's top edge, yaw-corrected; +43.8 and +38.8 on
+  the top of the dark band under it, uncorrected, which is the same measurement
+  plus the yaw term. The rocker cover's top edge in the same frames rises only
+  +20.0 and +11.9 with four times the scatter, so it is not a datum tilt — a
+  tilted ground fit would tilt both. Full note at `HP.side.rubStripY`.
+
+- **The side moulding runs unbroken to 81 mm from the tail.** Scanned aft of
+  the rear axle on `bat3_side_profile.jpg` in 20 px steps, a dark band is
+  present at strip height at every station from 815 mm forward of TAIL to
+  81 mm forward of it, and vanishes only at 28 mm, where the body has curved
+  out of a profile view. `HP.side.rubStripRearZ` is `TAIL + 0.398`, which ends
+  the flank band 317 mm short of that. **Whether that is a defect depends on
+  how far forward the rear bumper's own moulding wraps** — the two may meet
+  with no visible gap, and the `side` render suggests they do. Measured and
+  recorded; not yet resolved either way.
+
 ## Other details visible in the photograph
 
 - **Roof rails fitted** — visible above the windscreen header. Confirms Avant.
