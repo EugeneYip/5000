@@ -91,8 +91,39 @@ export const HP = {
   // Front end
   // -------------------------------------------------------------------------
   front: {
-    /** Grille aperture. Spans ±grilleHalfW, so 0.700 m overall. */
-    grilleHalfW: 0.37,
+    /**
+      * Grille aperture. Spans ±grilleHalfW, so 0.792 m overall.
+      *
+      * Was 0.37, ~26 mm too narrow per side. The **total** lamp band was
+      * already right — 4.89 plate-widths against the photograph's 4.85 — so
+      * nothing was mis-scaled; the grille/headlamp *split* was wrong and the
+      * lamps ate the difference.
+      *
+      * Two routes to it, both depth-free because the two cameras are within
+      * 0.5 % of each other at ~4.3 m (derived from the plate/grille
+      * magnification ratio):
+      *
+      *     grille half / band half    photo 0.5051  render 0.4675  -> 399.7 mm
+      *     grille half / plate width  photo 1.2218  render 1.1496  -> 393.2 mm
+      *
+      * 0.396 is the bracket's middle. `grilleSlatCrests` then lands at ±0.392.
+      *
+      * ⚠ **The render side is `pick`'s geometric edge, not a threshold.** A
+      * fixed-luminance threshold on identical geometry read 0.4513, 0.4646 and
+      * 0.4675 across three boots, because the crossing moves when the grille's
+      * own level moves. CRITIQUE-4's 0.448 is one of those readings and
+      * corresponds to an edge 15 mm inboard of the truth — which is why that
+      * document asked for ±0.415 and the measurement says ±0.392.
+      *
+      * Reported, not built: **the real aperture is a trapezoid.** Traced row
+      * by row the photograph's right edge runs 1192.0 px at the top to 1176.0
+      * at the bottom — monotone, no resolvable corner rounding — a 12° lean,
+      * ±17 mm of taper per side. Ours leans 0.3 px. It was not built because
+      * the lamp's inner edge is the same line and `body.ts`'s `noseLower` /
+      * `lampSideR` butt onto it, so a taper living only in the grille would
+      * open a seam at the nose pressing. It wants a hardpoint field of its own.
+      */
+    grilleHalfW: 0.396,
     grilleTopY: 0.812,
     grilleBottomY: 0.660,
     grilleZ: 0.942,
@@ -103,13 +134,22 @@ export const HP = {
 
     /** The four rings, centred in the grille. */
     ringsCenter: [0, 0.7415, 0.952] as [number, number, number],
-    /** Outer diameter of one ring, and the centre-to-centre spacing. */
-    ringDiameter: 0.080,
-    ringSpacing: 0.0615,
+    /**
+      * Outer diameter of one ring, and the centre-to-centre spacing.
+      *
+      * A uniform 0.93× on the group: the ring group measured 264 mm against
+      * 240-246. Ring-group over plate width is 0.7564 in the photograph
+      * against 0.8195 rendered, both geometric (`fourRingsFront` ±0.132
+      * projecting to 101.8 px). CRITIQUE-4 said 13 % from a thresholded 0.842;
+      * the geometric figure is 0.80-0.82, so it is **7-9 %**.
+      */
+    ringDiameter: 0.0743,
+    ringSpacing: 0.0571,
     ringTubeRadius: 0.0055,
 
-    /** Headlamp aperture, +X side. Inner edge meets the grille. */
-    lampInnerX: 0.37,
+    /** Headlamp aperture, +X side. Inner edge meets the grille — so this
+      * moves with `grilleHalfW` and always equals it. */
+    lampInnerX: 0.396,
     /**
      * Not the outer edge of the aperture — the aperture runs on to the body's
      * own half-width, as it does at the tail.
@@ -126,8 +166,16 @@ export const HP = {
     lampTopY: 0.820,
     lampBottomY: 0.652,
     lampZ: 0.952,
-    /** The outboard portion of the lamp is the amber indicator. */
-    indicatorInnerX: 0.688,
+    /**
+      * The outboard portion of the lamp is the amber indicator.
+      *
+      * **Not optional, and not independent of `lampInnerX`.** Moving the lamp's
+      * inner edge out 26 mm takes the clear lens's projected width down 10 px
+      * and the clear:amber ratio from 3.62 to 3.41 against the photograph's
+      * 3.65. Leaving the amber alone is what *breaks* a ratio that is currently
+      * correct; moving the split 5 mm is what protects it.
+      */
+    indicatorInnerX: 0.693,
 
     /**
      * ## The front furniture is high. The body is not.

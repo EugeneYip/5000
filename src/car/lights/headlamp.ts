@@ -30,7 +30,8 @@ import { LIGHTS } from '@/spec';
 import { noseFaceZ, noseHalfWidth } from '@/car/body/panels';
 import type { BuildContext } from '@/types';
 import {
-  bowl, bothSides, frame, filament, inset, merge, mirrored, slab, sliceX, spanAt, tubeZ,
+  bowl, bothSides, frame, filament, gridSurface, inset, limitsAt, merge, mirrored, slab,
+  sliceX, sliceY, spanAt, tubeZ,
   type Outline,
 } from './shapes';
 import { FILAMENT, fluteHorizontal, type Glow, type GlowFactory } from './optics';
@@ -42,8 +43,16 @@ const F = HP.front;
 const FACE = noseFaceZ;
 const FACING = 1 as const;
 
-/** Rubber seal between the lamp and the wing pressing. */
-const SEAL = 0.006;
+/**
+ * Rubber seal between the lamp and the wing pressing.
+ *
+ * With `BEZEL` this is the brightwork the glass loses at top and bottom, and
+ * 15 mm of it was 3 mm too much. Measured on the owner's photograph at the
+ * lamp's own column band: the bezel's outer edge to the glass is 671 → 677
+ * and 753 → 759 px, so **11.7 mm a side** at 1.95 mm/px, and the glass fills
+ * 148 mm of a 172 mm aperture where the model filled 138 of 168.
+ */
+const SEAL = 0.0035;
 /**
  * Bezel width across its visible face.
  *
@@ -171,7 +180,17 @@ const OPTIC: LensOptions = {
   // photograph still shows faintly through the glass, and they live in the
   // transmitted image this mixes away. At 0.8 the `headlight` close-up is a
   // blank white block.
-  homogenise: 0.60,
+  //
+  // **0.48 now, and the reason is that there is finally something behind the
+  // glass worth keeping.** The figure above was settled against a cavity whose
+  // only structure was the bowl's own specular lobe — an artefact to be mixed
+  // away — so the term was pushed until the aperture was flat, and it landed
+  // flat: row range 4.0 against the photograph's 12.1, which is the
+  // "featureless white card" of `CRITIQUE-4` §3 stated as a number. With the
+  // shelf and the chamber wall in there the transmitted image now carries the
+  // structure the photograph has, and mixing 60 % of it away would throw the
+  // fix out with the artefact. 0.48 keeps 52 %.
+  homogenise: 0.48,
   // Below the 0.70 an ideally diffusing cavity of these proportions would
   // have — rho*f/(1 - rho(1 - f)) for 88 % walls and a third-open aperture —
   // because this one is not diffusing: a mirror cavity puts part of its
@@ -224,12 +243,18 @@ const lensOutline: Outline = {
 };
 const AMBER_SPLIT = F.indicatorInnerX;
 /**
- * Half-width of the moulded wall between chambers.
+ * Half-width of the moulded wall between the amber and the clear sections.
  *
  * 4.5 mm read as a dark trench across the glass. The photograph's lamp is a
  * near-featureless sheet: the divisions are there, but as hairlines.
  */
 const DIVIDER = 0.0026;
+/**
+ * Half-width of the wall between the two CLEAR chambers, which is a different
+ * part and a different width — see `CHAMBER_SPLIT`. The photograph resolves
+ * it; it is the one division on the lamp that is meant to be seen.
+ */
+const CHAMBER_WALL = 0.0055;
 
 /**
  * How much bigger the reflector's own paraboloid is than the slot it is seen
@@ -245,8 +270,53 @@ const DIVIDER = 0.0026;
 const OPTIC_W = 1.3;
 const OPTIC_H = 2.4;
 
-/** Vertical division between the two clear chambers. */
-const CHAMBER_SPLIT = (lensOutline.xInner(0.78) + (AMBER_SPLIT - DIVIDER)) / 2;
+/**
+ * Vertical division between the two clear chambers.
+ *
+ * **It is not the midpoint.** It sat at the midpoint, and `CRITIQUE-4` §3 read
+ * `headlampDivider`'s bounds as ±0.692 and concluded the divider was at the
+ * lens's own inboard edge dividing nothing. That is the bounding-box trap:
+ * the mesh is a merge of *two* dividers, at 0.535 and 0.688, and a box round
+ * both reports only the outer one. The divider existed. It was in the wrong
+ * place and it could not be seen.
+ *
+ * Where it belongs, as a fraction of the clear lens's width measured from its
+ * inboard edge, on three photographs:
+ *
+ *     owner_1988.png, lower band where the flutes modulate   0.346
+ *     bat3_front3q.jpg, the dark wall at 4x                  0.36
+ *     bat3_front3q.jpg read by eye off the 4x crop           0.30
+ *
+ * So the inboard unit is about a third of the glass and the outboard one two
+ * thirds — which is also why the inboard chamber's flutes are visibly finer
+ * per unit width in `bat3_front3q.jpg`: the two chambers are not the same
+ * size and never were.
+ */
+const CHAMBER_FRACTION = 0.35;
+const CHAMBER_SPLIT = (() => {
+  const inner = lensOutline.xInner(0.78);
+  return inner + CHAMBER_FRACTION * ((AMBER_SPLIT - DIVIDER) - inner);
+})();
+
+/**
+ * Where the reflector's shelf breaks, as a fraction down the glass.
+ *
+ * The lens is not one field. Owner's photograph, row means across the clear
+ * lens, white-balanced:
+ *
+ *     rows 679-718    246-249        rows 720-751    237-243
+ *
+ * — a step of **8.1** grey levels with the break at row 719-721, which is
+ * 0.56 of the way down a lens spanning 677-753. Above it the aperture returns
+ * the bowl and the sun; below it the reflector's lower shelf tilts out of the
+ * sun and the glass carries the road instead.
+ *
+ * The model had a step of **1.7** and a row range of 4.0 against the
+ * photograph's 12.1: one paraboloid filling the aperture gives a field with a
+ * vertical gradient and no break in it anywhere, which is exactly the
+ * "featureless white card" reading.
+ */
+const SHELF_FRACTION = 0.56;
 
 export interface HeadlampSet {
   group: THREE.Group;
@@ -265,6 +335,32 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   const black = ctx.materials.blackTrim();
   const rubber = ctx.materials.rubber({ roughness: 0.95 });
   const reflectorMat = ctx.materials.reflector();
+  /**
+   * The shelf's own finish.
+   *
+   * Aluminised, like everything else in there, but **matt** — and that is a
+   * real distinction, not a dodge round the "no black plastic inside a
+   * composite headlamp" rule above. The optical bowl is bright-finished
+   * because its job is to aim light; the shelf below it is outside the beam
+   * pattern and comes out of the tool textured. `reflector()` is a 0.13
+   * roughness mirror with a 1.1 mm pebble diffuser on it and cannot be asked
+   * for anything else, so this is the same aluminium at a roughness that
+   * scatters the sun instead of mirroring it.
+   *
+   * **The orientation alone was not enough, and that is measured.** With the
+   * shelf wearing `reflector()` the aperture's upper half came out 2.3 above
+   * its lower 44 % against the photograph's 8.1 — a mirror tilted 19° in a
+   * scene whose sky and road are only a few levels apart through half a metre
+   * of `homogenise` barely moves. Splitting the finish as well as the angle is
+   * what gets the step, and it survives an environment being retuned
+   * underneath it because it is carried by the surface rather than by what the
+   * surface happens to be looking at.
+   */
+  const shelfMat = audiMaterials(ctx.materials).anodised({
+    color: 0xdfe2e6,
+    roughness: 0.34,
+    envMapIntensity: 1.0,
+  });
   // **Water-clear.** The 0xf4f7fc it used to be is a 7 % tint, and the lens
   // shader charges for it twice — once in its own Beer–Lambert term and again
   // in the transmission volume's attenuation — over a path the prism valleys
@@ -339,6 +435,7 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   ];
 
   const bowls: THREE.BufferGeometry[] = [];
+  const shelves: THREE.BufferGeometry[] = [];
   const envelopes: THREE.BufferGeometry[] = [];
   const shields: THREE.BufferGeometry[] = [];
   const coils: THREE.BufferGeometry[] = [];
@@ -379,14 +476,29 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
       }),
     );
 
+    // The lower shelf. Clear chambers only: the amber section is a plain
+    // reflector behind a dyed lens and the photographs show no break in it.
+    if (!c.amber) shelves.push(shelfPanel(inset(fit, 0.0004), rimZ));
+
+
     // A paraboloid r² = 4fζ: with the rim half-width as r and the bowl's own
     // depth as ζ, the focus falls f = R²/4D forward of the vertex. Putting the
     // filament anywhere else is what makes a modelled lamp look like a torch.
     //
     // `f < depth` is the condition for the filament to sit inside the bowl at
-    // all, and it bounds `OPTIC_W`: at 1.45 the H4's envelope came out through
-    // the lens.
-    const f = (halfW * halfW) / (4 * depth);
+    // all, and it used to bound `OPTIC_W`: at 1.45 the H4's envelope came out
+    // through the lens.
+    //
+    // **It is clamped now, because the bound was on the wrong quantity.** The
+    // condition is not about `OPTIC_W` — it is about the chamber's own width,
+    // and the chambers stopped being the same size when `CHAMBER_SPLIT` went
+    // to its measured 0.35. The outboard chamber's half-width went 75 → 90 mm,
+    // `f` with it 45.7 → 64.2 against a 52 mm bowl, and the bulb came out 5 mm
+    // in front of the lens's inner face as a dark blob sitting *on* the glass.
+    // A real rectangular reflector is not a paraboloid of revolution and its
+    // filament does not sit at the focus of the wide section; 0.82 of the
+    // bowl's depth keeps the envelope inside the bowl at any split.
+    const f = Math.min((halfW * halfW) / (4 * depth), depth * 0.82);
     const vertexZ = rimZ - depth;
     const fz = vertexZ + f;
     focus.push(new THREE.Vector3(box.cx, box.cy, fz));
@@ -446,14 +558,22 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
     nu: 14, nv: 10,
   });
 
-  // Hairlines, not trenches. A 10 mm wall 48 mm deep behind a clear lens
-  // reads as a dark slot right across the glass; on the reference frame the
-  // chamber division is barely visible and the amber division is one bright
-  // line. Both are still real walls — they just stop at the reflector rim
-  // instead of running to the back of the housing, which is all a moulded
+  // The amber division is a hairline: a 10 mm wall 48 mm deep behind a clear
+  // lens reads as a dark slot right across the glass, and in the reference
+  // frame the amber division is one bright line. It stops at the reflector rim
+  // rather than running to the back of the housing, which is all a moulded
   // divider does anyway.
+  //
+  // The **chamber** wall is not a hairline. §2.1 asks for "two clear
+  // rectangular optical units side by side, separated by a visible vertical
+  // divider", and all three photographs resolve it: in `bat3_front3q.jpg` it
+  // is 26 px of a 200 px lens, about 11 mm of glass, with a dark core. So it
+  // is 11 mm wide, it is crowned — the same rolled section the grille's
+  // surround uses, so part of it presents the sky and part the dark chamber
+  // beside it whichever way the camera stands — and it stands 3 mm in front of
+  // the bowl rims rather than 1.2, which is what puts its flanks in shadow.
   const dividerGeo = merge([
-    divider(CHAMBER_SPLIT, 0.0052, 0.014),
+    divider(CHAMBER_SPLIT, CHAMBER_WALL * 2, 0.016, 0.0030, 0.0022),
     divider(AMBER_SPLIT, 0.0072, 0.018),
   ])!;
 
@@ -502,6 +622,7 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   // because everything the bowl can see in there is 88 % aluminium.
   add('headlampHousing', housingGeo, reflectorMat);
   add('headlampReflector', merge(bowls), reflectorMat);
+  add('headlampShelf', merge(shelves), shelfMat);
   add('headlampDivider', dividerGeo, reflectorMat);
   add('headlampShield', merge(shields), black);
   add('headlampBulb', merge(envelopes), coldBulb);
@@ -565,7 +686,9 @@ function smoothBand(t: number, lo: number, hi: number): number {
   return k * k * (3 - 2 * k);
 }
 
-function divider(x: number, width: number, depth: number): THREE.BufferGeometry {
+function divider(
+  x: number, width: number, depth: number, front = 0.0012, crown = 0,
+): THREE.BufferGeometry {
   return slab({
     outline: {
       ...lensOutline,
@@ -575,9 +698,62 @@ function divider(x: number, width: number, depth: number): THREE.BufferGeometry 
       radiusOuter: 0.002,
     },
     zAt: FACE, facing: FACING,
-    front: 0.0012, back: depth,
-    nu: 3, nv: 12,
+    front, back: depth, crown,
+    nu: crown > 0 ? 8 : 3, nv: 12,
     capBack: false,
+  });
+}
+
+/**
+ * The reflector's lower shelf: a plain aluminised panel filling the bottom
+ * `1 − SHELF_FRACTION` of a clear chamber, tilted so it looks at the road.
+ *
+ * **The tilt is the whole mechanism, not the depth.** The bowl behind it is 46
+ * to 52 mm back from its own rim everywhere inside the aperture — `OPTIC_H` is
+ * 2.4, so the slot is a letterbox cut across the flat middle of a much taller
+ * paraboloid and nothing in the aperture is near the paraboloid's rim. So a
+ * panel 4 to 30 mm behind the rim sits comfortably in front of it and simply
+ * substitutes for it, without shrinking the bowl and re-opening the ring of
+ * housing that `fit` exists to close.
+ *
+ * A mirror tilted down by θ sends the camera's ray down by 2θ. The lamp is
+ * ~0.7 m up, so even θ = 6° puts the returned ray on the road 3.3 m out
+ * instead of on the sky; at the 19° this panel reaches over its lower half it
+ * is 1 m out. That is the step the photograph has, and it costs no light from
+ * the upper two thirds of the aperture, which is where the level the whole car
+ * is exposed against comes from.
+ *
+ * The setback eases in rather than stepping, so the panel's own top edge still
+ * catches the sun and the break reads as a fine bright line with a darker
+ * field under it — which is what `bat3_front3q.jpg` shows at 4x.
+ */
+function shelfPanel(fit: Outline, rimZ: number): THREE.BufferGeometry {
+  const yBreak = fit.yHi - SHELF_FRACTION * (fit.yHi - fit.yLo);
+  const band = sliceY(fit, fit.yLo, yBreak, 0.003);
+  const s = { y: 0, xLo: 0, xHi: 0 };
+  return gridSurface({
+    nu: 10, nv: 10,
+    flip: FACING < 0,
+    // **v runs UPWARD, and it has to.** `gridSurface` takes its winding from
+    // the handedness of (u, v), and every other surface in this file — `bowl`,
+    // `slab` — has x increasing with u and y increasing with v. Written the
+    // other way round with the same `flip`, the triangles come out wound
+    // backwards, the panel faces −Z, and `MeshPhysicalMaterial` is `FrontSide`,
+    // so it is culled: present in `census()`, invisible in every frame. It
+    // measured as the shelf being worth +0.6 of a grey level of step when it
+    // was worth nothing at all.
+    point: (u, v, out) => {
+      const y = band.yLo + (band.yHi - band.yLo) * v;
+      limitsAt(band, y, s);
+      const x = s.xLo + (s.xHi - s.xLo) * u;
+      // **Linear in the drop, not eased.** Eased, the setback's slope is zero
+      // at both ends and steepest in the middle, so the panel is parallel to
+      // the rim at the break, parallel again at the aperture's lower edge and
+      // tilted only across the middle — which renders as a dark *band* at 0.6
+      // down the glass with the field bright again below it. A constant slope
+      // is one plane with one normal, and the whole lower field goes with it.
+      out.set(x, y, rimZ - (0.0035 + 0.0225 * (1 - v)));
+    },
   });
 }
 

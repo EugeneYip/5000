@@ -49,6 +49,7 @@
 
 import * as THREE from 'three';
 import { HP } from '@/car/hardpoints';
+import { audiMaterials } from '@/materials/library';
 import type { BuildContext } from '@/types';
 import { fourRings, ringsWidth } from './rings';
 import { noseFaceZ } from './bodyref';
@@ -74,6 +75,25 @@ const EDGE_BREAK = 0.00035;
  * grille's *value* has to come from the blade and the void; the crest is there
  * to put the fine bright line in a close-up, and any wider it starts carrying
  * the grille's exposure instead.
+ *
+ * ## It is not chrome, and §2.1 is not the only reason
+ *
+ * The rib wore `chrome({ roughness: 0.18 })` — the same material as the
+ * aperture's bright frame, which reads 218-248 in the photograph. A crest
+ * that polished is a hard white wire: put the render's grille and the
+ * photograph's side by side at *one* scale and the difference is not the
+ * level, it is that the photograph's rib lines are broad, soft and barely
+ * separated from the mass while the render's are crisp filaments.
+ *
+ * Measured, owner's photograph, row means across one clean column band
+ * between the rings and the aperture edge:
+ *
+ *     slat crest rows   70-81      aperture (void) rows   39-47
+ *
+ * — a factor of **1.7**, not the 5 a polished rib against a void gives. So
+ * the crest is a dark anodised extrusion with a satin top, which is what an
+ * aluminium grille rib on a 1988 car is; the fine bright line survives in the
+ * close-up, and it stops being a wire at distance.
  */
 const CREST_H = 0.0005;
 const CREST_PROUD = 0.00025;
@@ -243,12 +263,22 @@ function coreTexture(ctx: BuildContext): THREE.CanvasTexture {
   return map;
 }
 
-/** Outline of the aperture: a wide slot with softened corners. */
+/**
+ * Outline of the aperture: a wide slot with softened corners.
+ *
+ * The corner radius was 16 mm, and it shows. Traced row by row on the owner's
+ * photograph the aperture's right edge is a straight line from the top bead to
+ * the bottom one — 1192.0 px at the top row, 1176.0 at the bottom, monotone,
+ * with no rounding resolvable at either end at 1.92 mm/px. 16 mm is 8 px
+ * there, which would be plain, and at matched scale the render's top-outboard
+ * corner is visibly a curve where the photograph's is a corner. 7 mm is under
+ * the photograph's resolution and reads as one.
+ */
 function apertureRing(inset: number): { pts: THREE.Vector2[]; out: THREE.Vector2[] } {
   const hw = F.grilleHalfW - inset;
   const hh = (F.grilleTopY - F.grilleBottomY) / 2 - inset;
   const cy = (F.grilleTopY + F.grilleBottomY) / 2;
-  const r = Math.min(0.016, hh * 0.55);
+  const r = Math.min(0.007, hh * 0.55);
   const corner = (cx: number, ccy: number, a0: number): THREE.Vector2[] =>
     arc(cx, ccy, r, a0, a0 + Math.PI / 2, 5).map(([x, y]) => new THREE.Vector2(x, y));
   const pts = [
@@ -283,6 +313,24 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
   const crestChrome = ctx.materials.chrome({ roughness: 0.18 });
 
   /**
+   * The rib's own crest. Dark anodised aluminium, satin, and standing 52 mm
+   * inside a 14 mm slot, so it sees about a seventh of the sky — the same
+   * specular-occlusion argument `voidMat` carries below, one rung less severe
+   * because the crest faces out of the slot rather than sitting at the back
+   * of it.
+   *
+   * `anodised()` rather than `chrome()` because chrome reads any roughness
+   * over 0.07 as a *brushing* amount and lerps its base back down: asking it
+   * for 0.45 gets a near-mirror with brush marks on it, which is the wire
+   * again. See `createAnodised` in `materials/metals.ts`.
+   */
+  const crestRib = audiMaterials(ctx.materials).anodised({
+    color: 0x33373d,
+    roughness: 0.42,
+    envMapIntensity: 0.34,
+  });
+
+  /**
    * The rib itself.
    *
    * `blackTrim` is the nearest thing in the library by description — a satin
@@ -296,9 +344,24 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
    * With no sheen, half the albedo and 0.55 of the IBL, this lands the blade's
    * lit face at the photograph's 52-64 and its top face down in the void with
    * the rest of the mass.
+   *
+   * ## The mass is navy, and 0x090a0d rendered it brown
+   *
+   * Put the two grilles side by side at one scale — the photograph's aperture
+   * cropped at 1.92 mm/px against `photomatch` resampled to the same — and the
+   * first difference is hue, not level: the photograph's mass is a cold
+   * blue-black and the render's a warm brown-black. The cavity texture is
+   * already authored cold (`#0b0e15`), so it was the blade, whose albedo was
+   * within a level of neutral and therefore took the warm light of the grove
+   * straight on.
+   *
+   * **0x070a12 is chosen to be hue-only.** Relative luminance 9.94 against
+   * 0x090a0d's 10.0, so nothing about the grille's *level* moves with it,
+   * while B:R goes 1.44 → 2.6. That restraint is deliberate, because the
+   * grille's level is not this material's to set — see the note at `voidMat`.
    */
   const blade = ctx.materials.dirtyMetal({
-    color: 0x090a0d,
+    color: 0x070a12,
     roughness: 0.86,
     metalness: 0.05,
     grime: 0,
@@ -337,6 +400,41 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
    * photograph's 23–26, a black hole rather than a cavity with a little
    * skylight in it. The photograph's grille is *navy*, not black, and that
    * blue is the few per cent of sky it does see.
+   *
+   * **Still 0.13, and the ratio is why.** Read it the way this note says to —
+   * the aperture's median against the plate's, both in the same frame, one
+   * clean column band between the rings and the aperture edge:
+   *
+   *                                   grille p50   plate p50   ratio
+   *     owner's photograph                47         249       0.189
+   *     committed build                   38         226       0.168
+   *     the slats as polished chrome      62         208       0.298
+   *     as built here                     36         207       0.174
+   *
+   * The third row is `CRITIQUE-4` §4, reproduced: a chrome crest puts the
+   * aperture **58 % over** the photograph against the one surface whose
+   * reflectance is known in both images. The fourth is this file as it stands,
+   * 8 % under. That is closer than the gap between the first two rows, which
+   * are the *same materials* in two different boots.
+   *
+   * Which is the point. The absolute level is not this material's to set:
+   *
+   *                        grille box p50      lamp box mean
+   *     committed                  38               242.1
+   *     env stream mid-tune        54               246.8
+   *     ditto, + the lamp's
+   *       shelf landing            37               242.9
+   *
+   * The 16 levels between the first two are an environment being retuned
+   * underneath the grille. The 17 the third gives back came from **the
+   * headlamps**: `headlamp.ts`'s shelf takes the aperture's `above 240`
+   * content down, the bloom pass stops carrying it out over the nose, and the
+   * grille 200 mm away goes with it. No material moved in that third row.
+   *
+   * So: read the ratio, not the number. At 0.174 against 0.189 this is inside
+   * the boot-to-boot spread and is left alone; if it settles low once the fill
+   * and the lamps have, it wants about 0.15, and if moving it does nothing the
+   * fill is the thing to move.
    */
   const voidMat = ctx.materials.printed(coreTexture(ctx), {
     roughness: 0.62,
@@ -419,7 +517,7 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
 
   // --- slats ---------------------------------------------------------------
   group.add(mesh('grilleSlats', slatSolids(bladeSection), blade));
-  group.add(mesh('grilleSlatCrests', slatSolids(crestSection), crestChrome));
+  group.add(mesh('grilleSlatCrests', slatSolids(crestSection), crestRib));
 
   // --- the rings ----------------------------------------------------------
   // §2.1 describes a "solid black central bar" behind them, but §6.1's much
