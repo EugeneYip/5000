@@ -173,7 +173,18 @@ every stream running at once, not per-stream. Two streams both wrote
   station the seal reads 2.0 mm proud, which is exactly `flushOffset`. It was
   never wrong. Measure at the station you are talking about, with `pick` on a
   common ray, and if you quote a bbox say which mesh it is and check what else
-  got merged into it.
+  got merged into it. It has now happened a **fourth** time, on
+  `headlampDivider`: a critique reported "a divider that divides nothing"
+  because the box read ±0.692, the lens's own inboard edge. The mesh is a
+  merge of *two* dividers at 0.535 and 0.688 and a box round both can only
+  report the outer one. The divider existed.
+- **Check a new `gridSurface`'s handedness against `bowl`.** `gridSurface` has
+  y *decreasing* with `v` where `bowl` and `slab` both have it *increasing*, so
+  the same `flip` argument produces opposite winding. A reflector shelf built
+  that way came out facing −Z, and `MeshPhysicalMaterial` is `FrontSide`: the
+  panel was present in the scene, absent from every frame, and measured as
+  "worth +0.6 of a grey level". Two shoot cycles to find. A back-facing panel
+  does not error, does not warn, and does not show up in `census()`.
 - **Never threshold a reference photograph on luminance.** The red car on
   `scratchpad/ref3/bat_side_profile.jpg` has paint at RGB (160, 1, 0) —
   **luma 34**, below the luma-60 line that separates black plastic from paint

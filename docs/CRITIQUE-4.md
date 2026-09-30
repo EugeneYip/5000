@@ -129,6 +129,31 @@ so by symmetry the aperture is 770→1183.
 Secondary, same pass: **the four rings are ~13 % too wide** — ring group over
 plate width 0.842 rendered against 0.745 measured, ~270 mm against ~238.
 
+> ### ⚠ Corrected: 26 mm per side, not 50. Rings 7-9 %, not 13 %.
+>
+> Every render-side figure above is a **luminance threshold**, and the grille's
+> own level moves between boots: a fixed threshold on *identical* geometry read
+> band shares of 0.4513, 0.4646 and 0.4675 across three runs. The 0.448 above
+> is one of those, and it corresponds to an aperture edge at world x 0.355 —
+> **15 mm inboard of where the geometry actually is.** `pick` puts the edge at
+> x 0.370 exactly.
+>
+> Measured geometrically, two depth-free routes (both cameras within 0.5 % at
+> ~4.3 m): band-share → 399.7 mm, plate-ratio → 393.2 mm. `grilleHalfW` 0.370
+> → **0.396**, so `grilleSlatCrests` wants **±0.392, not the ±0.415 asked for
+> above**. Rings: a uniform 0.93× on the group, 264 → 240-246 mm, i.e. **7-9 %**
+> — the geometric ring/plate ratio is 0.80-0.82, not 0.842.
+>
+> Also established: `indicatorInnerX` must move 5 mm with it. Widening the
+> grille takes clear:amber from 3.62 to 3.41 against a measured 3.65, so
+> "the amber is correct, do not touch it" is true of the *ratio* and false of
+> the *hardpoint*. Applied in `94fc4ba`.
+>
+> And the aperture is a **trapezoid** — the photograph's right edge runs 1192.0
+> px at the top row to 1176.0 at the bottom, monotone, a 12° lean, ±17 mm of
+> taper per side. Ours leans 0.3 px. Not built: the lamp's inner edge is the
+> same line and `body.ts` butts onto it, so it needs a hardpoint field.
+
 ### 3. The headlamp lens is a featureless white card
 
 §2.1 requires "two clear rectangular optical units side by side, separated by
@@ -140,11 +165,52 @@ edge (`headlampLens` runs to ±0.685): a divider that divides nothing.
 The amber corner lens is **correct** — clear:amber 3.63 rendered against 3.85
 measured. Do not touch it.
 
+> ### ⚠ Corrected: "a divider that divides nothing" is a bounding-box artefact
+>
+> **The fourth on this project.** `headlampDivider` is a merge of *two*
+> dividers, at x 0.535 and 0.688, and a bounding box drawn round both reports
+> only ±0.692. The divider existed all along — it was in the wrong place and
+> invisible, which is a different and smaller defect than the one written
+> above.
+>
+> The lens defect itself was real and is closed (`94fc4ba`): row range 3.5 →
+> 11.9 against the photograph's 12.1, and the reflector shelf's step +0.8 →
+> +6.8 against +8.1. Two findings from doing it — the two chambers are **not
+> the same size** (the inboard one is a third of the glass, 0.346 measured),
+> and the flute orientation was about to be flipped until a high-pass
+> |d/dx|:|d/dy| measurement showed the render already matches the owner's
+> photograph at 1.10 against 1.18, despite reading as horizontal striations to
+> the eye.
+
 ### 4. The grille slats are glossy where they should be matt black
 
 Same box on both: render 10.8 % of pixels above V 100 and 7.2 % above V 150,
 p90 116; photograph 1.8 % and 1.2 %, p90 73. Six times the specular — and the
 **means are almost identical** (59.8 vs 54.1), so it is not exposure.
+
+> ### The defect was real; the statistic was environment-dependent
+>
+> Read as an absolute the figure above is not reproducible. Read as the
+> aperture against **the plate** — the one surface whose reflectance is known
+> in both images — it is:
+>
+> | | aperture p50 / plate p50 |
+> |---|---|
+> | owner's photograph | 0.189 |
+> | the committed build | 0.168 |
+> | the tree this critique was written in | **0.298** |
+> | after `94fc4ba` | 0.174 |
+>
+> So a chrome crest does put the aperture 58 % over the photograph, and the fix
+> lands 8 % under — closer than the gap between the first two rows, which are
+> the *same materials* in two different boots.
+>
+> The file now carries the caution that came out of it: **the grille's absolute
+> level is not the grille's to set.** Three windows on identical materials read
+> p50 38 / 54 / 37, and **17 of that came from the headlamps** — the new
+> reflector shelf cuts the aperture's above-240 content, the bloom pass stops
+> carrying it out over the nose, and the grille 200 mm away goes with it. Read
+> the ratio, not the number.
 
 ### 5. The climate control is the wrong part; the centre vents are missing
 

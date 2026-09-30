@@ -408,7 +408,7 @@ def compare_to_photo(render_path: Path):
     d.text((gap, h + 74), note, fill=(150, 155, 162), font=fs)
     d.text(
         (gap, h + 98),
-        "check: nose height · grille-to-lamp width ratio 1.81:1 · lamp aspect · bumper depth · "
+        "check: nose height · grille-to-lamp width ratio 2.04:1 · lamp aspect · bumper depth · "
         "plate position · roof rails present · glass flushness · amber corner lens runs to the "
         "silhouette with no chrome outboard of it",
         fill=(120, 125, 132),
