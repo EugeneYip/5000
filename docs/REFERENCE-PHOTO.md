@@ -67,6 +67,52 @@ target. Neither is in the photograph. Both came from a car mask that was
 selecting most of the frame, and the pair was swapped on top of that. Corrected
 in commit 18e8bfc.
 
+## The bonnet's colour is a lighting fact, not a paint fact
+
+The single most useful measurement made on this photograph. Read through
+`PHOTO_PAINT_POLY` (87,034 px) against the render's own `photomatch_paint.png`
+mask (64,212 px), by percentile of each one's own luminance:
+
+| | photograph | render |
+|---|---|---|
+| p10 | (64, 75, 89) **B−R +25** | (72, 71, 74) B−R +2 |
+| p50 | (91, 110, 134) **B−R +43** | (110, 110, 117) B−R +7 |
+| p75 | (131, 154, 181) **B−R +51** | (132, 131, 141) B−R +9 |
+| p90 | (155, 175, 203) **B−R +48** | (178, 168, 167) **B−R −11** |
+
+**In the photograph the brighter a bonnet pixel is, the bluer it is.** Bright
+pixels are sky seen through branches. In ours the brighter it is the warmer it
+is, because bright pixels are direct sun — and the sign flips at p90.
+
+The tone *shape* already matches: normalised by their own medians the
+photograph runs p10/p50/p90 = 0.68 / 1.00 / 1.57 and the render 0.65 / 1.00 /
+1.51. So this is not a contrast-curve problem and the tonemap is not the
+lever.
+
+What it is, measured by A/B with the non-ambient lights zeroed, in linear
+radiance over the paint mask:
+
+    environment term   (0.0868, 0.0983, 0.1316)   B/R 1.52   52 %
+    direct-light term  (0.1178, 0.0964, 0.0820)   B/R 0.70   48 %
+
+Solving those against the photograph's bonnet through an inverted ACES gives
+**env × 1.42, direct × −0.09**. The photographed car has essentially no direct
+sun on its bonnet; ours gets half its light that way. The grove *is* shading
+the car — `__AUDI_ENV.cast(false)` moves below-40 from 8.6 % to 2.1 % — but as
+a **blanket rather than a dapple**, and a single scalar attenuation cannot
+express what a canopy does.
+
+Closed, with numbers, so nobody re-opens them: the canopy is not too bright or
+too warm (10:1 darker than the sky behind it and fractionally cooler);
+`sunIntensity` down does not work, because `ibl.ts` bakes the proxy world
+under the same `preset.sunIntensity` and cutting the key cuts the fill the
+flanks are made of (6.9 → 3.5 takes below-40 to 32.4 % and tone to 36.4);
+opening the canopy puts blue exactly on target and makes dRGB *worse* while
+flattening the dapple.
+
+**Steer by the sign of B−R at p90, not by dRGB.** When the dapple is right it
+goes positive on its own.
+
 ## Licence plate
 
 Pennsylvania issue of the period: white face, dark navy characters, a thin
