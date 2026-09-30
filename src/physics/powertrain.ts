@@ -38,7 +38,7 @@
  * the converter is still slipping a few per cent at 120 mph.
  */
 
-import { ENGINE, TRANSMISSION, engineTorque } from '@/spec';
+import { ENGINE, TRANSMISSION, engineTorque, tyreRadius } from '@/spec';
 import { clamp, clamp01, finite, lerp, smoothstep, RADS_TO_RPM, RPM_TO_RADS } from './math';
 
 export type GearboxMode = 'manual' | 'automatic';
@@ -554,7 +554,33 @@ export class Powertrain {
     }
     if (this.gear > 1 && rpm < downRpm) {
       const next = this.ratioTotal(this.gear - 1) / this.ratioTotal(this.gear);
-      if (rpm * next < upRpm - 420) this.beginShift(this.gear - 1, false);
+      // **The guard is evaluated on ROAD speed, not engine speed.**
+      //
+      // This car is front-wheel drive, so the driven axle is also the axle
+      // that locks first under hard braking without ABS. Measured on a probe:
+      // braking from 35 m/s gave `wheelSpin [0, 0, 69, 69]` — fronts stopped,
+      // rears still turning — and with the driven wheels stopped the engine
+      // was dragged down to **536 rpm at 22 m/s**. The schedule read that as
+      // lugging, the guard agreed (536 x 1.807 = 968, well under the 1860
+      // ceiling), and the box selected FIRST. Release the brake and the front
+      // wheels spin back up to road speed: 4453 rpm in first at 40 mph, a
+      // lurch and an over-rev, recovering only because the next upshift
+      // threshold is immediately exceeded.
+      //
+      // Engine rpm and road speed are the same measurement only while the
+      // driven wheels are rolling. The guard's logic was right all along —
+      // "do not select a gear that would immediately want to change back up"
+      // — it was being fed the one number that stops meaning anything at
+      // exactly the moment this decision gets made. A real box takes governor
+      // pressure from the output shaft for the same reason.
+      //
+      // At 22 m/s this now evaluates 2954 x 1.807 = 5338 against the 1860
+      // ceiling and refuses; at 5 m/s it gives 1213 and allows. The upshift
+      // above is left on engine rpm deliberately: a locked wheel drags rpm
+      // *down*, so it cannot provoke a spurious upshift.
+      const roadRpm = Math.abs(inp.speed) / tyreRadius()
+        * Math.abs(this.ratioTotal(this.gear)) * RADS_TO_RPM;
+      if (roadRpm * next < upRpm - 420) this.beginShift(this.gear - 1, false);
     }
   }
 }
