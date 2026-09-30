@@ -140,6 +140,14 @@ export function focusDistanceFor(p: Pose): number {
   return Math.hypot(dx, dy, dz);
 }
 
+/**
+ * The aspect every pose in this file is authored for, and the widest vertical
+ * field the fit is allowed to reach before it starts pulling the camera back
+ * instead. 75 deg is about where a car at the frame edge starts to shear.
+ */
+const REF_ASPECT = 16 / 9;
+const MAX_FIT_FOV = 75;
+
 /** Scratch, module-level so `update` allocates nothing per frame. */
 const _q = new THREE.Quaternion();
 const _pivot = new THREE.Vector3();
@@ -286,13 +294,44 @@ export class CameraRig {
       }
     }
 
+    // ---------------------------------------------------------------------
+    // Fit a wide subject on a narrow screen.
+    //
+    // Every pose here is authored for a 16:9 frame, and `PerspectiveCamera.fov`
+    // is the VERTICAL angle. So on a portrait phone the vertical angle is
+    // honoured and the horizontal is whatever is left: at 390x664 the
+    // horizontal field is 20 deg where the same pose gives 56 deg at 16:9, and
+    // the car is cropped to a corner. Reported as "the car is not visible on
+    // phones and tablets", and it is not the touch controls -- those work.
+    //
+    // Widen towards the width the pose was authored to see, cap the widening
+    // so the perspective does not go fisheye, and take whatever the cap could
+    // not absorb by standing further back. Capping matters: the honest figure
+    // at phone aspect is 85 deg, which distorts the car badly at the frame
+    // edges -- exactly where the car is.
+    //
+    // At 16:9 every term is identity, so `shoot.mjs` and the gate cannot move.
+    const aspect = this.camera.aspect;
+    let fovFit = this.desiredFov;
+    let pull = 1;
+    if (aspect > 0 && aspect < REF_ASPECT) {
+      const halfTan = Math.tan(this.desiredFov * 0.5 * THREE.MathUtils.DEG2RAD);
+      const wanted = 2 * Math.atan(halfTan * (REF_ASPECT / aspect)) * THREE.MathUtils.RAD2DEG;
+      fovFit = Math.min(wanted, MAX_FIT_FOV);
+      pull = Math.tan(wanted * 0.5 * THREE.MathUtils.DEG2RAD)
+        / Math.tan(fovFit * 0.5 * THREE.MathUtils.DEG2RAD);
+    }
+    if (pull !== 1) {
+      this.desiredPos.sub(this.desiredTarget).multiplyScalar(pull).add(this.desiredTarget);
+    }
+
     const k = this.snapNext ? 1 : 1 - Math.pow(0.0015, dt);
     this.smoothPos.lerp(this.desiredPos, k);
     this.smoothTarget.lerp(this.desiredTarget, k);
     this.camera.position.copy(this.smoothPos);
     this.camera.lookAt(this.smoothTarget);
 
-    const nf = this.snapNext ? this.desiredFov : THREE.MathUtils.lerp(this.camera.fov, this.desiredFov, k);
+    const nf = this.snapNext ? fovFit : THREE.MathUtils.lerp(this.camera.fov, fovFit, k);
     if (Math.abs(nf - this.camera.fov) > 1e-4) {
       this.camera.fov = nf;
       this.camera.updateProjectionMatrix();
