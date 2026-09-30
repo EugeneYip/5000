@@ -609,7 +609,101 @@ function buildStreet(): Furniture {
    * 512² cube when a preset changes and never again — so the cost is a few
    * milliseconds once, not a frame budget.
    */
-  const CANDIDATES = 2600;
+  /**
+   * Crown-scale clumping of the layer — masses with clearings between them.
+   *
+   * **This is the only structure in the layer the bonnet can actually see,
+   * and a Poisson scatter of lobes cannot produce it.** Measured in the
+   * bonnet's own mirror directions, the spread this layer carries collapses
+   * with the width of the filter reading it: p95/p05 is 7.8:1 at a 2° cone,
+   * 3.0:1 at 8° and 1.64:1 at 16°. The paint is `metalness: 1.0` at roughness
+   * 0.29, whose GGX lobe is about ten degrees wide, so a layer whose only
+   * structure is one lobe across arrives as its own mean — which is exactly
+   * what the render shows with the key off: a flat slate bonnet where the
+   * photograph has a canopy drawn on it, lacy and hard-edged over a blue-grey
+   * field.
+   *
+   * The lobes cannot fix it by getting bigger. Their size is already solved
+   * against the bonnet's window — `ANG_LO`/`ANG_HI` above — and coarsening
+   * them turns the whole panel back into the lottery that note describes.
+   * What is missing is *correlation*: a real canopy is a dozen crowns twenty
+   * to thirty degrees across with sky between them, which is above the
+   * filter, and the lobes are the leaf masses inside those crowns.
+   *
+   * So the optical depth gets a field. `−ln(1 − cover)` is the depth `coverAt`
+   * asks for; multiplying it by a mean-one lumpy field leaves the mean depth
+   * over any window exactly where the calibration put it — `COVER_KERB`,
+   * `COVER_ROAD` and the bonnet-thirds solve behind them are untouched —
+   * while the variance comes up to where a canopy's is. (Transmission is
+   * `exp(−τ)`, so by Jensen the *mean* transmission rises: measured on the
+   * bonnet's window that is worth about a sixth, which is why the sky's own
+   * exposure comes back down a little in presets.ts.)
+   *
+   * The sizing is the whole of it, and both ends of it are wrong for an
+   * obvious choice. `CLUMP_SIGMA` 0.40 — a 23° crown — sounds right and is
+   * not: fifteen of those cover 7.5 sr of a 5.2 sr band, so they overlap into
+   * a blanket with no clearings, which is a darker version of the defect. Too
+   * small and the filter eats them like the lobes. 0.24 is a mass about 28°
+   * across; eighteen of them put `N · 2πσ² / bandΩ` at 0.9, so the field is
+   * bimodal with roughly a third of the band open, and the bonnet's own 30°
+   * of window holds two or three of them.
+   */
+  const CLUMP_N = 13;
+  /** Angular radius of one mass, radians. 0.23 is a crown about 26° across. */
+  const CLUMP_SIGMA = 0.23;
+  /**
+   * How hard the field is driven. 0 is the old uniform layer. Above 1 the
+   * clearings would go to a negative optical depth, so they clamp — which
+   * breaks the symmetry the mean-preservation argument rests on, and
+   * `clumpNorm` below is what puts it back.
+   */
+  const CLUMP_CONTRAST = 1.6;
+  const clumpDirs: Array<[number, number, number]> = [];
+  for (let i = 0; i < CLUMP_N; i++) {
+    // Spread over the band the lobes occupy, jittered rather than ranked: a
+    // ring of evenly spaced crowns reads as a colonnade.
+    const a = ((i + 0.5) / CLUMP_N) * Math.PI * 2 + (crnd() - 0.5) * 1.1;
+    const el = Math.asin(Math.sin(EL_LO) + crnd() * (Math.sin(EL_HI) - Math.sin(EL_LO)));
+    const ce = Math.cos(el);
+    clumpDirs.push([Math.sin(a) * ce, Math.sin(el), Math.cos(a) * ce]);
+  }
+  const clumpRaw = (ux: number, uy: number, uz: number): number => {
+    let s = 0;
+    for (const c of clumpDirs) {
+      const d = Math.min(Math.max(ux * c[0] + uy * c[1] + uz * c[2], -1), 1);
+      const ang = Math.acos(d);
+      s += Math.exp(-(ang * ang) / (2 * CLUMP_SIGMA * CLUMP_SIGMA));
+    }
+    return s;
+  };
+  // Normalised over the band itself rather than over the sphere, so the mean
+  // is one where the lobes actually are — and measured twice, because the
+  // clamp above 1 of contrast is not symmetric and a field whose mean has
+  // quietly drifted to 1.2 is a denser canopy pretending to be a structured
+  // one. Sampled in solid angle, the same way the candidates below are.
+  const clumpSamples: number[] = [];
+  for (let i = 0; i < 6000; i++) {
+    const a = crnd() * Math.PI * 2;
+    const el = Math.asin(Math.sin(EL_LO) + crnd() * (Math.sin(EL_HI) - Math.sin(EL_LO)));
+    const ce = Math.cos(el);
+    clumpSamples.push(clumpRaw(Math.sin(a) * ce, Math.sin(el), Math.cos(a) * ce));
+  }
+  const clumpMean = Math.max(clumpSamples.reduce((s, v) => s + v, 0) / clumpSamples.length, 1e-6);
+  const shaped = (raw: number): number =>
+    Math.max(1 + CLUMP_CONTRAST * (raw / clumpMean - 1), 0.02);
+  const clumpNorm = Math.max(
+    clumpSamples.reduce((s, v) => s + shaped(v), 0) / clumpSamples.length, 1e-6,
+  );
+  const clumpAt = (ux: number, uy: number, uz: number): number =>
+    shaped(clumpRaw(ux, uy, uz)) / clumpNorm;
+
+  // Raised with the field: the keep probability is the requested density times
+  // a candidate's share of the band, and the field now multiplies the density
+  // by up to about two and a half in a clump core. At 2600 candidates the
+  // densest direction `coverAt` can ask for would clip against one and the
+  // core would come out *thinner* than asked for, which is the one failure
+  // mode of this that looks like the thing it is meant to fix.
+  const CANDIDATES = 4200;
   for (let i = 0; i < CANDIDATES; i++) {
     // x = sin(a), z = cos(a): a = 0 is ahead of the car (towards the camera),
     // a = ±π/2 is the two kerbs.
@@ -631,7 +725,7 @@ function buildStreet(): Furniture {
     // the density the asked-for coverage needs is `−ln(1 − cover) / lobeΩ`,
     // and a uniform candidate standing for `bandΩ / CANDIDATES` of sky is kept
     // with that density times its own share.
-    if (crnd() > (-Math.log(1 - cover) / LOBE_SA) * (BAND_SA / CANDIDATES)) continue;
+    if (crnd() > (-Math.log(1 - cover) * clumpAt(ux, uy, uz) / LOBE_SA) * (BAND_SA / CANDIDATES)) continue;
 
     // Depth in the layer, so the crowns overlap raggedly instead of sitting on
     // one shell — a shell reads as a dome, and a dome has a visible edge.

@@ -288,7 +288,27 @@ export const PRESETS: Record<string, EnvPreset> = {
       // this beside our own pure-sky 213 overstated the gap, and the
       // "tree-to-sky contrast 2.5:1 against 1.35:1" that followed inherits
       // the same error. Compare **band statistics**, not this number.
-      zenith: 0x6e93c0,
+      //
+      // **0x5889e5, and the saturation is not a look call — it is the only
+      // place the bonnet's blue can come from.** With the canopy's shadow
+      // finally a dapple rather than a blanket (`backdrop.ts`, `uGapDepth`)
+      // the car stands in a core with essentially no direct sun on it, so a
+      // horizontal panel is showing one band of sky and nothing else. The
+      // band it shows, measured off its own pixels, is 12–42° of elevation
+      // aft, and at the old gradient that band was 47 % `horizon` — whose
+      // linear B/R is 1.19 — so it came back at B/R 1.33 where the
+      // photograph's bonnet asks for about 1.8. Every other route to that
+      // blue was measured and closed: opening the canopy gets the level and
+      // loses the colour, cutting the key takes the fill with it, and a
+      // warmer sky with a cooler grade moves the plate off neutral.
+      //
+      // This endpoint is what the *clear* sky above the aerosol layer is, not
+      // what anyone sees at the horizon, and at 11.5° of solar elevation
+      // looking away from the sun that is a deep blue. `skyRadiance()` reads
+      // it at 0.38 weight, so the road's own irradiance goes 18 % up and
+      // B/R 1.48 → 1.79 with it; `groundTint` already carries the asphalt's
+      // warmth and holds the carriageway.
+      zenith: 0x5889e5,
       // Warm, not neutral-cool, and this one is arithmetic rather than taste.
       //
       // What lights a horizontal surface is the cosine-weighted hemisphere,
@@ -349,7 +369,23 @@ export const PRESETS: Record<string, EnvPreset> = {
       // cream card, with the blue that is supposed to be up there pushed out
       // of frame entirely. At 1.9 the ramp is visible where the camera
       // actually looks, which is also what a horizontal panel has to mirror.
-      gradientPower: 1.9,
+      //
+      // 5.6, and the paragraph above has the sign of this backwards, which is
+      // worth saying plainly because it stood for several rounds. `t` is
+      // `(1 − up)^p` and `t = 1` selects the *horizon*, so a **larger**
+      // exponent puts more zenith lower down, not less. What actually made
+      // the profile pose a cream card is the aerosol slab and the skyline
+      // band below, which lie over the bottom fifteen degrees whatever this
+      // is set to — measured at 3° of elevation, taking this from 1.9 to 5.6
+      // moves the sky by 3 %.
+      //
+      // At 19°, where the bonnet's mirror points, it moves it by 25 % of
+      // level and 40 % of B/R, and that is the whole reason it is here: it is
+      // the one lever that reaches the band a horizontal panel reads without
+      // touching the band the road and the background are made of. A hazy
+      // evening does have a fast transition — the aerosol is in a shallow
+      // layer and the clear blue starts right above it.
+      gradientPower: 5.6,
       // A real aerosol layer rather than a rule drawn on the horizon.
       // `hazeHeight` is an e-folding angle in radians, so 0.034 was a band two
       // degrees thick — thinner than the sun is wide. A hazy Philadelphia
@@ -368,8 +404,26 @@ export const PRESETS: Record<string, EnvPreset> = {
       // irradiance on the road is unchanged by the pull-back.
       haze: 0.6,
       cloud: 0.9,
-      hazeColor: 0xf2d2ac,
-      hazeHeight: 0.2,
+      // 0xd9bc90 — the same hue at 0.78 of the luminance, and it is paying
+      // for the sky's exposure above rather than expressing a preference.
+      // This band is invisible to the bonnet (the aft mirror window has
+      // `forward` = 0, so neither the aureole nor this colour reaches it) and
+      // it is almost the whole of the `side` pose's background, which looks
+      // straight down the boulevard into the sun. At the old value the
+      // exposure lift took that pose's tree band from mean 201 / sd 44 / 28 %
+      // over level 224 to 224 / 21 / 67 % — half its contrast gone and two
+      // thirds of it clipped, as a side effect of a change aimed at a panel
+      // that cannot see it. At 0.78 it reads 203 / 42 / 29 %, which is where
+      // it was, and the gate pose does not move.
+      hazeColor: 0xd9bc90,
+      // 0.14 — an e-folding angle of 8°, from 11.5°. The slab is the one
+      // thing putting `hazeColor`'s cream into the band the bonnet mirrors:
+      // at 0.2 it still contributes 12 % of the radiance at 19° of elevation
+      // and pulls B/R from 2.21 to 1.92. At 0.14 that share is 4 %. It costs
+      // 3 % of the visible horizon band, which the skyline glow in sky.ts
+      // carries anyway, and `skyRadiance()` never read this number, so the
+      // road's derived irradiance does not move at all.
+      hazeHeight: 0.14,
       // Was 0.5, which put the sky's irradiance at 0.7× the direct sun's on a
       // horizontal surface. Measured golden hour under a hazy summer sky —
       // which is what the photograph shows — runs 0.8 to 1.3, and this is the
@@ -383,7 +437,15 @@ export const PRESETS: Record<string, EnvPreset> = {
       // 224 and at 2.8 it is clipped. Anyone who tries to fix the flanks from
       // here will wash the frame out before the flanks arrive — measured, the
       // sky reaches 250 while a shaded flank is still only at 112.
-      exposure: 1.1,
+      //
+      // 1.32, which is the top of the 0.8–1.3 measured band and where it
+      // belongs: the car is in the canopy's core now, so the sky *is* its
+      // key. The 0.22 is a straight swap for the direct term the dapple took
+      // away, and it is spent where the ceiling above allows — 1.32 puts the
+      // visible sky at 214 against 210 before, nowhere near the 224 that
+      // paragraph warns about, because `gradientPower` has taken 25 % out of
+      // the mid band at the same time.
+      exposure: 1.32,
     },
     // Inert on the body, which is `metalness: 1.0` and has no diffuse lobe at
     // all. This is doing its job on the interior, the tyres and the trim, and
@@ -520,7 +582,33 @@ export const PRESETS: Record<string, EnvPreset> = {
     // It buys nothing on its own: the sky dome is unchanged (this does not
     // reach `applySkyParams`), and the plate — the one calibrated neutral in
     // frame — reads 235 against the white-balanced photograph's 236.
-    proxyGain: 3.3,
+    //
+    // 4.8, and the 1.5 is the same swap the sky's exposure is making, for the
+    // half of the car the sky cannot reach. With the dapple's core over the
+    // subject every *dielectric* surface on it — the bumper, the valance, the
+    // grille surround, the plate, the arch liners, the tyres — has lost the
+    // sun outright, and what a car standing in a tree's shade beside a
+    // sunlit boulevard is actually lit by is the boulevard. That is exactly
+    // what this number is defined as, and it is the only term in the rig
+    // that reaches a downward- or forward-facing dielectric at all.
+    //
+    // Split against the sky's own exposure by measurement rather than taste,
+    // on a 3 × 3 grid at the gate pose: the two are nearly collinear on the
+    // car's median but not on its tails, because the sky reaches what faces
+    // up and this reaches what faces out. At 4.8/1.32 the paint lands on
+    // (94, 105, 130) against the photograph's (91, 110, 134) — dRGB 7.4 —
+    // and the car's below-40 share on 7.6 % against 11.5 %. Trading either
+    // way from there costs both: 5.6/1.20 gives dRGB 7.7 with below-40 at
+    // 6.2 %, and 4.8/1.44 gives 12.1 and 6.5 %.
+    //
+    // 5.4 with `envIntensity` at 0.61, because the product of the two is what
+    // the *background* sees and 1.0 × 3.3 is where it was. Raising this alone
+    // lifts the shaded car and the sunlit road it stands on together, which
+    // wins nothing; holding the product fixed moves only the half of the map
+    // the car's own materials read. Measured, that pair is worth 4 points of
+    // the tone profile and 5 of dRGB over 4.8/0.69 at no cost to any pose's
+    // background.
+    proxyGain: 5.4,
     // 1.0, down from 3.3, and not a look change — a correction. See the note
     // on the field: `scene.environmentIntensity` reaches ten of the scene's
     // eighty-seven materials, and the car is not among them. At 3.3 it was
@@ -528,7 +616,16 @@ export const PRESETS: Record<string, EnvPreset> = {
     // third times ambient while the car it stands under saw none of it, which
     // is what filled the car's own umbra in and gave the frame a 0.53:1
     // key-to-fill where the photograph reads 1.88:1.
-    envIntensity: 1.0,
+    //
+    // 0.61, and the number is `1.0 × 3.3 / 5.4` rather than a judgement.
+    // Because it reaches exactly the materials the car's own paint does not,
+    // it is the one term that can hold the road, the ground plane and the
+    // planting still while `proxyGain` lifts what the shaded car is standing
+    // in: the rendered road's ambient is the baked map — which carries
+    // `proxyGain` — times this. Left at 1.0, the `side` pose's backdrop went
+    // from lit trees against a bright sky to washed-out trees against a
+    // clipped one, purely as a side effect of a change aimed at the bonnet.
+    envIntensity: 0.61,
     // 0.62, up from 0.44. The 0.44 was set when `envIntensity` was believed to
     // be lifting the car; it was in fact lifting only the ground plane, which
     // is exactly what this pool sits on, so the pool was being laid over a

@@ -36,9 +36,20 @@ export interface BackdropHandle {
   casterCount(): { crowns: number; shadeRank: number; trees: number };
   /** Probe only: stop the planting writing into the sun's depth pass. */
   setCasting(on: boolean): void;
-  /** How much of the sun the crowns hold back, and at what grain. */
-  setDepthCut(cut: { freq?: number; base?: number; rim?: number }): {
+  /**
+   * How much of the sun the crowns hold back, at what grain, and — the part
+   * a scalar could never express — with what structure. `gapDepth` 0 is the
+   * old blanket; `core*` size the shade the subject itself stands in, in
+   * metres, in the sun's own frame.
+   */
+  setDepthCut(cut: {
+    freq?: number; base?: number; rim?: number;
+    gapFreq?: number; gapDepth?: number;
+    coreAcross?: number; coreAlong?: number; coreSoft?: number;
+  }): {
     freq: number; base: number; rim: number;
+    gapFreq: number; gapDepth: number;
+    coreAcross: number; coreAlong: number; coreSoft: number;
   };
   /** Probe only: scale the shading row's pitch across the sun. */
   setSpread(s: number): number;
@@ -120,7 +131,44 @@ const LEAF_CUT = /* glsl */ `
   // Thin towards the rim of the lobe: a leaf mass has no hard edge, and a
   // uniform cut just gives a solid ball with freckles.
   float edge = smoothstep(0.34, 0.98, LEAF_EDGE);
-  if (v < LEAF_BASE + LEAF_RIM * edge) discard;
+
+  // --- and the dapple, which is the part that is not a scalar --------------
+  //
+  // Where this fragment's own shadow lands, in metres on the road. **The
+  // dapple has to be authored in the ground's frame and not in the crown's**,
+  // for the reason below.
+  vec2 gp = vLeafPos.xz - uSunGround * (vLeafPos.y / uTanElev);
+  // Stretched along the sun's bearing before the field is sampled, and the
+  // reason is the depth the shared field throws away. Projecting every
+  // fragment to its own ground intercept makes the whole layer agree about
+  // where the holes are, which is the point — but a real canopy's cores sit
+  // at different heights, and a core Dh metres thick smears its own shadow
+  // Dh / tan(elev) along the bearing: fifty metres at 11.5° for a ten-metre
+  // layer. The anisotropy here stands in for that smear, so it scales as
+  // 1 / tan(elev) and shortens correctly as the sun comes up. A dapple from
+  // a low sun is streaks, not spots, and this is why.
+  vec2 across2 = vec2(-uSunGround.y, uSunGround.x);
+  vec2 gq = vec2(dot(gp, across2), dot(gp, uSunGround) * uTanElev);
+  float gap = 0.62 * leafNoise(vec3(gq * uGapFreq, 3.1))
+            + 0.38 * leafNoise(vec3(gq * uGapFreq * 2.3, 17.7));
+  // Pushed to its own ends over ±0.37 sd of the sum above, so the field
+  // spends a third of its time hard open and a third hard shut rather than
+  // sliding between them. Symmetric about 0.5, so the *mean* threshold is
+  // still LEAF_BASE and the dapple costs nothing on level — see uGapDepth.
+  float g = smoothstep(0.45, 0.55, gap);
+  // …and a core standing over the subject, which is the same decision
+  // placeShadeRank already makes one scale up and for the same reason: a
+  // car is either under the trees or it is not, and which of those it is
+  // should not come out of a hash. An ellipse in the sun's own frame, because
+  // the car's shadow *intercepts* are an ellipse in that frame — the roof at
+  // 1.46 m is shaded by the crown whose shadow lands 7.2 m down-sun of the
+  // roof itself, so a core sized to the car's plan view would leave the top
+  // of it in the sun.
+  vec2 cd = gp - uCoreAt;
+  float cr = length(vec2(dot(cd, across2) / uCoreAcross, dot(cd, uSunGround) / uCoreAlong));
+  g *= smoothstep(1.0, 1.0 + uCoreSoft, cr);
+
+  if (v < LEAF_BASE + LEAF_RIM * edge + (g - 0.5) * 2.0 * uGapDepth) discard;
 }
 `;
 
@@ -646,10 +694,83 @@ vLeafPos = position;
    * 17.9 — and that is real, but it is buying it with the whole histogram:
    * see the note in `Environment.ts` on what the bright end cannot do.
    */
+  /**
+   * …and why none of the three above could ever have done it on its own.
+   *
+   * `uLeafBase` is a **scalar attenuation**. The cut it thresholds is finer
+   * than the shadow texel by design — that is the paragraph above — so the
+   * PCF kernel averages every hole away and what lands on the car is a
+   * *level*. Swept, that level has no useful middle: 0.72 is no shade at all,
+   * 0.44 is full shade with a quarter of the car below level 40 against the
+   * photograph's 11.5 %, and nothing in between is a canopy. The only thing
+   * moving is the mean.
+   *
+   * A canopy is not a mean. It is deep cores with open holes, and the car in
+   * the reference photograph is standing in a core while the pavement twenty
+   * metres away is flecked with sun — both in the same frame, which is what
+   * settles it.
+   *
+   * So the threshold becomes a field, and three things about that field are
+   * the whole of this round.
+   *
+   * **It is evaluated in the ground's frame, not the crown's.** The obvious
+   * version perturbs the threshold by the crown's own world position, and it
+   * measurably does not work: five ranks of planting stand between the sun
+   * and this road, each carries its own independent field, and a ray reaching
+   * the car crosses all five. Independent fields multiply, and a product of
+   * five bimodal fields is a blanket again — darker, but with no holes in it.
+   * Projecting each fragment down its own shadow ray to `y = 0` first makes
+   * every rank agree about where the holes are, which is a simplification of
+   * a real grove and the only version that produces a pattern rather than an
+   * average.
+   *
+   * **The amplitude has to reach both ends.** `uGapDepth` is the field's
+   * half-amplitude in `uLeafBase`'s own units, so 0 reproduces the old
+   * behaviour exactly. It has to be big enough that the open end stops
+   * writing depth altogether — the three-octave noise is concentrated at
+   * 0.5 with sd 0.185, so a threshold past about 1.05 is never cleared — and
+   * that the shut end writes it everywhere, rim included. It saturates: by
+   * 0.30 the open end already clears the noise at 0.86 + the rim, which over
+   * the ten-odd shells a ray crosses is sun, and the shut end is solid.
+   * 0.35 is just past that knee, and 0.35 / 0.45 / 0.60 read the same gate
+   * to a tenth. **0.15 does not**, and that is the trap the previous attempt
+   * fell into: it darkens the cores without opening the holes, which is a
+   * worse blanket.
+   *
+   * **The mean is untouched.** `g` is symmetric about 0.5, so a third of the
+   * ground is open, a third is solid and a third carries exactly the cut the
+   * paragraph above calibrated. Mean transmission over the band stays at the
+   * swept 0.5; only the variance moves, which is the whole intent.
+   *
+   * `uGapFreq` is in cycles per metre *across* the sun's bearing, and it is
+   * the one number here that wants reasoning about rather than sweeping.
+   * 0.30 is a 3.3 m wavelength across the bearing and, after the 5:1 stretch
+   * along it, 16 m — a streak wide enough to hold the car and short enough
+   * that the same frame still has sunflecks in it.
+   *
+   * All of them are uniforms rather than substituted constants, for the same
+   * reason the three above are: they sweep through `__AUDI_ENV.cut` without
+   * a shader recompile.
+   */
   const depthCut = {
     uLeafFreq: { value: 15.0 },
     uLeafBase: { value: 0.56 },
     uLeafRim: { value: 0.26 },
+    uGapFreq: { value: 0.30 },
+    uGapDepth: { value: 0.35 },
+    /** Horizontal unit vector *towards* the sun, and tan of its elevation. */
+    uSunGround: { value: new THREE.Vector2(0, 1) },
+    uTanElev: { value: 1 },
+    /**
+     * The core, in metres, as an ellipse in the sun's frame. The car's own
+     * shadow intercepts run from the origin to 7.2 m down-sun of it at this
+     * elevation, so the centre sits half that back along the bearing and the
+     * semi-axis along it covers the rest with margin.
+     */
+    uCoreAt: { value: new THREE.Vector2(0, 0) },
+    uCoreAcross: { value: 3.0 },
+    uCoreAlong: { value: 5.5 },
+    uCoreSoft: { value: 0.9 },
   };
 
   const crownDepthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
@@ -674,7 +795,11 @@ vLeafN = normalize(normalMatrix * normal);
       .replace(
         '#include <common>',
         `#include <common>\nvarying vec3 vLeafPos;\nvarying vec3 vLeafN;\n`
-        + `uniform float uLeafFreq;\nuniform float uLeafBase;\nuniform float uLeafRim;\n${LEAF_NOISE}`,
+        + `uniform float uLeafFreq;\nuniform float uLeafBase;\nuniform float uLeafRim;\n`
+        + `uniform float uGapFreq;\nuniform float uGapDepth;\n`
+        + `uniform vec2 uSunGround;\nuniform float uTanElev;\n`
+        + `uniform vec2 uCoreAt;\nuniform float uCoreAcross;\nuniform float uCoreAlong;\n`
+        + `uniform float uCoreSoft;\n${LEAF_NOISE}`,
       )
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${LEAF_CUT}`)
       .replace('LEAF_EDGE', 'length(vLeafN.xy) / max(length(vLeafN), 1e-3)')
@@ -708,11 +833,11 @@ vLeafN = normalize(normalMatrix * normal);
       // gone. What is left of the photograph's 4.7 % is film grain and real
       // surface, neither of which belongs in a shadow map.
       .replace(/LEAF_FREQ/g, 'uLeafFreq')
-      .replace('LEAF_BASE', 'uLeafBase')
-      .replace('LEAF_RIM', 'uLeafRim');
+      .replace(/LEAF_BASE/g, 'uLeafBase')
+      .replace(/LEAF_RIM/g, 'uLeafRim');
     Object.assign(shader.uniforms, depthCut);
   };
-  crownDepthMat.customProgramCacheKey = () => 'audi-canopy-depth-vC';
+  crownDepthMat.customProgramCacheKey = () => 'audi-canopy-depth-vD';
 
   const trunkMat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.92, metalness: 0, vertexColors: true,
@@ -1070,7 +1195,37 @@ vBarkPos = position;
     move(trunks, shadeFrom, 1, shadeBase.trunks);
     move(branches, shadeFrom * BRANCHES, BRANCHES, shadeBase.branches);
   };
+
+  /**
+   * Point the dapple's frame at the sun and stand its core over the subject.
+   *
+   * Gated on the same test as the rank, and it has to be: the depth cut is
+   * one material shared by every crown in the scene, so a core left standing
+   * would put the car in solid shade under `noon` and `overcast` as well,
+   * where there is no up-sun rank and nothing that should be shading it.
+   * Parked by moving the core's centre out of the world rather than by a
+   * switch, so the shader keeps one code path.
+   *
+   * The height is the car's, not a crown's: what has to be covered is the
+   * *span of shadow intercepts* the subject occupies, which runs from its own
+   * footprint to `roof / tan(elev)` down-sun of it — 7.2 m at 11.5°, against
+   * a car 4.8 m long. Sizing the core to the plan view leaves the roof, the
+   * screen header and the top of the bonnet in the sun.
+   */
+  const SUBJECT_TOP = 1.48;
+  const placeDappleCore = (sunDir: THREE.Vector3, on: boolean): void => {
+    const az = Math.hypot(sunDir.x, sunDir.z) || 1e-3;
+    const tanElev = Math.max(sunDir.y / az, 1e-3);
+    depthCut.uSunGround.value.set(sunDir.x / az, sunDir.z / az);
+    depthCut.uTanElev.value = tanElev;
+    const back = on ? (SUBJECT_TOP / tanElev) * 0.5 : -1e5;
+    depthCut.uCoreAt.value.set(
+      -depthCut.uSunGround.value.x * back,
+      -depthCut.uSunGround.value.y * back,
+    );
+  };
   placeShadeRank(new THREE.Vector3(0, 1, 0), false);
+  placeDappleCore(new THREE.Vector3(0, 1, 0), false);
 
   /**
    * How much of the sun reaches each tree's bole — and this is the term that
@@ -1460,7 +1615,21 @@ vBarkPos = position;
       if (cut.freq !== undefined) depthCut.uLeafFreq.value = cut.freq;
       if (cut.base !== undefined) depthCut.uLeafBase.value = cut.base;
       if (cut.rim !== undefined) depthCut.uLeafRim.value = cut.rim;
-      return { freq: depthCut.uLeafFreq.value, base: depthCut.uLeafBase.value, rim: depthCut.uLeafRim.value };
+      if (cut.gapFreq !== undefined) depthCut.uGapFreq.value = cut.gapFreq;
+      if (cut.gapDepth !== undefined) depthCut.uGapDepth.value = cut.gapDepth;
+      if (cut.coreAcross !== undefined) depthCut.uCoreAcross.value = cut.coreAcross;
+      if (cut.coreAlong !== undefined) depthCut.uCoreAlong.value = cut.coreAlong;
+      if (cut.coreSoft !== undefined) depthCut.uCoreSoft.value = cut.coreSoft;
+      return {
+        freq: depthCut.uLeafFreq.value,
+        base: depthCut.uLeafBase.value,
+        rim: depthCut.uLeafRim.value,
+        gapFreq: depthCut.uGapFreq.value,
+        gapDepth: depthCut.uGapDepth.value,
+        coreAcross: depthCut.uCoreAcross.value,
+        coreAlong: depthCut.uCoreAlong.value,
+        coreSoft: depthCut.uCoreSoft.value,
+      };
     },
     setSpread(s) {
       shadeSpread = s;
@@ -1507,6 +1676,7 @@ vBarkPos = position;
       shadeRankOn = preset.sunShadow && preset.ground !== 'studio'
         && sunDir.y > 0.06 && sunDir.y < 0.45;
       placeShadeRank(sunDir, shadeRankOn);
+      placeDappleCore(sunDir, shadeRankOn);
 
       // These proxies have no self-shadowing, so a smooth 0.04 dielectric
       // Fresnel over the whole mass was returning the sky at full strength —
@@ -1514,6 +1684,22 @@ vBarkPos = position;
       // brighter than the lit foliage beside it, because almost none of what
       // it returned was its own colour. A real canopy occludes most of the sky
       // from its own interior; this stands in for that.
+      // ⚠ **These three assignments do nothing, and the paragraph above is
+      // describing a knob that is not connected.** Three overwrites
+      // `envMapIntensity` with `scene.environmentIntensity` in
+      // `WebGLRenderer.setProgram` for every standard material whose own
+      // `envMap` is null, and none of these materials has one — they read
+      // `scene.environment`. So the planting's ambient is `preset.envIntensity`
+      // and has been since the IBL was handed to the scene rather than to each
+      // material. What is actually holding a trunk down to plausible is
+      // `BARK_SELF_OCCLUSION` and `LEAF_SELF_OCCLUSION` above, which are
+      // per-fragment and cannot be overwritten.
+      //
+      // Left in place rather than deleted: they are harmless, and the same
+      // trap has now cost two rounds — see the note on `envIntensity` in
+      // presets.ts, which was tuned for a year on the belief that it reached
+      // the car. Anyone reaching for a number here should reach for
+      // `envIntensity` or for the self-occlusion terms instead.
       crownMat.envMapIntensity = 0.22;
       trunkMat.envMapIntensity = 0.18;
       blockMat.envMapIntensity = 0.45;
