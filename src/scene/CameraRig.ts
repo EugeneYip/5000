@@ -140,6 +140,10 @@ export function focusDistanceFor(p: Pose): number {
   return Math.hypot(dx, dy, dz);
 }
 
+/** Scratch, module-level so `update` allocates nothing per frame. */
+const _q = new THREE.Quaternion();
+const _pivot = new THREE.Vector3();
+
 export class CameraRig {
   private current: ViewName = 'front3q';
   private desiredPos = new THREE.Vector3();
@@ -153,6 +157,51 @@ export class CameraRig {
 
   /** Set true to snap instead of easing — used before a screenshot. */
   snapNext = false;
+
+  /**
+   * The car's own frame, which every named pose is now resolved in.
+   *
+   * ## Why: the camera did not follow the car, and it read as a freeze
+   *
+   * `chase` and `hood` have always called `carRoot.localToWorld`, so they
+   * follow. Every *named* pose set `desiredPos`/`desiredTarget` once, from
+   * world-space literals, in `setView()` — and never again. So the fifteen
+   * review poses, including the default `front3q`, were nailed to the world
+   * origin while the car drove away from them.
+   *
+   * The symptom reported was not "the camera lags" but **"the whole scene
+   * stopped when I pressed s after w"**, and that is the same bug wearing a
+   * disguise: hold `w` and the car leaves the frame, so you are looking at an
+   * empty road that barely changes. Pressing `s` then brakes a car you cannot
+   * see. The HUD read 41 mph in second gear on a frame with no car in it.
+   *
+   * ## Position and YAW only, deliberately
+   *
+   * Not the full `localToWorld`. A review pose must not tilt with body roll or
+   * pitch — a dead-on side elevation that banks 3° through a corner is useless
+   * for review and unpleasant to sit behind. Taking the yaw alone keeps
+   * `side` a side view and `top` a plan view whatever the suspension is doing.
+   *
+   * Vertically the poses stay as authored: they are written against the ground
+   * plane, not against the car's floor, and the road here is flat.
+   *
+   * At rest the car sits at the origin with zero yaw, so this resolves to the
+   * authored literals exactly and **every `shoot.mjs` pose is unchanged** —
+   * which is the regression test, and it is bit-exact rather than nearly.
+   */
+  private followPos = new THREE.Vector3();
+  private followYaw = 0;
+
+  /** Resolve a pose-space point into the world, in the car's frame. */
+  private toWorld(out: THREE.Vector3, a: readonly [number, number, number]): THREE.Vector3 {
+    const s = Math.sin(this.followYaw);
+    const c = Math.cos(this.followYaw);
+    return out.set(
+      this.followPos.x + a[0] * c + a[2] * s,
+      a[1],
+      this.followPos.z - a[0] * s + a[2] * c,
+    );
+  }
 
   constructor(private camera: THREE.PerspectiveCamera) {
     this.setView('front3q');
@@ -188,15 +237,26 @@ export class CameraRig {
   }
 
   update(dt: number, carRoot: THREE.Object3D, state: VehicleState | null): void {
+    // The car's frame, recomputed every frame so every pose below follows it.
+    carRoot.getWorldPosition(this.followPos);
+    carRoot.getWorldQuaternion(_q);
+    this.followYaw = Math.atan2(
+      2 * (_q.w * _q.y + _q.x * _q.z),
+      1 - 2 * (_q.y * _q.y + _q.x * _q.x),
+    );
+
     if (this.current === 'orbit') {
       const o = this.orbit;
       const sp = Math.sin(o.phi);
+      // `o.target` is the authored car-relative point; orbit input writes only
+      // theta/phi/radius, so the pivot travels with the car.
+      this.toWorld(_pivot, [o.target.x, o.target.y, o.target.z]);
       this.desiredPos.set(
-        o.target.x + o.radius * sp * Math.sin(o.theta),
-        o.target.y + o.radius * Math.cos(o.phi),
-        o.target.z + o.radius * sp * Math.cos(o.theta),
+        _pivot.x + o.radius * sp * Math.sin(o.theta),
+        _pivot.y + o.radius * Math.cos(o.phi),
+        _pivot.z + o.radius * sp * Math.cos(o.theta),
       );
-      this.desiredTarget.copy(o.target);
+      this.desiredTarget.copy(_pivot);
       this.desiredFov = fovFromFocal(55);
     } else if (this.current === 'chase' && state) {
       // Chase camera lags on speed and leans out of the corner, so the car
@@ -215,6 +275,15 @@ export class CameraRig {
       this.desiredFov = fovFromFocal(30);
       carRoot.localToWorld(this.desiredPos);
       carRoot.localToWorld(this.desiredTarget);
+    } else {
+      // Named review pose, resolved in the car's frame every frame — this is
+      // what makes it follow. See `followPos`.
+      const p = POSES[this.current as Exclude<ViewName, 'orbit' | 'chase' | 'hood' | 'cinematic'>];
+      if (p) {
+        this.toWorld(this.desiredPos, p.position);
+        this.toWorld(this.desiredTarget, p.target);
+        this.desiredFov = fovFromFocal(p.focalMm);
+      }
     }
 
     const k = this.snapNext ? 1 : 1 - Math.pow(0.0015, dt);
