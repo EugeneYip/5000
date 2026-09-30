@@ -162,6 +162,18 @@ every stream running at once, not per-stream. Two streams both wrote
   `{ includeHidden: true }` to get the old behaviour, which is the right tool
   for a bit-identical A/B: hide a thing, keep the ray set, and only the pixels
   move.
+- **A bbox on a MERGED mesh is worse than useless.** "The bounds of a part
+  are not the part" has now cost three rounds, and the third was the worst
+  because the numbers looked so specific. A critique reported the windscreen
+  seal standing 20-23 mm proud of the glass from `fixedGlassOuter` 0.836 /
+  `fixedSeals` 0.856 / `fixedSurround` 0.859. All three are true bounding
+  boxes — and `fixedGlassOuter` merges the windscreen with the rear quarter,
+  spanning z −3.430…−0.437, so its 0.836 is the widest point of the
+  greenhouse **2.5 m away from the pillar being discussed**. At the A-pillar
+  station the seal reads 2.0 mm proud, which is exactly `flushOffset`. It was
+  never wrong. Measure at the station you are talking about, with `pick` on a
+  common ray, and if you quote a bbox say which mesh it is and check what else
+  got merged into it.
 - **Never threshold a reference photograph on luminance.** The red car on
   `scratchpad/ref3/bat_side_profile.jpg` has paint at RGB (160, 1, 0) —
   **luma 34**, below the luma-60 line that separates black plastic from paint

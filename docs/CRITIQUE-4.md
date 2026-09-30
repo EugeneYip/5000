@@ -45,8 +45,67 @@ merges into the mirror sail and continues along the cowl.
 §2.5 asks for "a flush-bonded windscreen and a **very narrow black
 surround**". CLAUDE.md states the rule outright: *flush glazing is the car's
 signature, and if the glass looks recessed the model is wrong regardless of
-everything else.* Geometry, plus material — nothing on the outside of this car
-should wear a weave.
+everything else.*
+
+> ### ⚠ Corrected. The defect is real; the attribution and both numbers above
+> ### were wrong.
+>
+> **It is not the glass seal. It is `pillarTrim` — the INTERIOR A-pillar trim
+> — poking out through the body**, from the A-pillar entry of `buildPillars()`
+> in `src/car/interior/shell.ts`, a section swept along a CatmullRom through
+> four hand-typed control points. Established by bit-identical A/B: hide the
+> `cabin:interiorPlastic` batch and the tube goes, leaving a narrow dark
+> pillar with a bright edge — the reference's read. Confirmed by eye on a
+> matched-scale three-way figure.
+>
+> **"~117 mm" is a horizontal chord, not a width.** 35 px × 3.3568 reproduces
+> it exactly. The pillar rakes at dx/dy ≈ −1.83, so a horizontal run converts
+> by 0.4798. At matched scale, across the pillar:
+>
+> | | as shipped | trim hidden | reference |
+> |---|---|---|---|
+> | mean | 50.8 mm | 20.7 mm | 16.6 mm |
+> | range | 40-58 | 18-27 | 13-20 |
+>
+> So the headline was inflated ~2.1× *and* compared against a reference
+> number that was not measured the same way. The real gap is 51 against 17,
+> and hiding the interior trim alone closes it to 21. The residual ~4 mm is
+> `roofMoulding` being slightly wide — a note, not a defect.
+>
+> **The "proud in x" table is three whole-mesh bounding boxes**, each attained
+> somewhere different on the car. `fixedGlassOuter` spans z −3.430…−0.437 —
+> windscreen and rear quarter in one merged mesh — so 0.836 is the widest
+> point of the greenhouse near the beltline, ~2.5 m from the A-pillar.
+> Measured **at the A-pillar station** (z −1.10…−0.80, y 1.05…1.32):
+>
+>     fixedGlassOuter  0.7740
+>     fixedSeals       0.7760     2.0 mm — exactly HP.glass.flushOffset
+>     fixedSurround    0.7921
+>     aPillarR         0.7937     the body skin
+>     roofMoulding     0.8049
+>
+> **The seal is exactly right and needed no change.** Worse, *neither* seal
+> can be proud of the skin by construction: `buildSeal` samples `glassPoint(z,
+> t, smp, 0)` *on* the skin and every offset in `SEAL_PROFILE` and
+> `BOND_PROFILE` is ≥ 0, i.e. into the body. The door seal held up above as
+> the "working example" at 3 mm is the same kind of bad reading.
+>
+> This is WORKSTREAM.md's own trap — **the bounds of a part are not the part**
+> — for the third time on this project, and I repeated it in my own summary of
+> this critique without checking. The lesson generalises: a bbox on a *merged*
+> mesh is worse than useless, because the number it returns is real and
+> belongs to somewhere else entirely.
+>
+> **And the weave is not the interior plastic's.** Laplacian energy over patch
+> mean in `front3q`: trim tube 0.287, `mirrorShells` 0.346, **`cowl` 0.844**,
+> door glass 0.094, roof paint 0.133. It is a whole family of small dark
+> parts, not one material.
+>
+> Also: `renders/sl_ab/` from an earlier attempt is **unusable** — its
+> `front3q_no_fixedSeals`, `front3q_no_fixedSurround` and
+> `front3q_no_cabin_interiorPlastic…` frames are bit-identical to each other,
+> so that harness hid the same thing three times. Anyone reading those files
+> will draw a false conclusion.
 
 ### 2. The grille is ~100 mm too narrow; the headlamps eat the difference
 
