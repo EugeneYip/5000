@@ -25,11 +25,28 @@ const PPMM = 6.4;
 /** Needle sweep: zero at lower-left, full scale at lower-right. */
 export const SWEEP = { start: -126, end: 126 } as const;
 
+/**
+ * Dial centres, face millimetres.
+ *
+ * The small gauges are placed by ratio against the speedometer-to-tachometer
+ * span, measured off `scratchpad/ref3/bat_int_cluster_closeup.jpg`: the
+ * coolant centre sits 0.450 of that span outboard of the speedometer and
+ * 0.233 of it *below*, the fuel gauge 0.398 and 0.241. They were both at
+ * 0.507 / 0.149 — too far out and too high, which sat them level with the
+ * main dials instead of hanging under them the way the real pair does, and
+ * put them behind the wheel rim's side arcs from the driver's eye.
+ *
+ * Written as the arithmetic rather than as four literals so the ratios stay
+ * checkable against the photograph.
+ */
+const SPAN = 134;
+const MAIN_Y = 52;
+
 export const DIALS = {
-  temp: { x: 30, y: 72, r: 20 },
-  speedo: { x: 98, y: 52, r: 39 },
-  tacho: { x: 232, y: 52, r: 39 },
-  fuel: { x: 300, y: 72, r: 20 },
+  temp: { x: 98 - 0.450 * SPAN, y: MAIN_Y + 0.233 * SPAN, r: 20 },
+  speedo: { x: 98, y: MAIN_Y, r: 39 },
+  tacho: { x: 98 + SPAN, y: MAIN_Y, r: 39 },
+  fuel: { x: 98 + SPAN + 0.398 * SPAN, y: MAIN_Y + 0.241 * SPAN, r: 20 },
 } as const;
 
 /**
@@ -85,6 +102,34 @@ function label(p: Pen, x: number, y: number, text: string, size: number, color: 
     g.textAlign = align;
     g.textBaseline = 'middle';
     g.fillText(text, x, y);
+  });
+}
+
+/**
+ * A line of lettering bent round a dial, set from the top and reading
+ * left to right. `r` is the radius the baseline sits on.
+ */
+function arcLabel(p: Pen, cx: number, cy: number, r: number, text: string, size: number, color: string): void {
+  both(p, (g, lit) => {
+    g.save();
+    g.fillStyle = lit ? BACKLIT : color;
+    g.font = `500 ${size}px ${DIAL_FONT}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    const widths = [...text].map((ch) => g.measureText(ch).width);
+    const total = widths.reduce((a, b) => a + b, 0);
+    let a = -total / (2 * r);
+    for (let i = 0; i < text.length; i++) {
+      const step = widths[i] / r;
+      a += step / 2;
+      g.save();
+      g.translate(cx + Math.sin(a) * r, cy - Math.cos(a) * r);
+      g.rotate(a);
+      g.fillText(text[i], 0, 0);
+      g.restore();
+      a += step / 2;
+    }
+    g.restore();
   });
 }
 
@@ -231,10 +276,28 @@ function drawSmall(p: Pen, cx: number, cy: number, r: number, kind: 'temp' | 'fu
     label(p, ...pt(cx, cy, s.end, r - 10.5), '120', 4.2, '#f0eee8');
   }
 
+  /**
+   * The bilingual unleaded warning, all three lines of it, on the fuel gauge
+   * where the car carries them — `UNLEADED FUEL ONLY` arced over the top of
+   * the well on the black plate, `ESSENCE SANS PLOMB / UNIQUEMENT` stacked
+   * inside it under the pump. They were split across the whole pack, the
+   * English line under the fuel gauge and the French one under the *coolant*
+   * gauge 270 mm away, which left a stray French legend floating at the far
+   * end of the cluster with nothing above it. The coolant end carries `°C`
+   * and nothing else. Measured off bat_int_cluster_closeup.jpg.
+   */
+  if (kind === 'fuel') {
+    arcLabel(p, cx, cy, r + 3.0, 'UNLEADED FUEL ONLY', 2.7, '#a9a7a3');
+    label(p, cx, cy + 11.0, 'ESSENCE SANS PLOMB', 2.4, '#8e8c88', '400');
+    label(p, cx, cy + 15.2, 'UNIQUEMENT', 2.4, '#8e8c88', '400');
+  } else {
+    label(p, cx + 11.5, cy + 8.0, '°C', 3.4, '#c6c4bf', '400');
+  }
+
   // Pictogram: a fuel pump, or a thermometer standing in water.
   both(p, (gc, lit) => {
     gc.save();
-    gc.translate(cx, cy + r * 0.44);
+    gc.translate(cx, cy + (kind === 'fuel' ? 5.2 : r * 0.40));
     gc.strokeStyle = lit ? BACKLIT : '#d6d4cf';
     gc.fillStyle = lit ? BACKLIT : '#d6d4cf';
     gc.lineWidth = 0.8;
@@ -448,9 +511,6 @@ export function drawCluster(): ClusterArt {
   drawSmall(p, DIALS.temp.x, DIALS.temp.y, DIALS.temp.r, 'temp');
   drawSmall(p, DIALS.fuel.x, DIALS.fuel.y, DIALS.fuel.r, 'fuel');
   drawCentre(p);
-
-  label(p, DIALS.fuel.x, 106, 'UNLEADED FUEL ONLY', 3.0, '#a9a7a3', '500');
-  label(p, DIALS.temp.x, 106, 'ESSENCE SANS PLOMB', 2.4, '#6e6c69', '400');
 
   return { face, lit };
 }
