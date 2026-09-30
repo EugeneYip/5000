@@ -999,10 +999,19 @@ Top to bottom, in a **narrow vertical column angled slightly toward the driver**
    with a row of preset buttons along its lower edge and a cassette slot above. Factory description:
    *"AM/FM stereo cassette, electronically tuned"* (optional); *"4-speaker stereo prep with automatic power
    antenna"* was standard. [AW-87]
-4. **The climate panel** — **three large round rotary knobs in a row**, the left one ringed in red/blue for
-   temperature, the centre and right ones for distribution and fan, with a vertical column of small square
-   buttons flanking them on the right. The US 5000 S had **electronic climate control as standard equipment**
-   ([AW-87] *"Electronic climate control system"*), so the panel is a control head, not a simple lever box.
+4. **The climate panel** — a flat black glass **push-button** head reading **ELECTRONIC CLIMATE CONTROL**
+   in white on the moulding to its left. On the panel: a red **WARMER** rocker above a blue **COOLER**
+   rocker at the left; a red seven-segment temperature readout in the centre; an **OUTSIDE TEMP** °C/°F
+   slide switch at the right with its own red pilot; and a row of **seven flat push-buttons** along the
+   bottom — **OFF · ECON · BI-LEV · AUTO · defrost · LO/fan/HI** — with a red pilot lamp over OFF. The US
+   5000 S had **electronic climate control as standard equipment** ([AW-87] *"Electronic climate control
+   system"*). *(measured on `scratchpad/ref3/bat3_int_climate_control.jpg`, a MY1988 NA car)*
+
+   > ⚠ **This entry said "three large round rotary knobs in a row" for four rounds and there is not one
+   > rotary knob on the panel.** The description appears to have come from the Wikimedia European-market
+   > photographs. `bat3_int_climate_control.jpg` — right car, right year, right market — is in this repo
+   > and settles it. Corrected after a review built the wrong part from this paragraph. When a photograph
+   > of the actual car disagrees with this document, **the photograph wins**.
 5. **The console** then runs down and back to the transmission tunnel.
 
 *(all observed on the BaT MY1988 Avant and the Wikimedia C3 interior photographs)*
@@ -1055,7 +1064,10 @@ and on the BaT MY1988 Avant)*
 - Manual: a **short lever with a leather gaiter** and a **round black knob** carrying the shift pattern,
   rising from the console. A **leather shift knob and boot** is listed as an *extra* on the CS Turbo, so the
   5000 S's is the plain moulded item. [AW-87] *(observed)*
-- Handbrake: a lever between the seats, to the right of the gear lever on a LHD car, black grip. *(observed)*
+- Handbrake: a lever between the seats, **to the LEFT of the gear lever on a LHD car** — the driver's
+  side of it — with a black grip. *(measured on `scratchpad/ref3/bat3_int_dash_console.jpg`; this entry
+  said "to the right" and the photograph plainly shows the lever inboard of the driver's seat, ahead of
+  and left of the shifter boot)*
 
 **Cargo area — the Avant's defining interior feature**
 Factory description for the wagon, verbatim: *"60/40 split fold-down rear seat · Rear window wiper/washer
@@ -1117,7 +1129,7 @@ What actually changed, for reference:
   inboard of the main pair. [AW-89], *(observed on the same Wikimedia facelift photograph)*
 
 **⚠ [VERIFY] — honest limitation.** Placing the pre-facelift and post-facelift dashboards side by side, the
-**basic moulding, the centre-stack layout, the three-rotary climate panel and the 4-spoke wheel all carry
+**basic moulding, the centre-stack layout, the push-button climate head and the 4-spoke wheel all carry
 over**. The visible differences are the procon-ten badge, the added gauges and detail changes to switchgear
 and trim. The German-language sources' "completely overhauled" is stronger than what the photographs support.
 **No factory document establishing exactly which dashboard parts were re-tooled in January 1988 was found.**

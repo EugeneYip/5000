@@ -200,7 +200,12 @@ readings want ×1.005/×1.018 at the nose and ×0.995/×0.982 at the tail. It is
   fender. This photograph is the specific car being reproduced, so it wins.
   `frontValance` stays `bumperPlastic`; this note exists so the two documents
   no longer disagree silently.
-- A Pennsylvania inspection sticker at the top of the windscreen, passenger side.
+- A Pennsylvania inspection sticker **low on the windscreen, driver's side** — frame-right in the
+  photograph, at roughly (1157, 444), where the screen spans x 800-1250 and y 280-480. The car faces the
+  camera, so frame-right is the car's left, which on a LHD car is the driver's side. That is also where
+  Pennsylvania stickers go. *(This line read "top of the windscreen, passenger side" and was wrong on
+  both counts. The model is right and the document was not; a review nearly "fixed" the model to match
+  it.)*
 - Flush glazing — the glass sits almost level with the body side.
 
 ---
