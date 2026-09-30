@@ -131,7 +131,50 @@ export const HP = {
 
     /** Bumper: a deep, soft, body-coloured-grey moulding. */
     bumperTopY: 0.648,
-    bumperBottomY: 0.402,
+    /**
+     * Bottom of the **black moulding**, not of the bumper — the same
+     * correction `6714c4e` made at the tail, which the nose never got.
+     *
+     * At 0.402 the moulding ran 0.648 → 0.402 and, with the crown standing
+     * 11 mm over `bumperTopY`, put **260 mm of black** down the whole front
+     * elevation. The photographs have about half that with a body-coloured
+     * apron under it, and the render showed it: one undifferentiated dark
+     * slab where the reference has bead / black / apron.
+     *
+     * Measured on both BaT flanks, contact-line referenced, segmented on `V`
+     * and chroma — never luminance here. Per column, 14 on the silver and 16
+     * on the red:
+     *
+     *     bead top          571.0 (silver)   561.6 (red)
+     *     black bottom      459.9            452.4
+     *     ----------------------------------------------
+     *     bead → black      111.6            108.5     = 110 mm, to 1 mm
+     *
+     * The two cars sit 8-9 mm apart on their tyres and *every* figure differs
+     * by that same 8-9 mm, which is what makes the difference the measurement
+     * and not the absolute. Anchored on the bead's **top** because it is the
+     * sharpest edge in the stack and the model's is deterministic:
+     * `crownProfile`'s `beadAt: 5` hands over at `topY − 0.016` = 0.632. So
+     * `blackBottom = 0.632 − 0.110 = 0.522`, and `outerProfile` ends at
+     * `bottomY − 0.003`.
+     *
+     * Anchoring on the *paint edge* gives 0.542 and on the bead's *bottom*
+     * 0.519. The 24 mm between the three anchors is `beadWidth` being 15 mm
+     * where both flanks measure the bead at **7.6 mm** (red, n=16, sd 1.5)
+     * and 10.5 (silver, whose highlight clips at V 255 and blooms). Reported
+     * against `rubStripHeight` below, not changed — 15 has its own derivation
+     * from two other frames.
+     */
+    bumperBottomY: 0.525,
+    /**
+     * Where the apron stops being a face and turns under. The silver car's
+     * reads as a face from 460 down to ~385, dims through 385-355 as it rolls
+     * under, and is in shadow to ~315 where the car ends — no edge anywhere
+     * in it, one convex panel. This is the knee, not the bottom of the
+     * bodywork. (The red car's is deeper, 446 → 258-274, but that car is a CS
+     * Turbo quattro with the deep spoiler, so the silver Avant is taken.)
+     */
+    apronBottomY: 0.385,
     bumperZ: NOSE,
     /** Bright strip along the bumper's UPPER EDGE, not across its face. */
     rubStripY: 0.625,
@@ -147,9 +190,30 @@ export const HP = {
     rubStripHeight: 0.015,
     /** Amber marker at the bumper's outboard end. */
     markerX: 0.822,
-    markerY: 0.512,
+    /**
+     * 0.512 sat near the middle of the **old** 246 mm black band. With the
+     * band at 0.525-0.648 it is 13 mm *under* the moulding, so a 30 mm lens
+     * there straddles the moulding's bottom edge with two thirds of it on the
+     * body-coloured apron. `bat3_front3q.jpg` puts it squarely inside the
+     * black at both corners. 0.5865 is the new band's own mid-height.
+     *
+     * ⚠ One of the three front figures — with `plateCenter[1]` and
+     * `lampBottomY` — that share a chain with **no ground datum in it**, so
+     * it moves again if the front furniture comes down. See `bumperTopY`.
+     */
+    markerY: 0.5865,
 
-    /** Lower valance and air dam below the bumper. */
+    /**
+     * Lower valance and air dam below the bumper.
+     *
+     * ⚠ **~95 mm too deep and now conspicuous.** The silver car's lowest
+     * point at the nose measures **305-322 mm** over the mid columns. This was
+     * invisible while the moulding was 246 mm of black — a black air dam under
+     * a black band reads as one part — but with a light apron above it a dark
+     * mass hanging to 212 is the most conspicuous thing left in the side view.
+     * The apron did not create this; it exposed it. (`floorpan`, wearing
+     * `bumperPlastic`, is in the silhouette down to 181 mm — underbody.)
+     */
     valanceBottomY: 0.212,
 
     /** Licence plate, centred, recessed into the bumper face. */
@@ -546,6 +610,13 @@ export const HP = {
      */
     bumperTopY: 0.609,
     bumperBottomY: 0.496,
+    /**
+     * Where the rear apron turns under. `6714c4e` built `rearApron` to a local
+     * `APRON_KNEE_Y` and reported that `HP.rear` had no hardpoint for it; this
+     * is that value, promoted so one field name serves both ends of the car.
+     * See `HP.front.apronBottomY`.
+     */
+    apronBottomY: 0.340,
     bumperZ: TAIL,
     /**
      * Third value, and this one is anchored rather than argued.

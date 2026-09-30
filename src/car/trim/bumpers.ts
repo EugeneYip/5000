@@ -233,6 +233,13 @@ export interface BumperSpec {
   bottomY: number;
   /** +1 for the nose (the moulding faces +Z), −1 for the tail. */
   sign: 1 | -1;
+  /**
+   * Bottom edge of the body-coloured apron that hangs under the moulding —
+   * i.e. where the apron stops being a face and turns under. Neither end has
+   * a hardpoint for it; `HP.front.apronBottomY` / `HP.rear.apronBottomY` is
+   * the name proposed for both. Reported.
+   */
+  apronBottomY: number;
   valanceBottomY: number;
   /**
    * Developed width of the bright bead measured *along the surface* from the
@@ -438,15 +445,16 @@ function rubStrip(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
 }
 
 /**
- * Lower valance / air dam. Body-coloured on this car — §6.3 reconciles the
- * brochure's "integrated body-colored bumper aprons" with the dark moulding:
- * the moulding is grey, the aprons above and below it are paint.
+ * Air dam under the nose's apron. NOT the apron itself — see `frontApron`.
  *
- * It tucks *under* the moulding rather than standing out in front of it, and
- * it dies away to nothing before the wheel arch instead of wrapping.
+ * It tucks *under* the apron rather than standing out in front of it, and it
+ * dies away to nothing before the wheel arch instead of wrapping. Its top is
+ * `apronBottomY`, not `bottomY`: since the moulding stops at 0.525 the 140 mm
+ * below that is the body-coloured apron, and this part is only the shadowed
+ * undercut beneath it.
  */
 function valance(s: BumperSpec, frames: Frame[], spinePts: Array<[number, number]>): THREE.BufferGeometry {
-  const b = s.bottomY;
+  const b = s.apronBottomY;
   const drop = b - s.valanceBottomY;
   // The top of the apron is buried inside the moulding's bottom roll: leaving
   // the two edges coplanar put a row of z-fighting slashes across the valance.
@@ -473,30 +481,93 @@ function valance(s: BumperSpec, frames: Frame[], spinePts: Array<[number, number
 }
 
 // ---------------------------------------------------------------------------
+// The front apron
+// ---------------------------------------------------------------------------
+
+// The nose's black moulding now ends at `HP.front.bumperBottomY` (0.525).
+// The derivation that used to live here moved to the hardpoint with it.
+
+// The front apron's knee is `HP.front.apronBottomY` (0.385).
+
+/**
+ * The nose's body-coloured apron.
+ *
+ * ## It is paint, and that was settled on the red car
+ *
+ * On the silver car the band under the black reads RGB (114,116,115) to
+ * (140,141,141) at chroma 1-2 — neutral, and silver paint and grey plastic
+ * are the same colour, so that frame cannot answer it. The red car can: over
+ * sixteen columns the same band reads **(138…167, 0-2, 0-5), chroma 143-166**
+ * against the wing 30 mm above it at (152…176, 0-6, 0-19). Same hue, same
+ * saturation, a little darker because the panel is tucked under. It is the
+ * car's own paint, not a separate grey part, which is also what
+ * `REFERENCE-VEHICLE.md` §6.3's "integrated body-colored bumper aprons" says
+ * and what the tail already builds.
+ *
+ * ## Shape
+ *
+ * One gently convex face with its crown a little above mid-height, a defined
+ * lower lip whose underside faces the road, and both edges let in behind the
+ * parts they meet — the same construction as `rearApron`, for the same reason
+ * (coplanar edges grazed each other and left a row of dark slivers along the
+ * join).
+ *
+ * Swept on the moulding's own frames rather than a plan of its own, so it
+ * wraps the corner with it and dies into the wing where the moulding does.
+ * The fade is on the **station index**, not on |x| as `valance`'s is: the
+ * nose's plan turns back from 0.905 to 0.858 over its last stations, so |x|
+ * cannot tell the two passes apart — the same trap `tailPlan` documents.
+ *
+ * Face depth: −22 mm from the plan line, against the moulding's −16.7 mm at
+ * its own bottom roll. On the reference the apron is set back from the
+ * moulding by a visible shadow line and is roughly flush with the wing: at
+ * the plan's widest station that puts it at |x| 0.883 against `frontWingR`'s
+ * 0.876 and the moulding's 0.904, which is the order the photographs show.
+ */
+function frontApron(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
+  const top = s.bottomY;
+  const knee = s.apronBottomY;
+  const mid = (top + knee) / 2;
+  // (depth along the frame's outward normal, absolute y). Down the outer
+  // face, then back along a return buried behind the valance.
+  // The moulding's own profile ends at `[-0.047, bottomY - 0.003]` after a
+  // 30 mm near-horizontal lower lip, so the apron's top has to be well behind
+  // that lip wherever the two overlap in y and only emerge below it. At 20 mm
+  // of setback they crossed 2.5 mm apart and left the grazing sliver of dark
+  // the join already has.
+  const shape: Array<readonly [number, number]> = [
+    [-0.090, top + 0.022],
+    [-0.062, top + 0.004],
+    [-0.033, top - 0.008],
+    [-0.0215, lerp(top, knee, 0.32)],
+    [-0.0235, lerp(top, knee, 0.66)],
+    [-0.0300, knee + 0.014],
+    [-0.0395, knee],
+    // 17 mm of depth in 6 mm of height: the lip's underside faces the road
+    // and reads as the shadow line the photograph has here.
+    [-0.0560, knee - 0.006],
+    [-0.1150, knee - 0.010],
+    [-0.1150, top + 0.022],
+  ];
+  const nf = frames.length;
+  return sweep(
+    (j) => {
+      // 0 at the centreline, 1 at both ends of the plan.
+      const u = Math.abs((2 * j) / (nf - 1) - 1);
+      const fade = 1 - smoothstep(clamp((u - 0.93) / 0.07, 0, 1));
+      return shape.map(([d, y]) => [lerp(-0.045, d, fade), mid + (y - mid) * fade] as Pt);
+    },
+    frames,
+    { closed: true, capStart: true, capEnd: true, flip: s.sign > 0, uvScale: 0.18 },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The rear apron
 // ---------------------------------------------------------------------------
 
-/**
- * Where the tail's apron stops being a face and turns under.
- *
- * Measured off `bat_rear_straight_b.jpg` on the taillamp band's own scale
- * (`lampTopY`−`lampBottomY` = 184 mm over the 139 px between the two gasket
- * minima, so 1.324 mm/px): body colour runs unbroken from the moulding's
- * lower edge at y 905 px — 0.496, `HP.rear.bumperBottomY` to 1 mm — down to
- * the underbody cut at y 1010–1020 px depending on station, i.e. 0.344 to
- * 0.357. So the apron is **145 mm**, not the ~104 the old `bumperBottomY`
- * 0.392 suggests: 0.392 is the *old* hardpoint, and there is no edge there.
- * The face is one gently convex panel with a broad highlight across its
- * middle and no crease anywhere in it. `HP.rear` has no hardpoint for the
- * bottom edge — reported.
- *
- * Built at 0.340 rather than the measured 0.350, and that is deliberate:
- * `body.ts` ends `rearLower` at 0.338, so a lip at 0.350 left 12 mm of the
- * body's own bottom edge showing *under* it, and that edge faces astern and
- * catches sky — a bright sliver exactly where the photograph is black. The
- * apron therefore ends where the panel behind it does, 10 mm low.
- */
-const APRON_KNEE_Y = 0.340;
+// The rear apron's knee is `HP.rear.apronBottomY` (0.340) — the value
+// `6714c4e` reported as having no hardpoint. It has one now.
 
 /** How far the apron's face stands proud of the painted tail behind it. */
 const APRON_PROUD = 0.009;
@@ -518,7 +589,7 @@ const APRON_BURY = 0.026;
  * it, which is why the render's lower tail reads as one bland mass where the
  * photograph has a lit apron over a shadowed undercut. So this is a part, not
  * a region: 9 mm proud of that face, gently convex, with a defined lower lip
- * at `APRON_KNEE_Y` whose underside faces the road.
+ * at `HP.rear.apronBottomY` whose underside faces the road.
  *
  * There is deliberately NO valance below it, unlike the nose. Two shapes were
  * tried and both came out *brighter* than the bare gap they replaced: a
@@ -601,7 +672,7 @@ const APRON_BURY = 0.026;
  */
 function rearApron(s: BumperSpec): THREE.BufferGeometry {
   const top = s.bottomY;
-  const knee = APRON_KNEE_Y;
+  const knee = HP.rear.apronBottomY;
   const midY = (top + knee) / 2;
   // Just inside the silhouette, so the apron never becomes the body's edge.
   const halfW = rearHalfWidth(midY) - 0.010;
@@ -675,17 +746,22 @@ function onFace(frames: Frame[], s: BumperSpec, x: number, y: number, g: THREE.B
 export interface BumperResult {
   moulding: THREE.BufferGeometry;
   bright: THREE.BufferGeometry;
-  valance: THREE.BufferGeometry;
+  /** The body-coloured apron under the moulding, both ends. */
+  apron: THREE.BufferGeometry;
+  /** The nose's air dam, under the apron. The tail deliberately has none. */
+  valance: THREE.BufferGeometry | null;
   frames: Frame[];
   spec: BumperSpec;
 }
 
 function build(s: BumperSpec): BumperResult {
   const { geo, frames } = buildMoulding(s);
+  const nose = s.sign > 0;
   return {
     moulding: geo,
     bright: rubStrip(s, frames),
-    valance: s.sign > 0 ? valance(s, frames, s.plan) : rearApron(s),
+    apron: nose ? frontApron(s, frames) : rearApron(s),
+    valance: nose ? valance(s, frames, s.plan) : null,
     frames,
     spec: s,
   };
@@ -785,6 +861,7 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     topY: HP.front.bumperTopY,
     bottomY: HP.front.bumperBottomY,
     sign: 1,
+    apronBottomY: HP.front.apronBottomY,
     valanceBottomY: HP.front.valanceBottomY,
     beadWidth: FRONT_BEAD_WIDTH,
     plan: frontPlan,
@@ -796,8 +873,11 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
     topY: HP.rear.bumperTopY,
     bottomY: HP.rear.bumperBottomY,
     sign: -1,
-    // No rear valance figure is published; carry the front's drop across.
-    valanceBottomY: HP.rear.bumperBottomY - (HP.front.bumperBottomY - HP.front.valanceBottomY),
+    apronBottomY: HP.rear.apronBottomY,
+    // Nothing reads this at the tail — `rearApron` ends at `HP.rear.apronBottomY` and
+    // there is deliberately no valance under it. Kept only so one spec serves
+    // both ends.
+    valanceBottomY: HP.rear.apronBottomY - 0.100,
     beadWidth: REAR_BEAD_WIDTH,
     plan: tail.plan,
     depths: tail.depths,
@@ -813,26 +893,54 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
   const plate = HP.front.plateCenter;
   frontExtras.push(at(roundedBox(0.328, 0.176, 0.030, 0.0065), [plate[0], plate[1], plate[2] - 0.0165]));
 
-  // Impact-absorber access plugs and the towing eye — both visible in §6.3.
+  // Impact-absorber access plugs and the towing eye — both visible in §6.3,
+  // which shows that they are there and not at what height. They were placed
+  // as absolute heights inside a 246 mm black band; the band is 123 mm now, so
+  // the towing eye's 0.452 is 73 mm *below* the moulding and would read as a
+  // black tab stuck on the body-coloured apron. Carried with the band instead.
+  // The plug's 0.596 is still inside it and still clear of the bead, so it has
+  // not moved.
   for (const sx of [-1, 1]) {
     const plug = lathe([[0, 0.0055], [0.0150, 0.0052], [0.0195, 0.0034], [0.0205, 0], [0.0205, -0.010]], 18);
     plug.rotateX(Math.PI / 2);
     frontExtras.push(onFace(f.frames, front, sx * 0.452, 0.596, plug, -0.0042));
-    frontExtras.push(onFace(f.frames, front, sx * 0.845, 0.452, roundedBox(0.048, 0.026, 0.016, 0.006), -0.0105));
+    frontExtras.push(onFace(f.frames, front, sx * 0.845, front.bottomY + 0.025,
+      roundedBox(0.048, 0.026, 0.016, 0.006), -0.0105));
   }
   group.add(mesh('frontBumper', merge(frontExtras), plastic));
   group.add(mesh('frontRubStrip', f.bright, strip));
-  // Not `paint`: the photograph shows dark grey moulding through here, and a
-  // metallic clearcoat on a panel this close to horizontal mirrors the sky.
-  group.add(mesh('frontValance', f.valance, plastic));
+  // `paint`, settled on the red car — see `frontApron`. The old note here
+  // ("not `paint`: the photograph shows dark grey moulding through here") was
+  // reading the band that is now `frontValance`, 140 mm lower down, and on a
+  // silver car where paint and grey plastic measure the same colour.
+  group.add(mesh('frontApron', f.apron, paint));
+  // The air dam under the apron stays dark: it is a tucked-under shadowed
+  // part, and a metallic clearcoat this close to horizontal mirrors the sky.
+  if (f.valance) group.add(mesh('frontValance', f.valance, plastic));
 
-  // Small amber marker low in the bumper's outboard face.
+  /*
+   * Small amber marker in the bumper's outboard face.
+   *
+   * `HP.front.markerY` is 0.5865. It was 0.512, near the middle of the old 246 mm
+   * black band; with the band at 0.525–0.648 it is 13 mm *under* the
+   * moulding, so a 30 mm lens placed there straddles the moulding's bottom
+   * edge with two thirds of it on the body-coloured apron.
+   * `bat3_front3q.jpg` puts it squarely inside the black at both corners.
+   *
+   * Derived from the moulding's own band here, as `rubStrip` derives the bead
+   * from the moulding's own profile, and for the same reason: the hardpoint
+   * described a part that no longer existed at that height. Note it is one
+   * of the three figures (`plateCenter[1]`, `markerY`, `lampBottomY`) that
+   * share a chain with no ground datum in it, so it moves again if the front
+   * furniture comes down.
+   */
+  const markerY = HP.front.markerY;
   const amber: THREE.BufferGeometry[] = [];
   const bezel: THREE.BufferGeometry[] = [];
   for (const sx of [-1, 1] as const) {
-    amber.push(onFace(f.frames, front, sx * HP.front.markerX, HP.front.markerY,
+    amber.push(onFace(f.frames, front, sx * HP.front.markerX, markerY,
       roundedBox(0.062, 0.030, 0.012, 0.005), 0.0015));
-    bezel.push(onFace(f.frames, front, sx * HP.front.markerX, HP.front.markerY,
+    bezel.push(onFace(f.frames, front, sx * HP.front.markerX, markerY,
       roundedBox(0.072, 0.040, 0.010, 0.005), -0.0035));
   }
   group.add(mesh('frontMarkerBezel', merge(bezel), dark));
@@ -848,7 +956,7 @@ export function buildBumpers(ctx: BuildContext): { group: THREE.Group } {
   group.add(mesh('rearRubStrip', r.bright, strip));
   // `rearApron`, not the front's `valance` — see the two functions. The name
   // stays `rearValance` because other streams probe it by name.
-  group.add(mesh('rearValance', r.valance, paint));
+  group.add(mesh('rearValance', r.apron, paint));
 
   void QUALITY;
   return { group };
