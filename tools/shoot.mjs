@@ -53,6 +53,16 @@ const HEIGHT = Number(args.h ?? 1080);
 const OUT = resolve(ROOT, String(args.out ?? 'renders/latest'));
 const ENV = String(args.env ?? '');
 const PORT = Number(args.port ?? (await freePort()));
+/**
+ * Where the served app lives. `vite` in dev serves at the root; a `--dist`
+ * preview has to be served at the base the bundle was built with.
+ *
+ * `--dist` is the right way to measure while other streams are editing: a
+ * preview serves a snapshot and does not hot-reload when someone else saves,
+ * so the scene cannot change under a run. It does not help against a tree
+ * that is broken, since `tsc` passes and the build succeeds either way.
+ */
+const BASE = args.dist ? '/5000/' : '/';
 
 /**
  * Standard review views. Orthographic-ish long-lens poses are deliberate:
@@ -94,8 +104,14 @@ function startServer() {
   return new Promise((res, rej) => {
     const dist = resolve(ROOT, 'dist');
     const useDist = existsSync(dist) && args.dist;
+    // `--dist` could not work at all before this. `vite.config.ts` bakes
+    // `base: '/5000/'` on the BUILD branch (the project deploys to a GitHub
+    // Pages subpath) but `vite preview` reads base from the SERVE branch, `/`,
+    // so every asset in the built bundle 404'd and `__AUDI.ready` never
+    // arrived — a 120-second silent timeout with no explanation. Serve the
+    // built bundle at the base it was built for, and visit that path.
     const cmd = useDist
-      ? ['npx', ['vite', 'preview', '--port', String(PORT), '--host', '127.0.0.1']]
+      ? ['npx', ['vite', 'preview', '--port', String(PORT), '--host', '127.0.0.1', '--base', BASE]]
       : ['npx', ['vite', '--port', String(PORT), '--host', '127.0.0.1']];
 
     const p = spawn(cmd[0], cmd[1], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -238,8 +254,8 @@ page.on('console', (m) => {
   if (process.env.VERBOSE) console.log(`  [page:${m.type()}] ${m.text()}`);
 });
 
-console.log(`→ loading http://127.0.0.1:${PORT}/ at ${WIDTH}×${HEIGHT}`);
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load', timeout: 60_000 });
+console.log(`→ loading http://127.0.0.1:${PORT}${BASE} at ${WIDTH}×${HEIGHT}`);
+await page.goto(`http://127.0.0.1:${PORT}${BASE}`, { waitUntil: 'load', timeout: 60_000 });
 
 // Wait for the app to announce it has finished building the car and warming
 // shaders. The app sets window.__AUDI.ready = true when the first frame with
@@ -272,7 +288,7 @@ for (const name of wanted) {
     await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
     await page.waitForTimeout(650);
 
-    await page.screenshot({ path: file, type: 'png' });
+    await page.screenshot({ path: file, type: 'png', timeout: 120_000 });
 
     // Silhouette companion. `sheet.py` reads the car mask straight off it, which
     // is the only way its per-car readings mean what they say — see
@@ -282,7 +298,7 @@ for (const name of wanted) {
         await drive(page, 'setMaskMode', (m) => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode(m), true) : '__MISSING__', mode);
         await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(8), true) : '__MISSING__');
         await page.waitForTimeout(350);
-        await page.screenshot({ path: resolve(OUT, `${name}_${suffix}.png`), type: 'png' });
+        await page.screenshot({ path: resolve(OUT, `${name}_${suffix}.png`), type: 'png', timeout: 120_000 });
       }
       await drive(page, 'setMaskMode', () => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode('off'), true) : '__MISSING__');
       await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');

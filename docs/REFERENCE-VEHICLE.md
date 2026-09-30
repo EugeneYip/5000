@@ -942,8 +942,16 @@ not), but the dashboard moulding, cluster architecture, switchgear, door cards a
   mass in a single dark colour — this is not a two-tone dash.
 - Along the base of the windscreen, a **long horizontal defroster grille** with fine slots.
 - At each outboard end of the dash top, a **separate side-window demister grille**, coarser and rectangular.
-- Immediately below the driver's demister grille, a **large rectangular adjustable louvre vent** with fine
-  horizontal blades and a **vertical thumbwheel on its inboard edge**. The passenger side mirrors it.
+- Immediately below the driver's demister grille, a **large rectangular adjustable louvre vent**: a
+  **two-bay block with VERTICAL vanes** — five per bay, with horizontal cross-ribs across them so the
+  aperture reads as a mesh — a **round knurled thumbwheel centred in each bay**, *and* a vertical ribbed
+  roller on the block's inboard edge. The passenger side mirrors it. *(measured on
+  `scratchpad/ref3/bat_int_dash_passenger.jpg`, top right, and `bat_int_dash_wide.jpg`)*
+
+  > ⚠ This said "fine **horizontal** blades and a vertical thumbwheel on its inboard edge", and `dash.ts`
+  > built one bay of five horizontal blades from it. Both photographs show two bays of vertical vanes with a
+  > wheel in each. Same failure as §5.3's climate panel: a paragraph describing a part the car does not have,
+  > faithfully built.
 - The binnacle has a **deep hood** and a flat, forward-raked lens.
 - To the left of the steering column: the **rotary headlamp switch** and the instrument-lighting rheostat.
 - Two column stalks (left: lights/indicators; right: wipers/washer), plus a cruise-control stalk.
@@ -993,13 +1001,16 @@ Top to bottom, in a **narrow vertical column angled slightly toward the driver**
 
 1. **A horizontal louvre vent block** under the dash brow, split into **three sections** with fine horizontal
    blades. On the photographed car a small digital clock/display sits immediately left of it.
-2. **A panel of small square rocker switches**, in two rows, with pictogram legends (hazard, rear defogger,
-   rear wiper, fog, heated seats where fitted).
-3. **The radio** — a period Audi-branded (Blaupunkt-built) AM/FM cassette head unit, a wide horizontal slab
-   with a row of preset buttons along its lower edge and a cassette slot above. Factory description:
-   *"AM/FM stereo cassette, electronically tuned"* (optional); *"4-speaker stereo prep with automatic power
-   antenna"* was standard. [AW-87]
-4. **The climate panel** — a flat black glass **push-button** head reading **ELECTRONIC CLIMATE CONTROL**
+2. **One row of seven tall portrait bays**, across the full width of the stack — not two rows, and not all
+   of them rockers. **Both ends are seat-heater rheostat WHEELS** (knurled rollers, with the heated-seat
+   pictogram above each), and one mid-row bay is a **small round red hazard button**, not a square rocker
+   with a pictogram. The rest are rockers with pictogram or text legends — rear defogger, `ANTI LOCK`.
+   *(measured on `scratchpad/ref3/bat_int_centre_stack.jpg`, which shows all seven bays near dead-on;
+   `bat3_int_dash_console.jpg` agrees)*
+
+   > ⚠ This said "small square rocker switches, in two rows", and the model's eight rockers in two rows of
+   > four came from it.
+3. **The climate panel** — a flat black glass **push-button** head reading **ELECTRONIC CLIMATE CONTROL**
    in white on the moulding to its left. On the panel: a red **WARMER** rocker above a blue **COOLER**
    rocker at the left; a red seven-segment temperature readout in the centre; an **OUTSIDE TEMP** °C/°F
    slide switch at the right with its own red pilot; and a row of **seven flat push-buttons** along the
@@ -1012,7 +1023,19 @@ Top to bottom, in a **narrow vertical column angled slightly toward the driver**
    > photographs. `bat3_int_climate_control.jpg` — right car, right year, right market — is in this repo
    > and settles it. Corrected after a review built the wrong part from this paragraph. When a photograph
    > of the actual car disagrees with this document, **the photograph wins**.
-5. **The console** then runs down and back to the transmission tunnel.
+4. **The radio** — a period Audi-branded (Blaupunkt-built) AM/FM cassette head unit, a wide horizontal slab
+   with a row of preset buttons along its lower edge and a cassette slot above. Factory description:
+   *"AM/FM stereo cassette, electronically tuned"* (optional); *"4-speaker stereo prep with automatic power
+   antenna"* was standard. [AW-87]
+
+   > ⚠ **Items 3 and 4 were the other way round.** The climate head sits **above** the radio. Order top to
+   > bottom on both photographed cars: vent block + clock, switch row, climate, radio, equaliser.
+5. **An equaliser / preset panel**, below the radio, which this list omitted entirely. A pale grid graphic
+   with two slider handles, preset numbers, `PROGRAM / AM·FM / DX / METAL`, and a **rotary at each end**. It
+   is the one light-toned thing on the stack, and at any distance it is what makes the bottom bay read at
+   all. *(visible in `scratchpad/ref3/bat_int_centre_stack.jpg` and `bat_int_dash_passenger.jpg`)*
+6. **The console** then runs down and back to the transmission tunnel, with a **low recessed tray** ahead of
+   the shifter carrying the ashtray and lighter.
 
 *(all observed on the BaT MY1988 Avant and the Wikimedia C3 interior photographs)*
 
