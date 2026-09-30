@@ -128,12 +128,82 @@ function startServer() {
  * So: wait for `ready` again on each call, and throw if the method is absent.
  * A harness that measures must not be able to quietly measure nothing.
  */
+/**
+ * Wait for the app to report itself ready — but **fail the instant the page
+ * throws**, and say what it threw.
+ *
+ * This used to be a bare 120-second `waitForFunction`, so a page that died on
+ * load produced two minutes of silence and then `TimeoutError`, with the
+ * actual cause sitting in the console log the whole time. It cost three runs
+ * and a hand-written probe to find a one-line answer that was available in two
+ * seconds. A harness that watches a page has no business discarding the page's
+ * own account of why it failed.
+ */
+async function waitReady(page, errors, timeout = 120_000) {
+  const t0 = Date.now();
+  for (;;) {
+    const ok = await page.evaluate(() => globalThis.__AUDI?.ready === true).catch(() => false);
+    if (ok) return;
+    if (errors.length) {
+      throw new Error(
+        'the page threw before it was ready — this is the cause, not a timeout:\n   '
+        + [...new Set(errors)].slice(0, 4).join('\n   '),
+      );
+    }
+    if (Date.now() - t0 > timeout) {
+      throw new Error('TIMEOUT: __AUDI.ready never became true, and the page reported no error');
+    }
+    await page.waitForTimeout(250);
+  }
+}
+
+class ReloadError extends Error {}
+
 async function drive(page, name, fn, arg) {
   await page.waitForFunction(() => globalThis.__AUDI?.ready === true, null, { timeout: 30_000 })
-    .catch(() => { throw new Error(`__AUDI vanished before ${name} — the dev server probably reloaded`); });
-  const r = await page.evaluate(fn, arg);
+    .catch(() => { throw new ReloadError(`__AUDI vanished before ${name}`); });
+  const r = await page.evaluate(fn, arg).catch((e) => {
+    // A reload mid-call tears down the execution context rather than returning.
+    if (/__AUDI|Execution context was destroyed|Target closed|detached/i.test(String(e))) {
+      throw new ReloadError(`__AUDI vanished during ${name}`);
+    }
+    throw e;
+  });
   if (r === '__MISSING__') throw new Error(`__AUDI.${name} is not a function`);
   return r;
+}
+
+/**
+ * Re-do a whole view if the dev server reloaded part-way through it.
+ *
+ * Throwing on a vanished `__AUDI` was the right fix for silently shooting the
+ * wrong thing, but it is not enough on its own. **With several work streams
+ * editing the same tree, every file any of them saves triggers an HMR reload**,
+ * so a shoot that takes thirty seconds across sixteen views will lose one —
+ * and losing one is fatal, because the throw abandons the whole run. Three
+ * streams in a row reported not being able to get a single clean before/after
+ * pair, and one came back with a `photomatch_mask.png` containing 0 % car.
+ *
+ * A reload is not a failure of the thing being measured, so retry it. What
+ * must NOT happen is quietly keeping a frame shot across the reload, which is
+ * why the retry restarts from `setView` and re-takes every frame of the view,
+ * masks included, rather than resuming mid-way.
+ *
+ * If you need to measure through heavy concurrency, prefer `--dist` with a
+ * fresh `npm run build`: `vite preview` serves a snapshot and does not reload
+ * when someone else saves, so the scene cannot change under the run at all.
+ */
+async function withReload(page, label, fn, attempts = 4) {  // eslint-disable-line no-use-before-define
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!(e instanceof ReloadError) || i >= attempts) throw e;
+      console.warn(`  ↻ ${label}: ${e.message} — dev server reloaded, retry ${i}/${attempts - 1}`);
+      await waitReady(page, errors);
+      await page.waitForTimeout(1500);
+    }
+  }
 }
 
 // --- main -------------------------------------------------------------------
@@ -175,9 +245,12 @@ await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load', timeout: 60_00
 // shaders. The app sets window.__AUDI.ready = true when the first frame with
 // everything present has been presented.
 try {
-  await page.waitForFunction(() => globalThis.__AUDI?.ready === true, null, { timeout: 120_000 });
-} catch {
-  errors.push('TIMEOUT: window.__AUDI.ready never became true');
+  await waitReady(page, errors);
+} catch (e) {
+  console.error(`\n✗ ${e.message}`);
+  await browser.close();
+  server.kill('SIGTERM');
+  process.exit(1);
 }
 
 if (ENV) {
@@ -190,32 +263,34 @@ const results = [];
 for (const name of wanted) {
   if (!VIEWS[name]) { console.warn(`  ? unknown view "${name}", skipping`); continue; }
 
-  const ok = await drive(page, 'setView', (n) => globalThis.__AUDI.setView ? globalThis.__AUDI.setView(n) : '__MISSING__', name);
-  if (!ok) { console.warn(`  ! view "${name}" not implemented by the app yet`); }
-
-  // Let TAA/accumulation settle — a noisy frame is not a fair review.
-  await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
-  await page.waitForTimeout(650);
-
   const file = resolve(OUT, `${name}.png`);
-  await page.screenshot({ path: file, type: 'png' });
+  await withReload(page, name, async () => {
+    const ok = await drive(page, 'setView', (n) => globalThis.__AUDI.setView ? globalThis.__AUDI.setView(n) : '__MISSING__', name);
+    if (!ok) { console.warn(`  ! view "${name}" not implemented by the app yet`); }
+
+    // Let TAA/accumulation settle — a noisy frame is not a fair review.
+    await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
+    await page.waitForTimeout(650);
+
+    await page.screenshot({ path: file, type: 'png' });
+
+    // Silhouette companion. `sheet.py` reads the car mask straight off it, which
+    // is the only way its per-car readings mean what they say — see
+    // `setMaskMode` in main.ts.
+    if (MASK.has(name)) {
+      for (const [mode, suffix] of [['car', 'mask'], ['paint', 'paint']]) {
+        await drive(page, 'setMaskMode', (m) => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode(m), true) : '__MISSING__', mode);
+        await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(8), true) : '__MISSING__');
+        await page.waitForTimeout(350);
+        await page.screenshot({ path: resolve(OUT, `${name}_${suffix}.png`), type: 'png' });
+      }
+      await drive(page, 'setMaskMode', () => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode('off'), true) : '__MISSING__');
+      await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
+      await page.waitForTimeout(450);
+    }
+  });
   results.push({ name, file, desc: VIEWS[name].desc });
   console.log(`  ✓ ${name.padEnd(11)} ${VIEWS[name].desc}`);
-
-  // Silhouette companion. `sheet.py` reads the car mask straight off it, which
-  // is the only way its per-car readings mean what they say — see
-  // `setMaskMode` in main.ts.
-  if (MASK.has(name)) {
-    for (const [mode, suffix] of [['car', 'mask'], ['paint', 'paint']]) {
-      await drive(page, 'setMaskMode', (m) => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode(m), true) : '__MISSING__', mode);
-      await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(8), true) : '__MISSING__');
-      await page.waitForTimeout(350);
-      await page.screenshot({ path: resolve(OUT, `${name}_${suffix}.png`), type: 'png' });
-    }
-    await drive(page, 'setMaskMode', () => globalThis.__AUDI.setMaskMode ? (globalThis.__AUDI.setMaskMode('off'), true) : '__MISSING__');
-    await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
-    await page.waitForTimeout(450);
-  }
 }
 
 // Perf probe — AAA means it also has to run.
