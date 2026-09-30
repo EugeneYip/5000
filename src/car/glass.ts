@@ -62,6 +62,40 @@ const edgeRoll = (k: number, mid: number, edge: number) => (a: number, b: number
   return lerp(edge, mid, d >= 1 ? 1 : d * d * (3 - 2 * d));
 };
 
+/**
+ * Depth profile for a pillar blackout.
+ *
+ * A B- or C-pillar is a pressing whose face bows out across the section, so a
+ * highlight travels down it as the camera moves and its ends disappear under
+ * the roof band and the belt moulding. What was here was one flat value —
+ * `a < 0.14 || a > 0.86 ? 0.0016 : -0.0012` on an 8-station grid, which puts
+ * the whole face at a single depth with a 2.8 mm cliff at each end and no roll
+ * at all across the section. A plate at one depth with four bare cuts in it is
+ * exactly what "matte tape stuck on the glass" describes, and no amount of
+ * material work fixes a face that has no shape for a highlight to move on.
+ *
+ * `rim` is 0 — every border sits exactly on the body skin and the relief is
+ * entirely outboard of it — and that is a constraint, not a preference. The
+ * body panels this pillar at the skin: on a common ray from the `side` camera,
+ * `cPillarR` and `bPillarR` come back 1–2 mm inboard of `crown`, which puts
+ * their face within a millimetre of the skin. Any border that rolls deeper
+ * than that disappears into the paint behind it, and the blackout loses its
+ * outline — the panel comes back as a ragged blotch. Two attempts confirmed
+ * it: rolling the section to the old 1.6 mm ate the top and bottom edges, and
+ * rolling only the fore and aft ends there ate those, because the roll spans
+ * 22 % of the length rather than the single station the old step occupied.
+ *
+ * So the blackout cannot be put *behind* the glass line, which is where a real
+ * one is: 2 mm in is already inside the body's own pillar panel. That wants
+ * the body's pillar panels recessed at the daylight opening first. See the
+ * stream report; nothing in this file can reach it alone.
+ */
+const pillarFace = (crown: number, rim: number) => (a: number, b: number): number => {
+  const d = Math.min(a, 1 - a) / 0.22;
+  const ends = d >= 1 ? 1 : d * d * (3 - 2 * d);
+  return lerp(rim, lerp(rim, crown, Math.sin(Math.PI * b)), ends);
+};
+
 /** Panel edges the panes hide behind, worked out once in `aperture.ts`. */
 const B_PILLAR = { front: DLO.bPillarFrontZ, rear: DLO.bPillarRearZ };
 const C_PILLAR = { front: DLO.cPillarFrontZ, rear: DLO.cPillarRearZ };
@@ -219,7 +253,7 @@ export function buildGlass(ctx: BuildContext): PartResult {
       fixed.trim.push(buildApplique(loftPatch(wrap((a, b) => ({
         z: lerp(p.front + 0.006, p.rear - 0.006, a),
         t: lerp(mouldBotT(0.5 * (p.front + p.rear)) - 0.0018, dloBotT(0.5 * (p.front + p.rear)) + 0.0012, b),
-      }))), 8, 14, (a) => (a < 0.14 || a > 0.86 ? 0.0016 : -0.0012)));
+      }))), 12, 16, pillarFace(-0.0012, 0)));
     }
 
     // Belt moulding, split at the shutlines so each piece travels with its own
