@@ -29,9 +29,33 @@ except ImportError:
     sys.exit("needs Pillow and numpy: python3 -m pip install pillow numpy")
 
 ROOT = Path(__file__).resolve().parent.parent
-REFERENCE_PHOTO = Path(
-    "/private/tmp/claude-501/-Volumes-Projects-5000/"
-    "bc0b881c-63e9-46d6-b86f-3f81684efba2/images/1.jpg"
+# The reference photograph — the target of the whole project and the only
+# thing every colour and tone figure in this file is measured against.
+#
+# It used to be read straight out of the session's temp directory. **That
+# directory was emptied at midnight and took the acceptance gate with it**:
+# every `--compare` run died with "reference photograph not found" and there
+# was no second copy anywhere the project controlled.
+#
+# It was recoverable, exactly — a review had saved a full-resolution PNG of it
+# into its scratch files, and that copy reproduces the original to the last
+# decimal on every figure this file depends on (raw plate 250.9/234.8/222.0,
+# paint p50 after white balance 91/110/134 over the same 87,034 pixels, car
+# median 94.8, below-40 11.5 %, above-224 10.3 %). So the first path below is
+# that copy, kept where the other reference photographs live.
+#
+# It is deliberately NOT committed. `scratchpad/` is gitignored, and this repo
+# publishes to GitHub Pages — the photograph is the owner's own and has two
+# identifiable people in it. A durable copy, not a published one.
+_PHOTO_CANDIDATES = (
+    Path(__file__).resolve().parent.parent / "scratchpad" / "ref3" / "owner_1988.png",
+    Path(
+        "/private/tmp/claude-501/-Volumes-Projects-5000/"
+        "bc0b881c-63e9-46d6-b86f-3f81684efba2/images/1.jpg"
+    ),
+)
+REFERENCE_PHOTO = next(
+    (p for p in _PHOTO_CANDIDATES if p.exists()), _PHOTO_CANDIDATES[0]
 )
 
 # Paint target, white-balanced, sampled from the photograph's fender faces.
