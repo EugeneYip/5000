@@ -470,6 +470,29 @@ function buildStreet(): Furniture {
   const VEIL_FRAC = 0.5;
 
   /**
+   * Mid-height of the crown layer above the probe, metres. `buildStreet`'s own
+   * row puts crown centres at 8.6–11.6 m above ground and the probe stands at
+   * 0.95, so the layer a sightline crosses is centred about here.
+   */
+  const CROWN_MID = 8.7;
+  /**
+   * Half-width of the crown edge, measured across the street at crown height:
+   * full density five metres inboard of the car, open sky five metres
+   * outboard, tapering between. The ragged outer skirt of a plane crown plus
+   * the scatter of a row is about that wide, and the car is parked with that
+   * edge over it — which is what the photograph shows, a canopy on one side
+   * of the bonnet and sky on the other.
+   *
+   * **Centred on the car deliberately.** A symmetric taper leaves the mean
+   * coverage over any symmetric window exactly where the old azimuth ramp put
+   * it, so every anchor this file is calibrated on — the zenith, the
+   * windscreen, both flanks, the sun's own direction, the dead-aft low band —
+   * lands within a hundredth of its old value and only the *gradient* across
+   * the bonnet changes. See `coverAt`.
+   */
+  const CROWN_EDGE = 9.0;
+
+  /**
    * Fraction of a direction the planting stands in front of. `sa` is the sine
    * of the azimuth (−1 over the planted kerb, +1 over the open carriageway)
    * and `uy` the sine of the elevation.
@@ -477,9 +500,48 @@ function buildStreet(): Furniture {
    * Shared with the sun-reach calculation in `apply` below rather than written
    * out twice, because the two have to agree: what shadows the *bonnet* and
    * what shadows a *crown* are the same leaves.
+   *
+   * ## The split was on the wrong axis, by about a factor of seven
+   *
+   * `openAz` used to be `smoothstep(sa, −0.85, 0.85)` — a ramp that spends its
+   * whole travel getting from one kerb to the other. That is the right *idea*
+   * and the wrong *coordinate*, and the surface it exists to control never
+   * sees any of it.
+   *
+   * Measured from the bonnet's own pixels at `photomatch`: the camera is dead
+   * ahead, the panel is nearly flat, and its clearcoat mirror points **22° up
+   * and dead aft** with only **±8° of azimuth** between the left and right
+   * thirds — `sa` runs −0.132 to +0.133, never past a seventh of the ramp's
+   * travel. Across that window the old function moved cover 0.62 → 0.48, a
+   * transmission ratio of 1.2, while the photograph's bonnet thirds run 83 /
+   * 128 / 159 and want about three. So the asymmetry the file is explicitly
+   * built to produce was being asked for at ±90° and read at ±8°, and what
+   * arrived at the bonnet was a flat mid-grey with sampling noise on top.
+   *
+   * What actually puts an edge there is the edge of the crowns. A sightline
+   * leaving the car at elevation `el` is `CROWN_MID / tan(el)` metres out by
+   * the time it reaches crown height — 22 m at the bonnet's 22°, 5 m at the
+   * windscreen's 59° — so the *same* few metres of crown edge project to a
+   * sharp boundary across the bonnet and to nothing at all overhead. That is
+   * a geometric fact about a car parked under a street tree, and it is why a
+   * bonnet photographs with a canopy on one side and sky on the other while
+   * the windscreen above it is dark right across.
+   *
+   * So `open` is now decided by where the sightline crosses the layer, in
+   * metres, rather than by its compass bearing. `COVER_KERB` and `COVER_ROAD`
+   * keep their meaning and their calibrated values; only the argument changes.
+   * Measured after: the bonnet's requested transmission goes 0.52 / 0.57 /
+   * 0.63 to 0.39 / 0.57 / 0.76 — the mean over the bonnet is identical, so
+   * nothing is bought or spent on level — and the zenith, the windscreen, the
+   * dead-aft low band, both flanks and the sun's own azimuth all land within
+   * a hundredth of where they were (checked at el 12° with `sa` ±0.8, at el
+   * 45°, 59° and 80°, and at the sun's own direction, which is what
+   * `sunReach` reads).
    */
   const coverAt = (sa: number, uy: number): number => {
-    const openAz = THREE.MathUtils.smoothstep(sa, -0.85, 0.85);
+    const uh = Math.sqrt(Math.max(1 - uy * uy, 0));
+    const xMid = sa * uh * (CROWN_MID / Math.max(uy, 1e-3));
+    const openAz = THREE.MathUtils.smoothstep(xMid, -CROWN_EDGE, CROWN_EDGE);
     // Azimuth stops meaning anything overhead: a direction eighty degrees up
     // is not over one kerb or the other, it is simply under the crowns. So the
     // kerb/carriageway split fades out towards the zenith rather than the
@@ -499,9 +561,33 @@ function buildStreet(): Furniture {
 
   const EL_LO = 10 * (Math.PI / 180);
   const EL_HI = 84 * (Math.PI / 180);
-  /** 7.5°–13° of angular radius; mean solid angle of one lobe, steradians. */
-  const ANG_LO = 0.13;
-  const ANG_HI = 0.23;
+  /**
+   * Angular radius of one lobe, and the reason it is small.
+   *
+   * **A panel does not integrate the whole layer — it integrates its own
+   * reflection lobe, and the layer has to be statistically true at that
+   * scale.** The bonnet at `photomatch` is the worst case in the car:
+   * measured from its own pixels, its clearcoat mirror covers 15° of azimuth
+   * by 10° of elevation, about **0.048 sr**. At 7.5°–13° of angular radius
+   * one lobe subtended **0.10 sr** — twice the whole window — so the entire
+   * bonnet's tone was decided by whether zero or one blob happened to land in
+   * it. It is a lottery and it was being lost: `coverAt` asks for a
+   * transmission of 0.52 / 0.57 / 0.63 across the bonnet's left, middle and
+   * right thirds and the layer as realised delivered **0.86 / 0.68 / 0.53** —
+   * a fifth too open overall and, worse, *ordered backwards*, which is the
+   * whole of the "the bonnet's asymmetry is inverted" symptom. Left third at
+   * 4 % leaf, right third at 98 %, from a function that asks for the reverse.
+   *
+   * 3.7°–6.6° is 0.025 sr, a quarter of the window, so a Poisson count of
+   * four or five decides it instead of one. The coverage *requested* is
+   * untouched — the density solve below is exact in the lobe's solid angle —
+   * and the candidate count rises with it so the keep probability stays under
+   * one where `coverAt` asks for 0.97. It is also nearer the truth to look
+   * at: a plane's crown breaks into masses a few degrees across, which is
+   * what the reference photograph's bonnet shows between the branches.
+   */
+  const ANG_LO = 0.065;
+  const ANG_HI = 0.115;
   const LOBE_SA = 2 * Math.PI * (1 - Math.cos((ANG_LO + ANG_HI) / 2));
   /** Solid angle of the band the layer occupies. */
   const BAND_SA = 2 * Math.PI * (Math.sin(EL_HI) - Math.sin(EL_LO));
@@ -515,8 +601,15 @@ function buildStreet(): Furniture {
    * that can be met. Half the layer then became skirt rather than core and the
    * opaque coverage quietly halved with it — the bonnet went back to 171,
    * which is where it started. Sampling by density has no such ceiling.
+   *
+   * The count scales with the lobes' solid angle so the keep probability at
+   * the densest direction `coverAt` can ask for stays below one: at 0.97 the
+   * density is `−ln(0.03)/Ω`, and a candidate stands for `bandΩ / CANDIDATES`.
+   * These are bake-scene meshes only — they are rendered six times into a
+   * 512² cube when a preset changes and never again — so the cost is a few
+   * milliseconds once, not a frame budget.
    */
-  const CANDIDATES = 520;
+  const CANDIDATES = 2600;
   for (let i = 0; i < CANDIDATES; i++) {
     // x = sin(a), z = cos(a): a = 0 is ahead of the car (towards the camera),
     // a = ±π/2 is the two kerbs.
@@ -1025,6 +1118,7 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
    * the proxy world rather than to a hypothesis about one.
    */
   let dbgRt: THREE.WebGLRenderTarget | null = null;
+  const _clear = new THREE.Color();
   const dbgCam = new THREE.PerspectiveCamera(8, 1, 0.1, 400);
   const dbgAt = new THREE.Vector3();
   const sample = (
@@ -1036,7 +1130,24 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     const buf = new Float32Array(N * N * 4);
     const prevTarget = renderer.getRenderTarget();
     const prevTone = renderer.toneMapping;
+    // **Clear to black, and this is not housekeeping.** The app's renderer
+    // carries a clear colour of roughly (0.27, 0.46, 0.69) — a bright blue —
+    // so every direction sampled here that was not completely filled by proxy
+    // geometry came back with that blue added to it, and every A/B that
+    // *hid* a class of geometry to attribute a panel's colour to it read the
+    // clear colour through the hole it had just made. Hiding `ibl:sky` in the
+    // bonnet's own mirror direction returned a value with *more* blue in it
+    // than leaving the sky in place, which is impossible for an occluder and
+    // is the tell. The bake itself was never affected — the sky sphere covers
+    // every direction the cube camera sees — but the measurements taken with
+    // this function were, and at least one of them has been quoted into a
+    // commit message.
+    const prevClear = renderer.getClearColor(_clear).clone();
+    const prevAlpha = renderer.getClearAlpha();
+    const prevAuto = renderer.autoClear;
     renderer.toneMapping = THREE.NoToneMapping;
+    renderer.autoClear = true;
+    renderer.setClearColor(0x000000, 1);
     dbgCam.fov = fovDeg;
     dbgCam.updateProjectionMatrix();
     dbgCam.position.copy(PROBE);
@@ -1054,6 +1165,8 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     }
     renderer.setRenderTarget(prevTarget);
     renderer.toneMapping = prevTone;
+    renderer.setClearColor(prevClear, prevAlpha);
+    renderer.autoClear = prevAuto;
     return out;
   };
 
