@@ -16,6 +16,9 @@ import { HP } from '@/car/hardpoints';
 import {
   CABIN, ROOF_FRONT_Z, ROOF_REAR_Z, TONE, headlinerShoulder, headlinerY, innerHalfW, skinHalfW,
 } from './layout';
+import {
+  FLUSH, PILLAR_SLIM_Z, SIDE_THICK, T as GT, aPillarLower, glassPoint, surfaceDir, zAtPillarFront,
+} from '@/car/glass/aperture';
 import { clamp, fbm, flipWinding, lerp, merge, mesh, mirrored, smoothstep, surface, type Vec3 } from './util';
 import type { StaticBatch } from './batch';
 
@@ -79,7 +82,23 @@ function buildFloor(ctx: BuildContext): THREE.Object3D[] {
     });
     sill.push(s, mirrored(s));
   }
-  const sillMesh = mesh(merge(sill), ctx.materials.chrome({ roughness: 0.38 }), 'sillPlates');
+  /**
+   * Satin alloy tread, **not chrome**.
+   *
+   * `chrome({ roughness: 0.38 })` lands on the 0.300 rung of `CHROME_RUNGS`,
+   * i.e. a mirror, and this is a 2.1 m strip lying almost flat under an open
+   * pane on each side of the car. It was the single brightest object in the
+   * cabin from every interior pose — a white bar running the length of the
+   * car, clipped with a bloom halo — and it is what a review reading the door
+   * cards will blame on the door cards: on the `cabinL` pose it lands within
+   * 20 px of the card's own trim line, and `pick` at fy 0.475-0.490 returns
+   * `cabin:chrome:0.300` at x 0.64-0.67 with `doorTrim` behind it.
+   *
+   * A sill tread plate is brushed or ribbed alloy. `TONE.bright` at 0.42 is
+   * the instance `dash.ts` already dresses its fascia markings with, so this
+   * costs no material and batches with them.
+   */
+  const sillMesh = mesh(merge(sill), ctx.materials.interiorPlastic({ color: TONE.bright, roughness: 0.42 }), 'sillPlates');
 
   return [carpet, sillMesh];
 }
@@ -247,17 +266,86 @@ function pillar(points: Vec3[], width: number, depth: number, steps = 10): THREE
   });
 }
 
+/**
+ * Depth of the A-pillar trim's outer face below the body skin.
+ *
+ * `FLUSH` + `SIDE_THICK` is the glass's own inner face; 4 mm further in is the
+ * trim. Written as the sum rather than as a number so it tracks the flush
+ * offset, which is the car's signature and the one dimension in the glazing
+ * nobody may drift from.
+ */
+const A_PILLAR_DEPTH = FLUSH + SIDE_THICK + 0.004;
+
+/**
+ * A-pillar trim.
+ *
+ * **This was the worst defect on the car**, and it was not the glass stream's.
+ * The trim was a 58 x 30 mm section swept along a CatmullRom through four
+ * hand-typed control points, and hand-typed x does not know where the body
+ * skin is: measured on a common ray from the `side` camera it ran 10 mm
+ * outboard of `aPillarR` at the top and **40 mm at the bottom**, against the
+ * windscreen's outer face a median 14.3 mm and a maximum 38.3 mm proud where
+ * `HP.glass.flushOffset` is 2. What it read as, from outside, was a fat
+ * coarsely-woven black tube running down the A-pillar and into the cowl —
+ * reported as a glazing seal, and chased there, because from outside that is
+ * exactly what it looks like. Hiding this one batch took the pillar's apparent
+ * width from 51 mm to 21 against a reference 17.
+ *
+ * So it no longer carries an x at all. The path is the A-pillar's own lower
+ * edge — `zAtPillarFront(t)`, which is what the glazing cuts its panes to —
+ * sampled through `glassPoint` at `A_PILLAR_DEPTH`, and the section is built
+ * in the surface's own frame with every vertex pushed further in. It is inside
+ * the skin *by construction*: there is no combination of body-surface changes
+ * that can put it back out, which is the only kind of fix worth making here.
+ *
+ * The weave is a separate matter and not this trim's: Laplacian energy over
+ * patch mean reads the cowl at 0.844 against this trim's 0.287, so the stipple
+ * is a whole family of small dark parts and belongs to whoever owns that
+ * material's normal treatment.
+ */
+function buildAPillarTrim(): THREE.BufferGeometry {
+  const NT = 16;
+  const t0 = aPillarLower(PILLAR_SLIM_Z);
+  const t1 = GT.belt;
+  const sample = { p: new THREE.Vector3(), n: new THREE.Vector3(), u: 0, v: 0 };
+
+  /**
+   * Section across the pillar: `dz` forward from the daylight opening's front
+   * edge, `dd` further under the skin than `A_PILLAR_DEPTH`.
+   *
+   * The width runs in **z at fixed t**, which is the one thing that makes this
+   * safe. A section swept on the tangent plane — which is what a `bin`/`nrm`
+   * frame gives — leaves the surface as soon as the surface curves, and the
+   * A-pillar is the corner between the roof and the body side, so 58 mm of
+   * tangent plane there ends up well outside the skin. Parameterised in (z, t)
+   * every vertex is a body-surface point pushed inward, and there is nowhere
+   * else for it to be.
+   */
+  const SEC: Array<[number, number]> = [
+    [0.000, 0.015], [0.004, 0.005], [0.011, 0.001], [0.036, 0.000],
+    [0.045, 0.003], [0.049, 0.012], [0.044, 0.028], [0.005, 0.028],
+  ];
+
+  const g = surface(SEC.length, NT, true, (i, j, out) => {
+    const f = j / NT;
+    const t = lerp(t0, t1, f);
+    const zEdge = zAtPillarFront(t);
+    // The moulding narrows toward the beltline, as the real cover does.
+    const w = 1 - 0.34 * smoothstep(0.5, 1.0, f);
+    const q = SEC[i % SEC.length];
+    glassPoint(zEdge + q[0] * w, t, sample, A_PILLAR_DEPTH + q[1]);
+    out.copy(sample.p);
+  });
+  // Wound from a section that runs forward-then-back, which puts the outward
+  // face on the inside; the cabin has to see the front of it.
+  flipWinding(g);
+  return g;
+}
+
 function buildPillars(ctx: BuildContext): THREE.Mesh {
   const parts: THREE.BufferGeometry[] = [];
 
-  // A-pillar: from the header down to the daylight opening's front corner.
-  // Both ends are hardpoints, so the trim cannot drift off the glass edge.
-  const a = pillar([
-    [-0.652, HP.headerY - 0.048, HP.headerZ - 0.012],
-    [-0.706, 1.276, -1.010],
-    [-0.762, 1.160, -0.800],
-    [-0.792, HP.glass.dloBottomY + 0.026, HP.glass.dloFrontZ - 0.010],
-  ], 0.058, 0.030, 9);
+  const a = buildAPillarTrim();
   parts.push(a, mirrored(a));
 
   // B-pillar: the tall one, carrying the belt reel and the upper anchor.

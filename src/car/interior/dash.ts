@@ -218,8 +218,16 @@ function buildMoulding(): THREE.BufferGeometry {
     let z = lerp(plain[j][0], binn[j][0], kk);
     let y = lerp(plain[j][1], binn[j][1], kk);
 
-    // Shallow bay for the centre stack, so the dash top reads as a brow.
-    const bay = (1 - smoothstep(0.175, 0.235, Math.abs(x))) * smoothstep(0.42, 0.52, v) * (1 - smoothstep(0.86, 0.94, v));
+    // Bay for the centre stack, so the dash top reads as a brow and the stack
+    // sits in a recess rather than on the face.
+    //
+    // It was 350 mm wide at full depth and closed again at v 0.94, which is
+    // 40 mm above where the stack now ends: the bay has to be the stack's own
+    // width (250 mm) and has to run the stack's full height, or the panel's
+    // bottom third stands 21 mm proud of a fascia that has closed up behind
+    // it. v 0.982 is the tuck station at y 0.694, which is the panel's lower
+    // edge — `console.ts` PANEL.
+    const bay = (1 - smoothstep(0.128, 0.150, Math.abs(x))) * smoothstep(0.42, 0.52, v) * (1 - smoothstep(0.985, 1.0, v));
     z += bay * 0.021;
 
     // Ends lift and roll forward into the A-pillars.
@@ -320,11 +328,12 @@ export function buildDash(ctx: BuildContext, batch: StaticBatch): void {
     dark.push(...l.dark);
     bright.push(...l.bright);
   }
-  // Centre block under the brow: three sections, finer blades.
-  for (const cx of [-0.113, 0, 0.113]) {
-    const l = louvre(cx, 1.0115, 0.104, 0.048, 4, cx === 0 ? 0 : 0);
-    dark.push(...l.dark);
-  }
+  // The centre louvres are NOT up here. Three 104 x 48 blocks used to sit at
+  // y 1.0115, spread over 330 mm right under the brow — a vent row the car
+  // does not have. On `bat3_int_dash_console.jpg` and `bat_int_dash_wide.jpg`
+  // the centre vents are the top bay of the centre stack, one tall three-bay
+  // block beside the clock, and there is nothing at all between them and the
+  // brow. `console.ts` builds it.
 
   // Glovebox: a wide lid with a small round lock and no handle. Passenger's
   // side, so -X — the car's right.
