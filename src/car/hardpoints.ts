@@ -129,7 +129,65 @@ export const HP = {
     /** The outboard portion of the lamp is the amber indicator. */
     indicatorInnerX: 0.688,
 
-    /** Bumper: a deep, soft, body-coloured-grey moulding. */
+    /**
+     * ## The front furniture is high. The body is not.
+     *
+     * This settles a question that blocked the bright strip line for four
+     * rounds, so it is written here where `bumperTopY`, `rubStripY`,
+     * `markerY`, `plateCenter` and `lampBottomY` can all see it.
+     *
+     * Ground-referenced against the contact line, the front end reads high
+     * and the rear reads right — which looked like the whole front *block*
+     * sitting high above the road. It is not. The arch lip does not share the
+     * error:
+     *
+     *     front arch lip crown   photo 671   model 652    −19   LOW
+     *     front bead top               567         632    +65
+     *     amber lens bottom            604         652    +48
+     *     rear arch lip crown          640         652    +12
+     *
+     * I re-measured the arch lip myself before accepting this, because it
+     * reverses the conclusion: at the hub column the body runs to **672 mm**
+     * and then goes dark. (My first attempt found 466 — that was the hubcap.
+     * A detector that walks up from the tyre finds the wheel, not the arch.)
+     *
+     * The datum-free form is the one to act on, and two cars agree on its
+     * first row to 0.4 mm:
+     *
+     *     arch lip − bead top      104.4 / 104.0   vs model 20   bead 84 high
+     *     arch lip − lens bottom    68.1 /  65.9   vs model  0   lens 67 high
+     *     lens bottom − bead top    36.3 /  38.1   vs model 20   bead 17 high
+     *                                                            OF THE LENS
+     *
+     * **So the fix is local: the lamps, the bead, the marker and the plate
+     * come down on a body that is essentially right.** Not the ride height,
+     * not the loft.
+     *
+     * Three cautions, all measured, before anyone acts on the absolutes:
+     *
+     * 1. **The model's hub sits at the free tyre radius.** `tyreRadius()` is
+     *    307.3 and the wheel centre is placed at `y = R`, while the
+     *    photographed cars' front hubs are at 279.1 and 266.9 above their
+     *    contact lines. Every ground-referenced comparison therefore carries
+     *    a **+28 to +40 mm bias against the model** before any body error.
+     *    Hub-referenced, the front arch lip is 397/399 on the two cars and
+     *    **345** on the model.
+     * 2. **`HP.side.archFlatten` 0.88 is why the arch lip reads low**, and it
+     *    makes the lip a poor discriminator in this model. The model clears
+     *    its tyre by 37 mm at the crown; both photographed cars clear theirs
+     *    by 83.5 and 86. `archRadius = R + 0.082` is therefore *exactly*
+     *    right — 82 mm — and `archFlatten` takes 47 mm of it straight off
+     *    the crown.
+     * 3. **The bonnet shut line errs the other way.** The red car's top
+     *    silhouette reads 880/835/814 mm at z +150/+330/+500 against the
+     *    model's ~938/922/906: +58 to +92 ground-referenced, +18 to +52 once
+     *    the tyre bias is removed. The two body datums disagree by ~60 mm,
+     *    and the arch lip is the one whose height is set by an arch-shape
+     *    constant rather than by the body loft — which is why the *sign* of
+     *    the arch reading is leaned on here and not its size. Separately: the
+     *    real bonnet drops **189 mm/m** toward the nose over z +0.15…+0.50
+     *    where ours drops **91**. Half the nose droop.
+     */
     bumperTopY: 0.648,
     /**
      * Bottom of the **black moulding**, not of the bumper — the same
@@ -332,15 +390,20 @@ export const HP = {
      *                                                worse than today's 4 and
      *                                                27.5
      *
-     * The 60 mm is not the flank's. It is `HP.front`, which sits high above
-     * the road: amber corner lens bottom measures 611.9 mm against
-     * `lampBottomY` 0.652, and the front bead ~570 against a cap top of
-     * 632.5. The rear, by contrast, is right to 6 mm. **The strip line cannot
-     * be made one line until the front elevation comes down**, and every
-     * attempt to solve it inside the flank has been solving someone else's
-     * error with this number. Leave it flat at 0.5875 until then: today's
-     * joints are 4 mm at the front and 27.5 at the rear, and every proposed
-     * flat value trades that for two bad ones.
+     * The 60 mm is not the flank's. It is `HP.front`, whose **furniture** sits
+     * high: the amber corner lens measures 611.9 against `lampBottomY` 0.652
+     * and the front bead ~570 against a cap top of 632.5, while the rear is
+     * right to 6 mm. It is *not* the body — the front arch lip is 19 mm LOW,
+     * so the lamps and bead are misplaced on a body that is essentially
+     * right. See the long note at `HP.front.bumperTopY`.
+     *
+     * **That makes the fix local, and it unblocks this number.** Once the
+     * front bead comes down the 84 mm the datum-free reading asks for
+     * (`arch lip − bead top` 104 measured against 20 built), the flank's
+     * measured rake can anchor at the front joint and arrive at the rear's
+     * already-thrice-confirmed 0.603. Until the furniture moves, leave this
+     * flat at 0.5875: today's joints are 4 mm at the front and 27.5 at the
+     * rear, and every proposed flat value trades that for two bad ones.
      *
      * Also measured, not acted on: `rubStripHeight` 0.098 against 84.5-86
      * (silver) and 87-92 (red) cap-top to band-bottom — a second photograph
