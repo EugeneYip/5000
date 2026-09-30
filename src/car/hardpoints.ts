@@ -865,23 +865,63 @@ export const HP = {
     /** Driver's hip point — everything in the cabin is laid out from here. */
     hipPointDriver: [0.372, 0.612, -1.145] as [number, number, number],
     /**
-     * OPEN: 0.938 is a local MINIMUM for how much of the instrument pack the
-     * driver can see. With `steeringDiameter` 0.385 the rim's annulus projects
-     * onto the print across the upper third of both main dials — most of the
-     * speedometer scale — and its side arcs cross the temperature and fuel
-     * gauges. Sweeping hub height alone, fraction of the print with line of
-     * sight from (+0.372, 1.27, −1.22):
+     * SETTLED at 0.978, +40 mm. At 0.938 the driver could not see either small
+     * gauge at all — `wheelRim` was the frontmost hit at both dial centres.
      *
-     *     0.898 → 0.728   0.918 → 0.667   0.938 → 0.617   0.958 → 0.691
-     *     0.968 → 0.778   0.978 → 0.802   0.988 → 0.827
+     * ## Do not use the circle arithmetic; it cannot give this number
      *
-     * So ±40 mm recovers 11–21 points. But 0.988 puts the wheel's top rim at
-     * 1.164, above the binnacle brow crest at 1.128, which is wrong for this
-     * car. It is the wheel/cluster/eye triangle rather than the wheel alone,
-     * and settling it needs a measurement off a real C3 interior, not more
-     * arithmetic against our own geometry.
+     * The version of this note that stood here swept hub height and then
+     * rejected the answer on a false premise, so both halves are recorded.
+     *
+     * The rim's *inner* edge (radius 0.1609 in the wheel plane) projects from
+     * the eye onto the cluster face as an ellipse centred at face y **232 mm**
+     * with a radius of ~188 — its centre 114 mm *below* a 118 mm-tall face,
+     * its top arc crossing at y 44 on the centreline. The eye→dial ray crosses
+     * the wheel plane at radius 0.1634 (coolant) and 0.1589 (fuel) against a
+     * tube spanning 0.1609–0.1925, so both dials sit on that annulus to within
+     * ±2.5 mm. My own flat-circle working — a half-span struck 65 mm above the
+     * rim axis, giving crossings at x 0.192 and 0.552 against dials spanning
+     * 0.479–0.519 and 0.232–0.272 — says it should be *clear*, and it plainly
+     * is not. It is a projection, not a coplanar overlap.
+     *
+     * ## Solved empirically instead
+     *
+     * 324 rays on the printed face (polar grids to 0.92 of each dial's radius)
+     * plus a 29 × 11 grid over the whole print, all from the `dash` pose —
+     * whose camera *is* the seated eye — with candidates applied by moving the
+     * live `steering` node, so one boot measures every variant against the
+     * same ray set. Percentage of samples with no non-`cluster` hit in front:
+     *
+     *                 temp   fuel  speedo  tacho  print   blocker
+     *     0.938       39.5   54.3   49.4   49.4   64.3    wheelRim ×282
+     *     hub −40     58.0   43.2   59.3   59.3    —      wheelRim ×146
+     *     hub +35    100    100    100    100     79.3    wheelRim ×66
+     *     hub +40    100    100    100    100     80.6    wheelRim ×62
+     *     hub +50    100    100    100    100     76.5    + hornPad ×13
+     *     rim × 0.92   7.4   12.3   48.1   48.1    —      —
+     *     tilt +8°    28.4   42.0   46.9   46.9    —      —
+     *     tilt −8°    43.2   61.7   51.9   51.9    —      —
+     *
+     * Threshold is +35; +40 leaves 5 mm of margin and scores the print best
+     * before `hornPad` starts eating its bottom edge at +50. **Neither a
+     * smaller rim nor a different rake works** — 0.92 rim scale is
+     * dramatically worse and ±8° of tilt never clears either small gauge, so
+     * the other two levers this project considered are both closed.
+     *
+     * ## The objection that stood here was wrong on the photograph
+     *
+     * It said 0.988 "puts the wheel's top rim above the binnacle brow crest,
+     * which is wrong for this car", and asked for a measurement off a real C3
+     * interior rather than more arithmetic. That measurement exists:
+     * `scratchpad/ref3/bat_int_steering_cluster.jpg`. I looked at it myself.
+     * **The rim's top edge stands ~64 mm ABOVE the brow** (180 px of a 1120 px
+     * wheel height at 0.357 mm/px for a 400 mm wheel), and the whole
+     * instrument pack — both small gauges included — reads inside the wheel's
+     * upper aperture, bounded above by the rim and below by the near-horizontal
+     * 10-and-2 spokes. A rim above the brow is what the car has. At +40 ours
+     * stands only 36 mm above it, so this is the conservative end.
      */
-    steeringCenter: [0.372, 0.938, -0.735] as [number, number, number],
+    steeringCenter: [0.372, 0.978, -0.735] as [number, number, number],
     steeringDiameter: 0.385,
     steeringTiltDeg: 24,
     /**
