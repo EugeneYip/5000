@@ -447,7 +447,33 @@ export const LIGHTS = {
   headlampIntensityLow: 42,
   headlampIntensityHigh: 90,
   headlampTempK: 3200,
-  indicatorColor: 0xff8a12,
+  /**
+   * The amber dye, chosen by clipping count rather than by eye.
+   *
+   * 0xff8a12 is R/G 1.85 and **the lens charges for it twice** — the dye tints
+   * the transmitted path and the Fresnel front-surface return separately — so
+   * the displayed saturation ran well past the photograph's. Measured on the
+   * right indicator at `photomatch`, row 453, x 1072-1126 (located by hue,
+   * `R>140 & R-B>60 & R-G>25`):
+   *
+   *     0xff8a12   R/G 1.82   R clipped in 15 of 55 columns   V peak 255
+   *     0xf5a428   R/G 1.55   R clipped in  3 of 55           V peak 255
+   *     0xeeb040   R/G 1.41   R clipped in  0 of 55           V peak 247
+   *
+   * The photograph clips **1-2 columns** and holds a 255 peak. So 0xf5a428:
+   * 0xeeb040 reaches the right saturation and loses the specular peak, which
+   * the photograph has. Clipping count is the criterion because it is
+   * scale-free and does not depend on which window you average.
+   *
+   * ⚠ A lamp round reported the photograph's R/G as 1.16 at the bright end and
+   * 1.90 at the dark end. Those are **not** comparable with the figures above
+   * — it averaged different quarter-windows on a different row — so do not
+   * mix the two sets. Its other findings stand: the dyed amber also carries a
+   * 2-D prism cross-hatch from `createLens` drawing two prism runs, which
+   * reads as orange canvas and is `src/materials/lamp.ts`'s to fix, and
+   * `LensOptions` has no way to ask for a 1-D fluted lens.
+   */
+  indicatorColor: 0xf5a428,
   indicatorHz: 1.5,
   tailColor: 0xcc1417,
   brakeColor: 0xff1a1a,

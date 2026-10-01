@@ -545,8 +545,12 @@ export async function buildEnvironment(
         bottom: sun.shadow.camera.bottom, top: sun.shadow.camera.top,
         near: sun.shadow.camera.near, far: sun.shadow.camera.far,
         bias: sun.shadow.bias,
+        // `sun.shadow.mapSize.x`, NOT `QUALITY.shadowMapSize`:
+        // `Stage.setShadowMapSize` reassigns the light's own map per quality
+        // tier, so dividing by the module constant misreported this on every
+        // tier but `desktop`. Two streams noticed independently.
         texelMm: Math.round(
-          ((sun.shadow.camera.right - sun.shadow.camera.left) / QUALITY.shadowMapSize) * 1e5,
+          ((sun.shadow.camera.right - sun.shadow.camera.left) / sun.shadow.mapSize.x) * 1e5,
         ) / 100,
       },
       bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() },
