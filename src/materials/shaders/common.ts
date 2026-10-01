@@ -197,10 +197,21 @@ vec3 audiBump(vec3 surfPos, vec3 N, float dHdx, float dHdy, float scale) {
 /**
  * Flake lattice.
  *
- * One aluminium flake per lattice cell, each with its own orientation and its
- * own sub-cell footprint so there is binder *between* the flakes rather than a
- * continuous mosaic. The lattice is skewed by a fixed rotation before lookup so
- * the cubes never line up with the car's own axes and read as a grid.
+ * One draw from the flake orientation distribution per lattice cell, skewed by
+ * a fixed rotation before lookup so the cells never line up with the car's own
+ * axes and read as a grid.
+ *
+ * **There is deliberately no particle here** — no radius, no coverage disc.
+ * Aluminium flake in a 1980s basecoat is 10-50 µm across and the closest pose
+ * this project shoots is `badge` at ~0.45 mm/px, so a pixel covers of order a
+ * hundred flakes and *nothing ever resolves one*. Anything with a size in it
+ * would therefore be drawing something that cannot be seen, and what it would
+ * actually draw is glitter: the disc this replaced was 0.4-0.9 mm, with a
+ * companion population at 1.3-3.0 mm, and at 0.45 mm/px those discs are
+ * exactly the 2-4 px white specks CRITIQUE-4 §11 counted on the tailgate.
+ *
+ * The physical flake size enters through `audiFlakeGrain` instead, as an
+ * amplitude rather than as a shape.
  */
 export const GLSL_FLAKE = /* glsl */ `
 // Deliberately irrational-ish rotation: kills axis-aligned banding on the
@@ -210,38 +221,53 @@ const mat3 AUDI_FLAKE_SKEW = mat3(
   -0.4302, 0.8232,  0.3703,
    0.4112, -0.2196, 0.8847);
 
-struct AudiFlake {
-  vec3 normalObj;
-  float mask;
-};
+/**
+ * One flake's normal, in whatever space 'nObj' is given in.
+ *
+ * Aluminium flake settles roughly parallel to the substrate, so this is a
+ * tight lobe about the local basecoat normal and not a uniform sphere.
+ *
+ * @param q       position, already multiplied by cells-per-metre
+ * @param nObj    the normal to tilt about. Pass the *clumped* basecoat normal
+ *                rather than the panel's, so a flake inherits the lay of the
+ *                domain it is sitting in.
+ * @param spread  how far off that normal a flake may lie
+ */
+vec3 audiFlakeTilt(vec3 q, vec3 nObj, float spread) {
+  vec3 h = audiHash33(floor(q) * 1.913 + 7.13);
+  vec3 tilt = (h - 0.5) * 2.0;
+  tilt -= nObj * dot(tilt, nObj);
+  return normalize(nObj + tilt * spread);
+}
 
 /**
- * @param q       object-space position, already multiplied by cells-per-metre
- * @param nObj    object-space surface normal
- * @param size    0..1, fraction of the cell the flake body covers
- * @param spread  how far off the panel normal a flake may tilt
+ * **How much of one flake's deviation a pixel may show.** The band limit.
+ *
+ * Procedural noise has no mip chain, so a fragment's own screen-space
+ * derivative is the only thing that can band-limit a flake field — and it has
+ * to rescale the *variance* to what the sampling density supports rather than
+ * switch the detail off.
+ *
+ * 'pitch' is the real flake spacing in metres and 'audiFootprint(objPos)' is
+ * what one pixel covers, in the same metres. Their ratio is 1/n for n flakes
+ * across a pixel, so the pixel holds n² of them. Those n² are uncorrelated,
+ * so what the pixel shows is not a flake — it is the *fluctuation* in how
+ * many of its flakes happen to be tilted into the highlight, and the standard
+ * error of a mean of n² draws is 1/n of a single draw's. That ratio is the
+ * whole function.
+ *
+ * At 'badge' (~0.45 mm/px) a 39.5 µm pitch gives n ≈ 11, so a flake carries an
+ * eleventh of its own contrast and the paint reads as a fine grain. At
+ * 'photomatch' the bonnet is foreshortened to ~17 mm/px and it is a four
+ * hundredth — which is correct, not a bug. At that distance the sheen is the
+ * clump field's job, not one particle's.
+ *
+ * Nothing here ever reaches zero. A hard cutoff is what "fade the detail out"
+ * band limits do and it leaves a distant panel glassy; this only ever reports
+ * the variance the sampling density actually supports.
  */
-AudiFlake audiFlakeAt(vec3 q, vec3 nObj, float size, float spread) {
-  vec3 cell = floor(q);
-  vec3 local = q - cell;
-
-  vec3 h = audiHash33(cell + 0.37);
-  // Flake centres jitter inside the cell so the packing is irregular.
-  vec3 centre = 0.5 + (h - 0.5) * 0.78;
-  float d = length((local - centre) * vec3(1.0, 1.0, 1.0));
-
-  vec3 h2 = audiHash33(cell * 1.913 + 7.13);
-  // Aluminium flake settles roughly parallel to the substrate: a tight cosine
-  // lobe about the panel normal, not a uniform sphere.
-  vec3 tilt = (h2 - 0.5) * 2.0;
-  tilt -= nObj * dot(tilt, nObj);
-
-  AudiFlake f;
-  f.normalObj = normalize(nObj + tilt * spread);
-  // Flakes vary in size; the largest are the ones you actually notice.
-  float r = size * (0.45 + 0.55 * h.z);
-  f.mask = 1.0 - smoothstep(r * 0.55, r, d);
-  return f;
+float audiFlakeGrain(vec3 objPos, float pitch) {
+  return clamp(pitch / max(audiFootprint(objPos), 1e-9), 0.0, 1.0);
 }
 `;
 

@@ -29,11 +29,14 @@
  *   de-chromatises the basecoat towards grazing. A dark grey metallic loses
  *   roughly two thirds of its reflectance between face-on and 60°; that
  *   gradient across a fender is the primary "this is metallic" cue.
- * - **Flake.** A 3D lattice in object space, one aluminium flake per cell, each
- *   with its own tilt. Flakes are lit by a *sharp* env lookup, so as the camera
- *   moves each one swings in and out of a highlight individually. Sub-pixel
- *   lattices fade their variance into their own mean, so distance shots stay
- *   clean instead of boiling.
+ * - **Flake.** Two scales, and only the coarser one is something you can see.
+ *   A flake is 10-50 µm, so no pose resolves one and a pixel averages of order
+ *   a hundred; the lattice hands each fragment one draw from the flake tilt
+ *   distribution and `audiFlakeGrain` weights it by the 1/n the sampling
+ *   density supports, which is a fine grain and never a speck. What survives
+ *   at normal viewing distance is **clumping** — the millimetre-scale
+ *   orientation domains a spray gun leaves — and that is what makes a
+ *   metallic's sheen travel across a panel as the camera moves.
  * - **Orange peel.** Two octaves of low-amplitude height (≈9 µm at 4.5 mm and
  *   ≈30 µm at 28 mm) perturbing *only* the clearcoat normal. The long wave is
  *   what makes a reflected horizon ripple in a full-car shot.
@@ -104,6 +107,61 @@ function lum(c: [number, number, number]): number {
  * stops "white" rendering as silver.
  */
 const SCATTER_MAX = 2.4;
+
+/**
+ * Flake spacing, in metres. **This is the number the glitter defect was.**
+ *
+ * `PAINT.flakeDensity` is 640 and its comment reads "per m²-ish". Per m² that
+ * is one flake per 40 mm × 40 mm, which is not a paint. Read as **per mm²** it
+ * is 6.4 × 10⁸/m², a 39.5 µm pitch, and with `PAINT.flakeSize` 0.55 a 21.7 µm
+ * particle — both inside the 10-50 µm that aluminium flake in a 1980s basecoat
+ * actually is. The unit was the bug, and the spec figure was right all along.
+ *
+ * What the old code did instead was `sqrt(640) × 36`: a 1.1 mm cell carrying a
+ * 0.4-0.9 mm "flake", 20-40× oversize, with a companion population on a 3.5 mm
+ * cell carrying a 1.3-3.0 mm one. At `badge`'s ~0.45 mm/px those are the 2-4 px
+ * white specks CRITIQUE-4 §11 counted: 106 of them, median 1.14 mm of claimed
+ * flake, peak 131 against a panel median of 27 — 4.9× local contrast. Glitter,
+ * not metallic.
+ *
+ * Report to the lead: `spec.ts` should say "per mm²" against `flakeDensity`,
+ * and `flakeSize` should say "fraction of the flake pitch". Both are correct
+ * figures with the wrong unit written beside them.
+ */
+const FLAKE_PITCH_M = 1 / Math.sqrt(PAINT.flakeDensity * 1e6);
+
+/**
+ * The sampling lattice, in metres per cell.
+ *
+ * **Not the flake.** This is only how often the shader draws from the flake
+ * tilt distribution; the flake's own size enters as an amplitude, through
+ * `audiFlakeGrain`. Keeping the two apart is what makes the fix possible,
+ * because the two have opposite requirements:
+ *
+ * - a cell must be no *larger* than a pixel at the closest pose the project
+ *   shoots (`badge`, ~0.45 mm/px), or the draw reads as a blob rather than as
+ *   grain — which is the same failure in miniature;
+ * - the lattice coordinate must stay *small* in absolute value, because
+ *   `audiHash33` is `fract(p × 0.1031)`-based and starts losing its low bits
+ *   past a few thousand cells. A lattice at the real 39.5 µm pitch would put
+ *   the tail of a 2.5 m car at 63,000 cells, where float32 leaves the hash a
+ *   couple of thousand distinct states and it bands.
+ *
+ * 0.38 mm satisfies both: 0.85 of a pixel at `badge`, and 6,600 cells at the
+ * far end of the car.
+ */
+const FLAKE_SAMPLE_PITCH_M = 0.00038;
+
+/**
+ * Flake clumping domain size, in metres.
+ *
+ * Spray-applied basecoat mottles: the fan pattern and the solvent flash leave
+ * flake-orientation domains at roughly a centimetre, which is the faint
+ * cloudiness a real metallic panel has. 12 mm is 27 px at `badge` and about
+ * 4 px on `photomatch`'s foreshortened bonnet, so it lands in the 3-8 px band
+ * rather than the 1-3 px one this round is trying to empty.
+ */
+const CLUMP_PITCH_M = 0.012;
 
 /**
  * Derive the four tints the shader needs from one sRGB base colour.
@@ -212,9 +270,10 @@ uniform vec3 uPaintPigment;
 uniform vec3 uPaintFace;
 uniform vec3 uPaintFlop;
 uniform vec3 uFlakeColor;
-// x density (cells/m)  y size  z spread  w intensity
+// x lattice (cells/m)  y physical flake pitch (m)  z tilt spread  w intensity
 uniform vec4 uFlakeParams;
-// x roughness  y direct sharpness  z direct gain  w coverage (mean energy)
+// x one flake's lobe roughness  y clump field (cells/m)  z direct glint gain
+// w mean energy the layer returns, as a fraction of the population lobe
 uniform vec4 uFlakeShape;
 // x flop power  y basecoat roughness  z clearcoat IOR  w clearcoat F0
 uniform vec4 uFlopParams;
@@ -253,45 +312,63 @@ float audiTravel(float NdV, float ior) {
 #define AUDI_FLAKE_CEIL 3.0
 
 /**
- * Only a minority of cells hold a flake lying flat enough, and large enough,
- * to throw a visible flash. Without this gate every cell flashes at once and
- * the panel reads as a dusting of salt rather than as metallic paint — the
- * coverage, not the brightness, is what makes flake look wrong.
+ * Lobe one flake's *direct* glint is given, as a Blinn-Phong exponent.
+ *
+ * Fixed, where it used to be widened as the lattice stopped resolving. The
+ * lobe belongs to the particle and a particle does not get rougher because
+ * the camera moved; what moves is how many of them a pixel averages, and that
+ * is 'audiFlakeGrain'. Same bargain, stated once, in the right place.
  */
-float audiFlakeRarity(vec3 q, float keep) {
-  return step(1.0 - keep, audiHash13(floor(q) * 1.37 + 3.1));
-}
+#define AUDI_FLAKE_DIRECT_POW 900.0
 
-vec3 audiFlakeNormal(vec3 objPos, vec3 nObj, AudiFrame fr, out float mask, out float resolved,
-                     out float flakeRes) {
-  float dens = uFlakeParams.x;
-  vec3 q = AUDI_FLAKE_SKEW * objPos * dens;
-  AudiFlake fine = audiFlakeAt(q, nObj, uFlakeParams.y, uFlakeParams.z);
+/**
+ * How far the clump field may tilt the local basecoat normal.
+ *
+ * The field's gradient is O(1) per cell, so this is a tangent — about 1.5° of
+ * typical tilt. Small on purpose: real mottling is a few per cent of
+ * brightness, and because it tilts a *reflection* it is loudest exactly where
+ * the environment has contrast, which here is the canopy.
+ */
+#define AUDI_CLUMP_TILT 0.055
 
-  // A second, coarser population. Real flake is graded, and the handful of
-  // large particles are the ones the eye actually registers as sparkle.
-  vec3 q2 = AUDI_FLAKE_SKEW * (objPos + 11.7) * dens * 0.31;
-  AudiFlake coarse = audiFlakeAt(q2, nObj, uFlakeParams.y * 1.15, uFlakeParams.z * 0.7);
+/**
+ * The basecoat's local normal and one flake's, from the two scales that are
+ * actually in the paint.
+ *
+ * **Clumping**, at millimetres, in 'nClumpView'. A spray gun does not lay its
+ * flake down evenly: the spray pattern and solvent flash leave orientation
+ * domains a few millimetres across, which is the faint cloudiness a real
+ * metallic panel shows and — because it tilts the whole local population's
+ * lobe rather than one particle's — the reason a metallic's sheen *travels*
+ * across a panel as you move instead of merely getting brighter. Millimetres
+ * is resolvable, so unlike the flake this survives at normal viewing
+ * distance, and with the flake correctly sub-pixel it is the only
+ * high-frequency metallic cue left. 'audiResolved' fades the tilt out once it
+ * is not resolved, which is mean-preserving to first order because the tilt is
+ * mean-zero.
+ *
+ * The *gradient* of a smooth field, not its value: a slope is what a domain
+ * boundary does to the lay of the flake under it, and a value would give the
+ * panel brightness steps instead of a wandering lobe.
+ *
+ * **The flake**, in the return value: one draw from the tilt distribution
+ * about the clumped normal, weighted by 'audiFlakeGrain' at the call site.
+ *
+ * What this replaced had the second scale as a second *flake* population, at
+ * 3.5 mm cells and 'PAINT.flakeSize' of a cell — a 1.3-3.0 mm aluminium
+ * platelet, sixty times the size of any flake ever milled. No ceiling and no
+ * lobe-widening could have saved it: the speck *was* the disc, drawn at the
+ * size it was asked for.
+ */
+vec3 audiFlakeNormal(vec3 objPos, vec3 nObj, AudiFrame fr, out vec3 nClumpView) {
+  vec3 qc = AUDI_FLAKE_SKEW * objPos * uFlakeShape.y;
+  vec3 slope = audiNoised(qc).yzw;
+  slope -= nObj * dot(slope, nObj);
+  vec3 nClump = normalize(nObj + slope * AUDI_CLUMP_TILT * audiResolved(qc));
+  nClumpView = audiObjToView(fr, nClump);
 
-  float rFine = audiResolved(q);
-  float rCoarse = audiResolved(q2);
-
-  // A flake is about half its cell across, so a lattice that is comfortably
-  // resolved can still be holding a flake well under a pixel — and a sub-pixel
-  // mirror does not average, it flashes. Each one returns the sun disc whole on
-  // one pixel and nothing on its neighbours, which is the white grit that reads
-  // as dust on the sensor over a dark panel. The *lattice* resolve above is the
-  // wrong test for that; this measures the flake itself.
-  float sz = max(uFlakeParams.y, 0.05);
-  flakeRes = max(audiResolved(q / sz), audiResolved(q2 / (sz * 1.15)));
-
-  // Coarse flakes win where they exist; they sit nearer the clearcoat.
-  float wc = coarse.mask * rCoarse * audiFlakeRarity(q2, 0.14);
-  float wf = fine.mask * rFine * audiFlakeRarity(q, 0.09) * (1.0 - wc * 0.7);
-  mask = clamp(wc + wf, 0.0, 1.0);
-  resolved = max(rFine, rCoarse);
-  vec3 n = normalize(mix(fine.normalObj, coarse.normalObj, wc / max(wc + wf, 1e-4)));
-  return audiObjToView(fr, n);
+  vec3 q = AUDI_FLAKE_SKEW * objPos * uFlakeParams.x;
+  return audiObjToView(fr, audiFlakeTilt(q, nClump, uFlakeParams.z));
 }
 `;
 
@@ -317,11 +394,11 @@ material.roughness = clamp(uFlopParams.y * mix(1.0, 1.35, audiTrav) + geometryRo
 
 // --- flake ---
 AudiFrame audiFr = audiMakeFrame(vAudiObjPos, -vViewPosition);
-float audiFlakeMask = 0.0;
-float audiFlakeRes = 0.0;
-float audiFlakeSharp = 0.0;
-vec3 audiFlakeN = audiFlakeNormal(vAudiObjPos, normalize(vAudiObjNormal), audiFr,
-                                  audiFlakeMask, audiFlakeRes, audiFlakeSharp);
+vec3 audiClumpN = normal;
+vec3 audiFlakeN = audiFlakeNormal(vAudiObjPos, normalize(vAudiObjNormal), audiFr, audiClumpN);
+// What one draw from the flake population is worth to this pixel — the band
+// limit, and the reason the flake no longer reads as glitter.
+float audiFlakeW = audiFlakeGrain(vAudiObjPos, uFlakeParams.y);
 // Flake is buried in the same absorbing binder, so it flops too.
 float audiFlakeFlop = mix(1.0, 0.22, audiTrav);
 vec3 audiFlakeDirect = vec3(0.0);
@@ -332,74 +409,65 @@ const PAINT_DIRECT_GLINT = /* glsl */ `
   vec3 audiH = normalize(directLight.direction + geometryViewDir);
   float audiNL = saturate(dot(geometryNormal, directLight.direction));
   float audiFH = saturate(dot(audiFlakeN, audiH));
-  // Same bargain as the env lobe above: a lobe this tight is a delta function
-  // to a pixel that no longer contains a whole flake, so it widens and drops
-  // in the same proportion. Energy constant, flash gone.
-  float audiFP = mix(48.0, uFlakeShape.y, audiFlakeSharp);
-  audiFlakeDirect += directLight.color * audiNL * pow(audiFH, audiFP) * uFlakeShape.z
-                   * ((audiFP + 1.0) / (uFlakeShape.y + 1.0));
+  audiFlakeDirect += directLight.color * audiNL
+                   * pow(audiFH, AUDI_FLAKE_DIRECT_POW) * uFlakeShape.z;
 }
 `;
 
 const PAINT_FLAKE_APPLY = /* glsl */ `
 {
-  vec3 audiFlakeEnv = vec3(0.0);
-  vec3 audiFlakeMean = vec3(0.0);
+  vec3 audiFlakeOne = vec3(0.0);
+  vec3 audiFlakePop = vec3(0.0);
   #ifdef USE_ENVMAP
     // Flakes live under the clearcoat: their view ray is refracted too.
     vec3 audiVc = audiRefractInto(geometryViewDir, geometryNormal, audiIor);
-    // Sharp while the flake is bigger than a pixel — that mirror is the sparkle
-    // — and no sharper than the population's own lobe once it is not. Variance
-    // goes, energy stays: the flash becomes the average of what it was flashing
-    // at, so the panel neither dims nor stops looking metallic.
-    audiFlakeEnv = getIBLRadiance(audiVc, audiFlakeN, mix(0.34, uFlakeShape.x, audiFlakeSharp));
-    // The energy the whole flake population averages to. Fading *variance*
-    // into this, rather than fading flake out, keeps the paint the same
-    // brightness whether the lattice is resolved or a mile away.
-    audiFlakeMean = getIBLRadiance(audiVc, geometryNormal, 0.34);
+    // A single platelet is a near-mirror along its own tilted normal and it
+    // stays one at every distance. It is not widened as the camera pulls back
+    // any more — a flake does not get rougher because you stepped away. What
+    // changes is how many of them a pixel averages, and that is audiFlakeW.
+    audiFlakeOne = getIBLRadiance(audiVc, audiFlakeN, uFlakeShape.x);
+    // The energy the whole population averages to, read through the clump
+    // field's normal so the millimetre-scale lay of the flake shows.
+    audiFlakePop = getIBLRadiance(audiVc, audiClumpN, 0.34);
   #endif
-
-  vec3 audiFlakeTint = uFlakeColor * uFlakeParams.w * audiFlakeFlop;
-  vec3 audiSparkle = (audiFlakeEnv + audiFlakeDirect) * audiFlakeMask * audiFlakeRes;
-  vec3 audiSmooth = audiFlakeMean * uFlakeShape.w * (1.0 - audiFlakeRes * 0.75);
 
   // **What a single flake is allowed to return, relative to the population
   // it belongs to.**
   //
-  // audiFlakeRes above fades a flake's *variance* into the mean once the
-  // lattice stops being resolved, which is what keeps a distance shot from
-  // boiling. Nothing capped it while the flake *is* resolved, and a resolved
-  // flake gets a roughness-0.075 env lookup along its own tilted normal — a
-  // 4° mirror. On a dark panel at a close pose that mirror finds the sky and
-  // returns it whole, one pixel at a time.
+  // A flake is an aluminium platelet about a micron thick and visibly
+  // crumpled, lying under ~45 µm of *pigmented* binder: the light reaching it
+  // has already been scattered on the way in and is scattered again on the way
+  // out, so what one particle returns is a diffused version of its lobe and
+  // not a clean image of a bright source. A photographed metallic panel in
+  // shade shows its brightest flakes at two to three times the panel around
+  // them.
   //
-  // Measured on the badge frame's tailgate panel, 1600 x 160 px of paint
-  // either side of the badge: 105 separate specks, median 3 px, peak 155
-  // against a panel median of 38 — **4.1x local contrast**, at about half a
-  // speck per cm² of real panel. That is not flake, it is dust on the sensor,
-  // and it is the defect common.ts already names.
-  //
-  // A flake cannot do that. It is an aluminium platelet about a micron thick
-  // and visibly crumpled, and it is lying under ~45 µm of *pigmented* binder:
-  // the light reaching it has already been scattered on the way in and is
-  // scattered again on the way out, so what a single particle returns is a
-  // diffused version of its lobe, not a clean image of a bright source. A
-  // photographed metallic panel in shade shows its brightest flakes at two to
-  // three times the panel around them.
-  //
-  // So: a soft ceiling at AUDI_FLAKE_CEIL times the energy the whole
-  // population averages to, which is the one quantity in scope that already
-  // describes "what this layer has to give". Soft rather than min, so the
-  // flake field keeps its gradient instead of clipping to a plateau — and
-  // energy-preserving at the low end, where sparkle << k leaves it alone.
-  // It cannot change the panel's brightness: audiSmooth carries the mean
-  // and is untouched.
+  // Soft rather than min, so the flake field keeps its gradient instead of
+  // clipping to a plateau, and energy-preserving at the low end where
+  // audiFlakeOne << k leaves it alone. It cannot change the panel's
+  // brightness: the mean is audiFlakePop and is untouched.
   {
-    vec3 audiCeil = audiFlakeMean * AUDI_FLAKE_CEIL + 1e-5;
-    audiSparkle = audiSparkle * audiCeil / (audiCeil + audiSparkle);
+    vec3 audiCeil = audiFlakePop * AUDI_FLAKE_CEIL + 1e-5;
+    audiFlakeOne = audiFlakeOne * audiCeil / (audiCeil + audiFlakeOne);
   }
 
-  reflectedLight.indirectSpecular += audiFlakeTint * (audiSparkle + audiSmooth);
+  // **The layer's mean cannot depend on how far away the camera is.** Paint
+  // does not darken when you walk towards it, and what this replaced made it
+  // do exactly that: the mean was written as 'pop * w * (1 - resolved * 0.75)'
+  // with a positive-only sparkle term faded in on top, so between 'photomatch'
+  // and 'badge' the flake layer's own contribution fell by a factor of three
+  // and the close-up panel went dark to make room for the specks.
+  //
+  // Interpolating between one flake's lobe and the population's fixes both
+  // ends at once: the deviation is zero-mean by construction, so the band
+  // limit can only remove variance. At audiFlakeW = 0 this is exactly
+  // 'pop * w', which is what the old far-field limit was — and the bonnet at
+  // 'photomatch', foreshortened to ~17 mm/px, *is* that limit, so the pose the
+  // paint's colour is calibrated at cannot move.
+  vec3 audiFlakeTint = uFlakeColor * uFlakeParams.w * audiFlakeFlop;
+  vec3 audiLayer = mix(audiFlakePop, audiFlakeOne, audiFlakeW)
+                 + audiFlakeDirect * audiFlakeW;
+  reflectedLight.indirectSpecular += audiFlakeTint * uFlakeShape.w * audiLayer;
 }
 `;
 
@@ -420,17 +488,17 @@ export function createPaint(): PaintMaterial {
     uPaintFlop: { value: tints.flop },
     uFlakeColor: { value: tints.flake },
     uFlakeParams: {
-      // Density is quoted per m²; the lattice wants cells per metre, and the
-      // visually-matching conversion is a straight sqrt of a flake *volume*
-      // density — 640 lands at ~1.1 mm cells, about a grain of sand.
-      // Cell size is chosen so a flake is just under a pixel at the distance a
-      // car is normally looked at (~3 m, ~1.3 mm/px): large enough to resolve
-      // as a point, small enough that the variance fade takes over beyond that.
-      // `flakeSize` is read as a cell-diameter fraction; 0.76 of it is the
-      // value that matches a photographed panel.
-      value: new THREE.Vector4(Math.sqrt(PAINT.flakeDensity) * 36.0, PAINT.flakeSize * 0.76, 0.42, PAINT.flakeIntensity),
+      value: new THREE.Vector4(1 / FLAKE_SAMPLE_PITCH_M, FLAKE_PITCH_M, 0.42, PAINT.flakeIntensity),
     },
-    uFlakeShape: { value: new THREE.Vector4(0.075, 900.0, 0.34, 0.30) },
+    // x one flake's lobe: a 4° near-mirror, which is what a platelet is.
+    // y the clump field, 12 mm domains.
+    // z direct glint gain.
+    // w the layer's mean energy — held at the value the old far-field limit
+    //   had (`0.30`), because `photomatch`'s bonnet sits in that limit and the
+    //   paint's colour is calibrated there. As a sanity check rather than a
+    //   derivation: the geometric flake coverage implied by `PAINT.flakeSize`
+    //   read as a fraction of the pitch is π/4 × 0.55² = 24 %, the same order.
+    uFlakeShape: { value: new THREE.Vector4(0.075, 1 / CLUMP_PITCH_M, 0.34, 0.30) },
     uFlopParams: { value: new THREE.Vector4(0.85, PAINT.roughness, PAINT.clearcoatIor, 0.0375) },
     uOrangePeel: { value: new THREE.Vector4(PAINT.orangePeelScale, PAINT.orangePeelStrength, 0.16, 0) },
     uPaintScatter: { value: tints.scatter },
