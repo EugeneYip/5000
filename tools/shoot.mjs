@@ -309,13 +309,49 @@ for (const name of wanted) {
   console.log(`  ✓ ${name.padEnd(11)} ${VIEWS[name].desc}`);
 }
 
-// Perf probe — AAA means it also has to run.
-const perf = await page.evaluate(async () => {
-  const a = globalThis.__AUDI;
-  if (!a?.measureFps) return null;
-  return a.measureFps(120);
-});
-if (perf) console.log(`\n  fps: ${perf.fps?.toFixed?.(1)} (frame ${perf.ms?.toFixed?.(2)} ms)  draws:${perf.drawCalls} tris:${perf.triangles}`);
+/**
+ * Perf probe — AAA means it also has to run.
+ *
+ * **Measured from a fixed pose, and the pose is named in the output.**
+ *
+ * This used to run from whatever view happened to be shot last, and the draw
+ * count depends entirely on that: frustum culling at a close-up drops most of
+ * the scene. Same commit, same code, differing only in the last view —
+ *
+ *     last = photomatch    draws 567   tris 2,030,328
+ *     last = wheel         draws 270   tris 1,416,667
+ *
+ * — which is a 2× swing in the headline performance figure with nothing
+ * changed. I read exactly that pair as "draw calls halved, a third of the
+ * triangles gone" and committed it as a verified isolation (`bfd6f10`). It was
+ * an artefact of comparing a three-view run ending on `wheel` against a
+ * one-view run ending on `photomatch`.
+ *
+ * So the probe now drives to `photomatch` first — the pose every other gate is
+ * read from — and prints `@photomatch` beside the numbers, because a
+ * performance figure without its pose attached is not a figure.
+ */
+const PERF_POSE = 'photomatch';
+let perf = null;
+try {
+  await withReload(page, `perf@${PERF_POSE}`, async () => {
+    await drive(page, 'setView', (n) => globalThis.__AUDI.setView ? globalThis.__AUDI.setView(n) : '__MISSING__', PERF_POSE);
+    await drive(page, 'settle', () => globalThis.__AUDI.settle ? (globalThis.__AUDI.settle(24), true) : '__MISSING__');
+    await page.waitForTimeout(400);
+    perf = await page.evaluate(async () => {
+      const a = globalThis.__AUDI;
+      if (!a?.measureFps) return null;
+      return a.measureFps(120);
+    });
+  });
+} catch (e) {
+  console.warn(`  ! perf probe skipped: ${e.message}`);
+}
+if (perf) {
+  console.log(`\n  fps: ${perf.fps?.toFixed?.(1)} (frame ${perf.ms?.toFixed?.(2)} ms)`
+    + `  draws:${perf.drawCalls} tris:${perf.triangles}  @${PERF_POSE}`);
+  console.log(`  (renderer.info, inflated by the pass count — use __AUDI.census() for real geometry)`);
+}
 
 await browser.close();
 server.kill('SIGTERM');

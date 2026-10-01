@@ -162,6 +162,19 @@ every stream running at once, not per-stream. Two streams both wrote
   `{ includeHidden: true }` to get the old behaviour, which is the right tool
   for a bit-identical A/B: hide a thing, keep the ray set, and only the pixels
   move.
+- **`shoot.mjs`'s perf line is not a performance measurement.** It comes from
+  `renderer.info`, and it moves by a factor of two on identical code. Two ways:
+  the probe used to run from whatever view was shot *last*, and frustum culling
+  at a close-up drops most of the scene — `last = photomatch` gave draws 567 /
+  2,030,328 tris where `last = wheel` gave **270 / 1,416,667**, same commit. It
+  is pose-pinned now and prints `@photomatch`. But even pinned it reads 567 in
+  a one-view run and **759 in a three-view run**, the same 1.34× on draws and
+  triangles, because `renderer.info` is per-frame and what lands in the sampled
+  frame (a shadow update, an IBL bake) changes it.
+  **Use `__AUDI.census()`, which traverses the scene once.** It says 288 meshes
+  / 1,052,982 triangles / 73 materials, against a 220-draw target and a 1.2 M
+  triangle budget. I read the 270-vs-567 pair as "draw calls halved" and
+  committed it as a verified isolation in `bfd6f10`; it was two different poses.
 - **A bbox on a MERGED mesh is worse than useless.** "The bounds of a part
   are not the part" has now cost three rounds, and the third was the worst
   because the numbers looked so specific. A critique reported the windscreen
