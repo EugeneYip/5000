@@ -306,8 +306,88 @@ const LEAF_SHADE = /* glsl */ `
  * to the sun, which they never have.
  */
 const LEAF_SELF_OCCLUSION = /* glsl */ `
-reflectedLight.indirectSpecular *= 0.11;
-reflectedLight.directSpecular *= 0.22;
+reflectedLight.indirectSpecular *= 0.11 * uSpecScale;
+reflectedLight.directSpecular *= 0.22 * uSpecScale;
+float leafOcc = mix(1.0, leafSky * uSkyGain, uSkyOcc);
+reflectedLight.indirectDiffuse *= leafOcc;
+reflectedLight.directDiffuse *= leafOcc;
+`;
+
+/**
+ * The sky a patch of canopy can actually see — the part of self-occlusion
+ * that has to be **per-fragment**, because the defect it answers is a spread
+ * and not a level.
+ *
+ * The level was already landed: the crowns measure 55.4 against the
+ * photograph's 54.8. What CRITIQUE-6 files as "the trees read as stencils"
+ * is the distribution around it. Measured on `front`, a tree window puts
+ * **73 % of its pixels in two adjacent buckets** (48-80) with **0.0 % below
+ * 48 and 0.0 % above 224**, and its fifth percentile is **59.8** — there is
+ * nothing darker than level 60 anywhere in a tree. The owner's own canopy
+ * decays smoothly across all sixteen buckets with 43 % below 48 and a fifth
+ * percentile of **21**. A two-stop foliage range against a real eight.
+ *
+ * The cause is that every term standing in for self-occlusion here is a
+ * **constant**: `lift`, and the two specular dampings above. A constant
+ * multiplier moves the mean and cannot touch the shape — it scales p5 and
+ * p50 together, which is why the render's p5/p50 is 0.78 where the
+ * photograph's is 0.39. What is genuinely non-uniform inside a canopy is the
+ * *light a patch receives*, and nothing here attenuates that: these lobes
+ * are convex shells with nothing inside them, so a fragment on the underside
+ * of the mass collects the same hemisphere, and the same sun, as one on top
+ * of it. A real canopy is two stops apart across that distance and it is the
+ * dark end of it that the histogram is missing.
+ *
+ * It has to be **both** diffuse terms and not only the sky's, and that was
+ * measured rather than assumed. Attenuating `indirectDiffuse` alone moved
+ * the `front` window's fifth percentile by **0.8 of a level** across the
+ * whole sweep, because at `front`, `photomatch` and `front3q` the sun is
+ * behind the camera and the visible canopy is **sun-lit** — the sky is the
+ * minority term in exactly the poses the gate is read from.
+ *
+ * So `leafOcc` attenuates both diffuse terms by a per-fragment visibility,
+ * from two factors that are already paid for:
+ *
+ * - which way the surface faces, from a vertex-shader varying, which is the
+ *   top-of-mass to underside gradient;
+ * - `leafClump`, the half-metre clumping the shading term already computes.
+ *
+ * `uSkyGain` is not a look knob — it is set where the band's mean does not
+ * move, so the term redistributes light rather than removing it and the
+ * carefully-set level above survives. Both are uniforms, swept in one boot
+ * through `groveSkyOcc` / `groveSkyGain`, and `uSkyOcc = 0` reproduces the
+ * previous build exactly whatever the gain is.
+ *
+ * ## What this is worth, and what it is not
+ *
+ * **It is worth a few points, and the cause of the defect is elsewhere.**
+ * Say that plainly, because the paragraphs above make a case that sounds
+ * like it should be worth a stop and it is not. Over both `front` tree
+ * windows together, 1.0 / 3.3 moves the two-bucket pile from 66.4 % to
+ * 61.6 % and the share under level 64 from 9.2 % to 12.7 %; at `front3q` it
+ * moves the share under 48 from 14.6 % to 15.9 %. Every sign is right and
+ * every magnitude is small.
+ *
+ * The reason is a ceiling, and `uSpecScale` exists to measure it. With the
+ * crowns emitting **nothing at all** — both diffuse terms zeroed and the
+ * specular with them — the `front` tree window still reads p50 **65.1**
+ * against the shipped 79.1. The crowns' entire output is fourteen of those
+ * seventy-nine levels, so nothing done to their shading can be worth more
+ * than that, whatever its shape.
+ *
+ * What fills the other sixty-five is the **exponential fog**, and it is not
+ * close: turning `preset.fog.density` off takes the same window from p50
+ * 79.1 to **27.0** and from 0.1 % under level 48 to **72.9 %**, against the
+ * photograph's 53.9 and 43.1 %. Bloom is worth one level of it. The render
+ * with fog is far too light and flat; the render without it is too dark; the
+ * photograph is between, at about 0.0012 of density rather than 0.0018 by
+ * either measure. The foliage shading was never the thing that was wrong —
+ * shot with the fog off, this canopy has near-black interiors, gold sunlit
+ * tops and sky through the holes. **`fog.density` lives in `presets.ts` and
+ * is applied in `Environment.ts`; neither is this file's to change.**
+ */
+const LEAF_SKY_VIS = /* glsl */ `
+float leafSky = clamp((0.5 + 0.5 * vLeafUp) * clamp(0.55 + 0.45 * leafClump, 0.0, 1.0), 0.0, 1.0);
 `;
 
 /**
@@ -586,6 +666,24 @@ export function createBackdrop(): BackdropHandle {
     color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true,
   });
 
+  /** Shared by the near crowns and the vista — see `LEAF_SKY_VIS`. */
+  const canopySky = {
+    uSkyOcc: { value: 1.0 },
+    // Set where the band's mean holds: at `front` p50 moves 79.2 -> 77.5 and
+    // at `front3q` 90.4 -> 91.3, so the pair is level-neutral across the two
+    // poses and buys its spread rather than borrowing it from the exposure.
+    uSkyGain: { value: 3.3 },
+    /**
+     * Diagnostic only, and inert at 1.
+     *
+     * With this at 0 and the pair above at 1 / 0, a crown emits nothing at
+     * all, which is how the ceiling in `LEAF_SKY_VIS` was measured. Keep it:
+     * it is the only way to ask "how much of this band is the trees?" without
+     * a rebuild, and the answer turned out to be 14 of 79 levels.
+     */
+    uSpecScale: { value: 1 },
+  };
+
   /**
    * The thing that actually separates foliage from a blob.
    *
@@ -605,21 +703,27 @@ export function createBackdrop(): BackdropHandle {
   const colourCut = (freq: string, base: string, rim: string, struct: string) =>
     (shader: THREE.WebGLProgramParametersWithUniforms): void => {
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vLeafPos;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vLeafPos;\nvarying float vLeafUp;')
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
 #ifdef USE_INSTANCING
 vLeafPos = (instanceMatrix * vec4(position, 1.0)).xyz;
+vLeafUp = normalize((modelMatrix * instanceMatrix * vec4(normal, 0.0)).xyz).y;
 #else
 vLeafPos = position;
+vLeafUp = normalize((modelMatrix * vec4(normal, 0.0)).xyz).y;
 #endif`,
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `#include <common>\nvarying vec3 vLeafPos;\n${LEAF_NOISE}`)
+        .replace(
+          '#include <common>',
+          `#include <common>\nvarying vec3 vLeafPos;\nvarying float vLeafUp;\n`
+          + `uniform float uSkyOcc;\nuniform float uSkyGain;\nuniform float uSpecScale;\n${LEAF_NOISE}`,
+        )
         .replace(
           '#include <clipping_planes_fragment>',
-          `#include <clipping_planes_fragment>\n${LEAF_CUT_VISIBLE}`,
+          `#include <clipping_planes_fragment>\n${LEAF_CUT_VISIBLE}\n${LEAF_SKY_VIS}`,
         )
         // After `<color_fragment>`, so the clump term modulates the instance
         // tint the sun direction already chose rather than replacing it.
@@ -637,9 +741,10 @@ vLeafPos = position;
         .replace(/LEAF_FREQ/g, freq)
         .replace('LEAF_BASE', base)
         .replace('LEAF_RIM', rim);
+      Object.assign(shader.uniforms, canopySky);
     };
   crownMat.onBeforeCompile = colourCut('1.0', '0.40', '0.26', '1.0');
-  crownMat.customProgramCacheKey = () => 'audi-canopy-v4';
+  crownMat.customProgramCacheKey = () => 'audi-canopy-v7';
 
   /**
    * The same cut for the vista, at a quarter of the wavelength and a sixth of
@@ -689,7 +794,7 @@ vLeafPos = position;
     color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true,
   });
   vistaMat.onBeforeCompile = colourCut('0.9', '0.20', '0.38', '1.2');
-  vistaMat.customProgramCacheKey = () => 'audi-vista-v2';
+  vistaMat.customProgramCacheKey = () => 'audi-vista-v5';
 
   /**
    * The cut again for the shadow pass, at a different frequency and depth —
@@ -1675,6 +1780,32 @@ vBarkPos = position;
   perf?.register('groveCheapCut', (v) => {
     depthCut.uCheapCut.value = v ? 1 : 0;
     return depthCut.uCheapCut.value;
+  });
+  /**
+   * The canopy's sky-occlusion strength and its mean-holding gain.
+   *
+   * Uniforms, so they re-upload — unlike a material property, which is the
+   * trap `WORKSTREAM.md` records. `groveSkyOcc` 0 reproduces the build
+   * before `LEAF_SKY_VIS` exactly, whatever the gain is, so the sweep has a
+   * real null. They are separate levers because the gain that holds the mean
+   * is `1 / E[leafSky]` over the *visible* fragments, and that expectation is
+   * taken after the cut's discard and weighted by projected area — not a
+   * number worth deriving when one boot can measure it.
+   */
+  perf?.register('groveSkyOcc', (v) => {
+    canopySky.uSkyOcc.value = Number(v);
+    globalThis.dispatchEvent(new Event('audi:materials-dirty'));
+    return canopySky.uSkyOcc.value;
+  });
+  perf?.register('groveSpecScale', (v) => {
+    canopySky.uSpecScale.value = Number(v);
+    globalThis.dispatchEvent(new Event('audi:materials-dirty'));
+    return canopySky.uSpecScale.value;
+  });
+  perf?.register('groveSkyGain', (v) => {
+    canopySky.uSkyGain.value = Number(v);
+    globalThis.dispatchEvent(new Event('audi:materials-dirty'));
+    return canopySky.uSkyGain.value;
   });
   /**
    * Fraction of the crown instances drawn, for the overdraw slope only.

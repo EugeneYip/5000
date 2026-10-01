@@ -220,12 +220,40 @@ vec3 evalSky(vec3 dir) {
   // 12.6 % over 200 and 0.01 % over 224 to 7.6 % and 1.85 %, against the
   // photograph's 4.1 % and 1.59 %; the car's own share over 224 does not
   // move at all, 7.7 % either way.
-  float dens = smoothstep(0.42, 0.60, bankN);
-  float rim  = smoothstep(0.26, 0.38, bankN) * (1.0 - smoothstep(0.38, 0.48, bankN));
-  float base = bankH * dens * uCloud;
-  float burn = bankH * rim * uCloud;
+  //
+  // **The bright side used to be a band in bankN, and that is a contour
+  // plot.** smoothstep(0.26,0.38) * (1 - smoothstep(0.38,0.48)) selects a
+  // *level set* of a continuous field, and the level set of a continuous
+  // field is a family of **closed loops**. Drawn at 1.5x the haze they are
+  // bright rings with clear sky inside them, and four of them standing over
+  // the tree line in the gate frame is what CRITIQUE-6 read as chimney smoke.
+  // Rendered as a field on its own it is unmistakable: a contour map. 53 % of
+  // its bright pixels were more than ten pixels from any part of the deck at
+  // all -- rings drawn round maxima that never reach cloud density, outlining
+  // nothing.
+  //
+  // So the two sides are now one **monotone split** of the same field at a
+  // single threshold: thick enough to shade, or thin enough to burn through.
+  // Both sides are filled regions sharing one boundary, which is what a
+  // broken deck is, and no closed bright outline can form because there is no
+  // band for one to live in. The threshold sits at the field's own median
+  // (bankN p50 = 0.491) so the split is even, and 0.30 is set where the mean
+  // radiance does not move: measured over the band envelope, mean 0.4908 ->
+  // 0.4915 (+0.14 %) with the spread slightly up, sd 15.94 -> 16.27. The
+  // paragraphs above keep their figures.
+  //
+  // On the gate frame itself, a clear-sky box at photomatch x 650-1010,
+  // y 95-175 goes p50 203.8 -> 204.3 with its structure against a 41 px
+  // running mean falling from sd 2.34 / p99 8.9 to sd 2.08 / p99 7.8 — the
+  // level holds and what leaves is the high-frequency part, which is the
+  // contour lines. Differenced against the previous build the removed signal
+  // is the loops themselves, in outline, including where they were standing
+  // in the windscreen's reflection.
+  float dev  = bankN - 0.47;
+  float base = bankH * smoothstep(0.0, 0.10, dev) * uCloud;
+  float burn = bankH * smoothstep(0.0, 0.10, -dev) * uCloud;
   col = mix(col, hazeCol * (0.40 + 0.36 * forward), clamp(base, 0.0, 1.0));
-  col = mix(col, hazeCol * (1.50 + 0.85 * forward), clamp(burn * 0.55, 0.0, 1.0));
+  col = mix(col, hazeCol * (1.50 + 0.85 * forward), clamp(burn * 0.30, 0.0, 1.0));
   // …and the layering itself, which darkens as much as it brightens and is
   // what stops the band reading as a painted ramp.
   float layer = skyNoise(vec2(ring.x * 12.0 + ring.y * 8.5, up * 95.0));
@@ -284,12 +312,54 @@ export function createSkyDome(uniforms: SkyUniforms): THREE.Mesh {
   return mesh;
 }
 
+/**
+ * A gain on the sky **in the bake only**, inert at 1 and not shipped at
+ * anything else.
+ *
+ * It exists to price one specific question, because there was no way to ask
+ * it without a rebuild. `ibl.ts` gives the horizon, the ground and the vista
+ * `preset.proxyGain` and deliberately does **not** give it to the sky —
+ * `proxyGain`'s docstring argues that the furniture is under-counted and the
+ * sky is not, which is sound as far as it goes. What it was never checked
+ * against is what a *horizontal* panel mirrors. Measured over the full
+ * sphere, this shader's own radiance runs
+ *
+ *     elev     0°     10°    20°    40°    70°    90°
+ *     max L   1.12   1.13   1.08   0.59   0.34   0.34
+ *
+ * — a horizon-to-zenith ratio of **3.3 : 1**, which is what a golden-hour sky
+ * should be. The baked cube reads **13 : 1** over the same bands. The
+ * difference is not the sky: the zenith figure agrees to the digit with the
+ * cube's own 0.34, so the extra ten is `proxyGain` on the lower hemisphere's
+ * furniture and nothing else. A bonnet mirrors the half that did not get it.
+ *
+ * Turning this up **deliberately breaks the invariant at the top of this
+ * file** — the reflection and the background stop being the same sky — so it
+ * must not ship above 1 on its own. It is a measuring instrument: set it,
+ * call `__AUDI_ENV.reset()` to force a re-bake, and the gate reads the bake
+ * half of the hypothesis in isolation, in one boot and without a rebuild.
+ * The visible half is already sweepable through `__AUDI_ENV.ab` on
+ * `sky.exposure`.
+ */
+const iblSkyGain = { value: 1 };
+
+const SKY_FRAG_IBL = /* glsl */ `
+${SKY_BODY}
+uniform float uIblGain;
+void main() {
+  gl_FragColor = vec4(evalSky(normalize(vDir)) * uIblGain, 1.0);
+}
+`;
+
 /** The same sky, sized to sit inside the cube camera used for the IBL bake. */
 export function createSkySphereForIbl(uniforms: SkyUniforms): THREE.Mesh {
   const mat = new THREE.ShaderMaterial({
-    uniforms,
+    // Spread, not replace: the entries are the same `IUniform` objects the
+    // visible dome holds, so `applySkyParams` still reaches both at once and
+    // only `uIblGain` is private to the bake.
+    uniforms: { ...uniforms, uIblGain: iblSkyGain },
     vertexShader: SKY_VERT,
-    fragmentShader: SKY_FRAG,
+    fragmentShader: SKY_FRAG_IBL,
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
@@ -299,5 +369,13 @@ export function createSkySphereForIbl(uniforms: SkyUniforms): THREE.Mesh {
   mesh.name = 'ibl:sky';
   mesh.renderOrder = -1000;
   mesh.frustumCulled = false;
+  (globalThis as unknown as {
+    __AUDI_PERF?: { register(name: string, fn: (v: number | boolean) => unknown): void };
+  }).__AUDI_PERF?.register('skyIblGain', (v) => {
+    iblSkyGain.value = Number(v);
+    // The cube is only redrawn by `applyPreset`, so a sweep has to follow
+    // this with `__AUDI_ENV.reset()` or the gate reads the previous bake.
+    return iblSkyGain.value;
+  });
   return mesh;
 }
