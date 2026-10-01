@@ -94,11 +94,55 @@ const EDGE_BREAK = 0.00035;
  * the crest is a dark anodised extrusion with a satin top, which is what an
  * aluminium grille rib on a 1988 car is; the fine bright line survives in the
  * close-up, and it stops being a wire at distance.
+ *
+ * ## 0.5 mm was a quarter of a pixel, and a quarter of a pixel is not relief
+ *
+ * The argument above is sound about *level* and wrong about *size*, and the
+ * measurement says so. Cut vertically through a clean slat band at
+ * `photomatch` and through `owner_1988` at the same scale — the pitch is
+ * matched, ~10.3 px for a 19.8 mm pitch, which is 1.92 mm/px — and take the
+ * peak-to-trough of the row-mean profile:
+ *
+ *     band                      render   photo
+ *     x 650–730 / 905–1000       5.7      77.1   (the photo band holds a ring)
+ *     x 880–960 / 1080–1170      5.4      41.5   clean on both
+ *     p50                        34 / 41  51 / 47
+ *
+ * **Seven times too little.** ±3 on a 34–41 field is a flat dark rectangle;
+ * put the two crops side by side and the photograph is a hard corduroy and
+ * the render is a smudge. The pitch is right, the level is right
+ * (grille p50 / plate p50 0.159 against 0.205 — if anything 20 % *under*),
+ * and nothing about either is what the eye is missing.
+ *
+ * Walking the photograph's clean band down one pitch gives
+ *
+ *     void 41 · 42 · 43 · ramp 45 · 48 · 65 · peak 75 · fall 57 · void 43
+ *
+ * — about 3 px bright against 7 px of void, and 3 px at 1.92 mm/px is
+ * **6.1 mm, which is the blade**. So the photograph's whole blade face is the
+ * bright part; ours renders at 36 against the void's 33, a ratio of 1.09
+ * where the header of this file measures the reference at **1.7** (its
+ * "aperture 23–26, slat's own lit face 52–64").
+ *
+ * A 0.5 mm crest cannot carry that at any finish, which is why
+ * `CRITIQUE-4`'s chrome-crest round moved the grille's *exposure* (0.298 of
+ * plate, 58 % over) without ever moving its relief: all it did was bloom. So
+ * the crest grows to **3.0 mm**, half the blade and 1.56 px, and goes to the
+ * blade's top edge where the photograph's bright run is. It stays anodised
+ * rather than chrome — the level argument above is still the reason the
+ * colour below is 0xa9aeb5 and not a mirror.
  */
-const CREST_H = 0.0005;
-const CREST_PROUD = 0.00025;
-/** The crest sits a shade below the blade's centre line, as the real rib does. */
-const CREST_Y = -0.0006;
+const CREST_H = 0.0030;
+const CREST_PROUD = 0.0012;
+/**
+ * At the top of the blade, not below its centre line.
+ *
+ * The blade is 6.1 mm, so its half-height is 3.05 mm; a 3.0 mm crest centred
+ * at +1.4 mm spans −0.1 → +2.9 mm and dies 0.15 mm short of the blade's own
+ * top break. Below the centre line it would be lighting the part of the slat
+ * that the slat above already shades.
+ */
+const CREST_Y = 0.0014;
 
 /**
  * Open to solid. §6.1 says "roughly twice"; the owner's photograph scans
@@ -153,22 +197,30 @@ function bladeSection(t: number): Pt[] {
   ];
 }
 
-/** The bright crest bead, standing proud of the blade's face. */
+/**
+ * The bright top lip, standing proud of the blade's face.
+ *
+ * A **half-round**, not a flat-topped bead with two hairline radii. Over
+ * 2.2 mm it sweeps its normal through a full 180°, so a band of it is aimed
+ * at the sky whatever the camera's height — the same argument
+ * `grilleSurround`'s bead makes below, at a twelfth the size, and the same
+ * failure it was written to fix: a flat face with 0.12 mm radii presents
+ * about a fifth of a pixel to the sky and renders as part of the dark mass.
+ */
 function crestSection(): Pt[] {
   const hh = CREST_H / 2;
-  const r = Math.min(0.00012, hh * 0.35);
   const p = CREST_PROUD;
   // Runs back past the blade's own face so the two solids interpenetrate and
   // no seam can open between them at a grazing angle.
   const back = -0.0012;
-  return [
-    [back, CREST_Y - hh],
-    [p - r, CREST_Y - hh],
-    ...arc(p - r, CREST_Y - hh + r, r, -Math.PI / 2, 0, 4),
-    [p, CREST_Y + hh - r],
-    ...arc(p - r, CREST_Y + hh - r, r, 0, Math.PI / 2, 4),
-    [back, CREST_Y + hh],
-  ];
+  const pts: Pt[] = [[back, CREST_Y - hh]];
+  const n = 8;
+  for (let i = 0; i <= n; i++) {
+    const a = -Math.PI / 2 + (i / n) * Math.PI;
+    pts.push([p * Math.cos(a), CREST_Y + hh * Math.sin(a)]);
+  }
+  pts.push([back, CREST_Y + hh]);
+  return pts;
 }
 
 /**
@@ -324,10 +376,26 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
    * for 0.45 gets a near-mirror with brush marks on it, which is the wire
    * again. See `createAnodised` in `materials/metals.ts`.
    */
+  /*
+   * Lighter and less occluded than it was, because the lip is now the
+   * grille's relief and a 0x33373d / 0.34 rib had nothing to give.
+   *
+   * The ceiling is set by the reference, not by taste: the photograph's
+   * bright aperture frame is 218–231 and its slat tops are 65–75, so the lip
+   * wants about a third of the frame — a *lip*, not a wire.
+   *
+   * 0x6e737a / 0.40 / 0.50 was the first try and it was measured: slat
+   * peak-to-trough went 5.4 → **14.7** against the photograph's 41.5, and
+   * the crop still read as a black field with thin wires on it rather than
+   * the photograph's corduroy. So one more rung on each of the three.
+   * `envMapIntensity` stays under 1 because the lip still sits 52 mm inside
+   * a 14 mm slot and sees a fraction of the sky, which is the same
+   * specular-occlusion argument `voidMat` carries below.
+   */
   const crestRib = audiMaterials(ctx.materials).anodised({
-    color: 0x33373d,
-    roughness: 0.42,
-    envMapIntensity: 0.34,
+    color: 0xa9aeb5,
+    roughness: 0.36,
+    envMapIntensity: 0.72,
   });
 
   /**
@@ -360,8 +428,23 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
    * while B:R goes 1.44 → 2.6. That restraint is deliberate, because the
    * grille's level is not this material's to set — see the note at `voidMat`.
    */
+  //
+  // ## 0x0c1020: the same hue, 1.8x the luminance
+  //
+  // The restraint below is right about *level* and the slat face is the one
+  // place it costs something. Measured at `photomatch`, the blade's lit face
+  // reads 36 against the void's 33 — a ratio of **1.09** where the table at
+  // the head of this file has the reference at 23-26 against 52-64, i.e.
+  // **1.7**. A face that is within 3 levels of the hole beside it is not a
+  // blade, and no amount of crest fixes that.
+  //
+  // 0x0c1020 holds B:R at 2.67 against 0x070a12's 2.57, so the cold cast the
+  // note below argues for is kept to within a tenth, and relative luminance
+  // goes 0.00306 -> 0.00552. The blade face is 28 % of the grille box, so at
+  // the measured 0.159 grille p50 / plate p50 against the photograph's 0.205
+  // this moves the ratio *towards* the reference, not past it.
   const blade = ctx.materials.dirtyMetal({
-    color: 0x070a12,
+    color: 0x0c1020,
     roughness: 0.86,
     metalness: 0.05,
     grime: 0,

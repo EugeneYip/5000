@@ -218,10 +218,23 @@ const STRIP_FACE: Pt[] = [
   // came back at `ny` 0.98 from `rear3q`, and coplanar faces shimmer under
   // motion whichever way the depth test falls. Buried, the shelf can never be
   // the frontmost hit at any grazing angle.
+  // The cap's four points, reshaped so the roll-over is short and the face
+  // under it is shallow — see `BRIGHT_CAP_POINTS`. Segment angles above the
+  // horizontal, with each segment's height in brackets:
+  //
+  //     0→1  83°  [1.2 mm]   the rolled top edge
+  //     1→2  60°  [2.0 mm]   the shoulder
+  //     2→3  18°  [5.0 mm]   the face that does the work
+  //
+  // It was 73° [2.2] / 48° [4.2] / 22° [7.0], i.e. 6.4 of the cap's 13.4 mm
+  // steeper than 45°. A metal at a dead-on side camera reflects elevation 2θ,
+  // so those two segments were mirroring 146° and 96° — the sky dome's blue
+  // zenith, straight back at the lens, over 1.9 px. The widest point of the
+  // crown (point 4) is untouched, so the 1814 mm over the mouldings is too.
   [-0.0015, HH],
-  [0.0058, HH - 0.0022],
-  [0.0104, HH - 0.0064],
-  [0.0132, HH - 0.0134],
+  [0.0082, HH - 0.0012],
+  [0.0116, HH - 0.0032],
+  [0.0132, HH - 0.0082],
   [0.0142, HH - 0.0250],
   [0.0132, -HH + 0.0150],
   [0.0102, -HH + 0.0068],
@@ -233,6 +246,58 @@ function stripSection(scale: number): Pt[] {
   const face = STRIP_FACE.map(([x, y]) => [x * scale, y * scale] as Pt);
   return [...face, [-0.016, -HH * scale], [-0.016, HH * scale]];
 }
+
+/**
+ * How much of `STRIP_FACE` the bright cap covers: points 0–3, i.e. the top
+ * **8.2 mm** of the crown, which is what those four points now span.
+ *
+ * ## "The cap is 12 mm" is the cap plus its roll-off, and only ~5 mm of it is bright
+ *
+ * The note on `STRIP_FACE` above reads 4.6 px = 12 mm off
+ * `bat3_side_profile.jpg` and concludes the 13.4 mm cap is right. Re-measured
+ * at five stations along that flank, levelled on the two contact patches
+ * (front py 1133.0, rear 1125.8, so −0.410° — the stated −0.426° is right)
+ * and thresholded at half the peak's rise above the dip under it:
+ *
+ *     x  600–700   760–860   900–1000   1150–1250   1320–1420
+ *        5.2 mm    5.2 mm     5.2 mm      10.5 mm      7.9 mm
+ *
+ * The three door stations agree on **5.2 mm**; the two aft ones are over the
+ * quarter, where the light is different and the same trace over-reads
+ * everything (`WORKSTREAM.md` warns about exactly that column range). Walking
+ * the x 900–1000 column down, V reads
+ *
+ *     paint 168 · dip 147 · 154 · 179 · **217 · 220** · 188 · 132 · 70 · 41
+ *
+ * — two rows at 217–220, then **three rows of roll-off into the black band**.
+ * 12 mm is that whole run. The bright part of it is 2 px.
+ *
+ * Ours was 5 px at `side` (x 700–800, rows 475–479) because all 13.4 mm of
+ * the anodised ribbon read at or above the paint beside it: 185 · 194 · 202
+ * · 208 · 200 and then a one-row cliff to 67. The part was not three times
+ * too wide — 13.4 mm is 4.0 px at 3.3568 mm/px, and AA spreads it to 5 — it
+ * was that the *whole* part was bright where the reference has the lower two
+ * thirds already falling away.
+ *
+ * ## Shortening the ribbon from the bottom is the wrong end, and it is measured
+ *
+ * The obvious move — keep points 0–2 and let `bumperPlastic` take the rest —
+ * was built and shot, and it took the bead from (200, 197, 208) chroma 10.8
+ * to **(147, 154, 191) chroma 44.0**, peaking 5 levels over the paint instead
+ * of 22. Picked row by row, the ribbon's *bright neutral* rows were its
+ * bottom two (normals 0.86,0.52 and 0.90,0.44, i.e. 26–31° above horizontal)
+ * and its blue ones were its top two (0.53,0.85 and 0.74,0.67, 42–58°). A
+ * metal at this camera reflects elevation 2θ, so the top of the cap looks
+ * straight at the zenith and the bottom at the paler sky 40° up. Cutting the
+ * bottom off keeps only the blue.
+ *
+ * So the cap keeps all four points and `STRIP_FACE` above moves the *angles*
+ * instead: 8.2 mm of cap, of which 5.0 mm is the shallow neutral face and
+ * only 1.2 mm is the rolled top edge that sees the zenith.
+ *
+ * The moulding's 98 mm band and the crown's widest point are untouched.
+ */
+const BRIGHT_CAP_POINTS = 4;
 
 const STRIP_FRAMES = 94;
 
@@ -339,7 +404,7 @@ function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeome
   // The whole run keeps its old station pitch, so splitting it costs the
   // moulding nothing in triangles beyond six more end caps.
   const pitch = total / STRIP_FRAMES;
-  const line = offsetPolyline(STRIP_FACE.slice(0, 4), -0.0014);
+  const line = offsetPolyline(STRIP_FACE.slice(0, BRIGHT_CAP_POINTS), -0.0014);
   const bodies: THREE.BufferGeometry[] = [];
   const brights: THREE.BufferGeometry[] = [];
 
@@ -553,8 +618,20 @@ function lowerCladding(): THREE.BufferGeometry {
  * outline this function exists to remove.
  */
 const HANDLE = {
-  /** Outer boundary of the pressing, where it is flush with the door skin. */
-  size: [0.148, 0.118] as [number, number],
+  /**
+   * Outer boundary of the pressing, where it is flush with the door skin.
+   *
+   * **115 × 90 mm**, the figure the note above measures off the photograph —
+   * it was built 148 × 118 and the proportion came out backwards. On
+   * `bat3_side_profile.jpg` the bar is the long part and the scoop the short
+   * one: the bar runs 168 mm and overhangs the scoop at both ends. Built
+   * 148 mm wide against a 104 mm bar, the scoop swallowed the bar instead,
+   * and what rendered was a big oval with a short dash in the middle of it.
+   *
+   * The bar's own length is `HP.side.handleSize[0]` = 118 mm, which is still
+   * 50 mm short of the photograph — reported, not patched here.
+   */
+  size: [0.115, 0.090] as [number, number],
   /** Rounded rectangle, not an ellipse. */
   shape: 2.6,
   /** Superellipse radii: crest ring, inner edge of the wall, floor. */
@@ -607,12 +684,28 @@ function handlePressing(z0: number, y0: number): THREE.BufferGeometry {
       push(r * ex * w / 2, r * ey * h / 2, liftAt(r), 0.5 + 0.5 * r * ex, 0.5 + 0.5 * r * ey);
     }
   }
+  // Wound so the fan faces **+X**, which is where the camera is.
+  //
+  // It was wound the other way and the whole pressing was invisible, on both
+  // flanks: `pick` at the handle's own centre on the `side` pose returned
+  // `doorFR` paint with no `doorHandlePockets` hit anywhere in the ray's
+  // eight — and then the *mirrored* copy, 1.7 m away on the far flank,
+  // answering at d 26.87, because `mirrorX` flips the winding and the far
+  // one therefore faced the camera. That asymmetry in the hit list is the
+  // signature of this bug and is how it was found.
+  //
+  // Why it happens: the ring walks `a = j/spokes · 2π` with dz = cos a and
+  // dy = sin a, which is anticlockwise in the (z, y) plane — and the
+  // observer at +X sees +Z to the *left*, so anticlockwise in (z, y) projects
+  // clockwise on screen, which is back-facing. Same trap as the `gridSurface`
+  // reflector shelf in `WORKSTREAM.md`: present in the scene, absent from
+  // every frame, no error and no warning.
   const at2 = (i: number, j: number): number => 1 + (i - 1) * spokes + (j % spokes);
-  for (let j = 0; j < spokes; j++) idx.push(0, at2(1, j), at2(1, j + 1));
+  for (let j = 0; j < spokes; j++) idx.push(0, at2(1, j + 1), at2(1, j));
   for (let i = 1; i < rings; i++) {
     for (let j = 0; j < spokes; j++) {
       const a = at2(i, j), b = at2(i, j + 1), c = at2(i + 1, j), d = at2(i + 1, j + 1);
-      idx.push(a, c, b, b, c, d);
+      idx.push(a, b, c, b, d, c);
     }
   }
   const g = new THREE.BufferGeometry();
@@ -640,8 +733,38 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
   bright: THREE.BufferGeometry;
 } {
   const [w, h] = S.handleSize;
-  const m = new THREE.Matrix4().makeBasis(f.along, f.up, f.n);
-  const place = (g: THREE.BufferGeometry, dx: number, dy: number, dn: number): THREE.BufferGeometry => {
+  /**
+   * **`makeBasis(along, up, n)` on a `skinFrame` is LEFT-handed.**
+   *
+   * `skinFrame` builds `up = along × n`, so `along × up = −n` and the basis
+   * has determinant −1: applying it mirrors whatever it orients, and the
+   * mirror flips every triangle's winding.
+   *
+   * Two of the three parts here are built inside-out and the mirror is what
+   * makes them right — `dish()` indexes `(a, a+n+1, a+1)`, which faces −z,
+   * and the lock's lathe profile *descends* (y 0.0030 → −0.0090), which
+   * `LatheGeometry` winds inward. So `placeFlip` keeps that behaviour.
+   *
+   * `roundedBox` is not: `ExtrudeGeometry` comes out of three facing +z, the
+   * mirror turns it inside out, and `blackTrim` is FrontSide — so the lever
+   * and the finger void were **culled away entirely**, and what `pick`
+   * returned at the handle's centre was `doorHandleLevers` at d 25.136 where
+   * `doorFR` is at d 25.134: the ray was reaching the box's *inner back
+   * wall*, 1.4 mm behind the door skin, through the hole where its front
+   * face should have been. The handle is 6.6 mm proud of the paint and
+   * rendered as a −10-level smudge on a 188 field. `placeOut` is the same
+   * frame with a right-handed basis, for anything three already built
+   * facing out.
+   *
+   * Only the orientation changes; the translation is in world terms either
+   * way, and negating `along` only mirrors a part about its own centre —
+   * which for a rounded box is nothing at all.
+   */
+  const mFlip = new THREE.Matrix4().makeBasis(f.along, f.up, f.n);
+  const mOut = new THREE.Matrix4().makeBasis(f.along.clone().negate(), f.up, f.n);
+  const put = (
+    g: THREE.BufferGeometry, m: THREE.Matrix4, dx: number, dy: number, dn: number,
+  ): THREE.BufferGeometry => {
     g.applyMatrix4(m);
     g.translate(
       f.o.x + f.along.x * dx + f.up.x * dy + f.n.x * dn,
@@ -650,6 +773,10 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
     );
     return g;
   };
+  const placeFlip = (g: THREE.BufferGeometry, dx: number, dy: number, dn: number): THREE.BufferGeometry =>
+    put(g, mFlip, dx, dy, dn);
+  const placeOut = (g: THREE.BufferGeometry, dx: number, dy: number, dn: number): THREE.BufferGeometry =>
+    put(g, mOut, dx, dy, dn);
 
   const pocket = handlePressing(z0, y0);
   // The bar, standing 8 mm off the paint. A tight top radius on purpose: the
@@ -657,12 +784,12 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
   // radius, not a bright insert, so the radius is the feature.
   const barH = h * 0.34;
   const barY = h * 0.30;
-  const lever = place(roundedBox(w - 0.014, barH, 0.0080, 0.0022), -0.002, barY, HANDLE_FLOOR + 0.0044);
+  const lever = placeOut(roundedBox(w - 0.014, barH, 0.0080, 0.0022), -0.002, barY, HANDLE_FLOOR + 0.0044);
   // The finger void. Modelled rather than left to the shadow map, because the
   // feature is 10 mm tall and no shadow cascade on this car resolves that; on
   // the photograph it is the darkest thing on the door at L 7.
   const gapH = 0.0095;
-  const gap = place(roundedBox(w - 0.022, gapH, 0.0030, 0.0008),
+  const gap = placeOut(roundedBox(w - 0.022, gapH, 0.0030, 0.0008),
     -0.002, barY - barH / 2 - gapH / 2 + 0.0010, HANDLE_FLOOR + 0.0013);
 
   const bright: THREE.BufferGeometry[] = [];
@@ -674,7 +801,14 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
     barrel.rotateX(Math.PI / 2);
     // Butted onto the bar's aft end, which is where the photograph has it —
     // not floating 27 mm beyond it.
-    bright.push(place(barrel, (w - 0.014) / 2 + 0.013, barY * 0.4, HANDLE_FLOOR + 0.0026));
+    //
+    // **Aft is −z** (`rubStripFrontZ` is +0.495, `TAIL` is −3.8), and this
+    // read `+`, so the barrel was built on the bar's *forward* end: picked at
+    // `side` it came back at z −1.041…−1.058 against a bar centred on
+    // −1.115, i.e. 60 mm the wrong way. On `bat3_side_profile.jpg` — the
+    // car's left flank, nose at frame left — the bar runs x 980→1062 and the
+    // lock pod sits at x ≈ 1046, inside its **right**, aft, end.
+    bright.push(placeFlip(barrel, -((w - 0.014) / 2 + 0.013), barY * 0.4, HANDLE_FLOOR + 0.0026));
   }
 
   return { pocket, lever, gap, bright: merge(bright) };
@@ -686,7 +820,13 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
 
 function fuelFlap(f: SkinFrame): { well: THREE.BufferGeometry; flap: THREE.BufferGeometry } {
   const [w, h] = S.fuelFlapSize;
-  const m = new THREE.Matrix4().makeBasis(f.along, f.up, f.n);
+  // Right-handed, for the same reason the handle's `placeOut` is — see the
+  // note there. Both of these are `roundedBox`, so under the left-handed
+  // basis this function used to build the flap and its well inside out, and
+  // a FrontSide material drew neither: the flap's front face is 0.55 mm
+  // proud of the quarter panel and what the camera got instead was its back
+  // face, 11.5 mm inside the body. **The car had no fuel flap in any render.**
+  const m = new THREE.Matrix4().makeBasis(f.along.clone().negate(), f.up, f.n);
   const place = (g: THREE.BufferGeometry, lift: number): THREE.BufferGeometry => {
     g.applyMatrix4(m);
     g.translate(f.o.x + f.n.x * lift, f.o.y + f.n.y * lift, f.o.z + f.n.z * lift);
