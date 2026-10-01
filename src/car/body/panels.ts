@@ -357,11 +357,14 @@ export function noseFaceZ(x: number, y: number): number {
 
 export function wheelHouse(axleZ: number, sign: 1 | -1): THREE.BufferGeometry {
   const inner = HP.side.archLipX - 0.215;
+  // The arch's own centre, so the liner follows the arch if the hub moves —
+  // see `archCenterY` in `surface.ts`.
+  const hubY = (Math.abs(axleZ) < 1e-6 ? HP.side.archFrontCenter : HP.side.archRearCenter)[1];
   const nA = 26, nB = 8;
   const sample = (a: number, b: number): GridSample => {
     const ang = lerp(-1, 1, a);
     const zz = axleZ + ang * HP.side.archRadius * 0.995;
-    const topY = archTopY(zz, axleZ) ?? HP.wheelRadius;
+    const topY = archTopY(zz, axleZ) ?? hubY;
     // The lip has to ride on the body's own arch edge. `archLipX` is the body
     // half-width at the CROWN of the arch; towards its ends the flank has
     // tucked in by over 100 mm, so a lip held at that fixed x walked straight
@@ -370,7 +373,7 @@ export function wheelHouse(axleZ: number, sign: 1 | -1): THREE.BufferGeometry {
     const depth = lerp(0, 1, b);
     const x = lerp(lipX, Math.min(inner, lipX - 0.02), depth);
     // The liner drops away from the lip and closes over the top of the tyre.
-    const y = lerp(topY - 0.012, HP.wheelRadius + HP.side.archRadius * 0.62, depth * depth);
+    const y = lerp(topY - 0.012, hubY + HP.side.archRadius * 0.62, depth * depth);
     _p.set(sign * x, y, zz);
     _n.set(0, -1, 0);
     return { p: _p, n: _n, u: ang * HP.side.archRadius, v: depth * 0.2 };

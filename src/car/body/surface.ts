@@ -504,6 +504,63 @@ const flankCrown = spline(
   [Z_TAIL_END, 0.040],
 );
 
+/**
+ * The shoulder. How much of the belt-to-max-width span is a roll-over.
+ *
+ * ## What this fixes
+ *
+ * `t = 0.50` was pinned at the arithmetic middle of belt and `xWide` with
+ * `flankCrown` on top, which over the doors is 8 mm of convexity on a 385 mm
+ * panel. The section that gives is a **one-way taper with no inflection**:
+ * `pick` down z −1.199 found the normal sweeping 10.5° → 1.7° monotonically
+ * over 321 mm, x 0.860 → 0.892. A reflection turns twice the normal, so the
+ * whole door samples an 18° cone of the environment — and at `side`, measured
+ * down that station in mm above the contact line, it shows:
+ *
+ *            y 920   860   800   740   680   640
+ *     model    190   189   191   191   190   183     span 8
+ *     bat3     247   231   210   196   180   174     span 73
+ *
+ * The reference is **not** brighter overall: at y 640 the two agree to 9
+ * levels. It is 57 levels brighter at the TOP, because the real shoulder
+ * rolls over hard enough under the beltline to present the sky, and ours
+ * does not roll at all. CRITIQUE-6 retracted "the flank is blown out" after
+ * measuring it 24 levels *darker* than the registered reference with p5→p95
+ * spanning 32 levels against 76, and named the flatness as this item.
+ *
+ * ## Why it is one number and not a new control level
+ *
+ * The nine levels are fixed and every one of them is pinned to something
+ * measured. The lever that was free is *where* `t = 0.50` sits between the
+ * two it interpolates, and that is enough: put it at three quarters of the
+ * way up, 4 mm inboard of the maximum width, and the span splits into a
+ * 96 mm roll at 16° from vertical and a 289 mm flank at 0.8°. Normal sweep
+ * doubles. The beltline half-width, the maximum half-width and `archLipX`
+ * are all untouched — the shoulder is drawn *between* them.
+ *
+ * ## It is zero at both ends, deliberately
+ *
+ * Aft of `HP.side.doorRearZ` this returns to the old mid-point placement, so
+ * the tail — whose shape is verified station by station against the
+ * dead-astern frame, and where `flankCrown` is doing a completely different
+ * job (see its note) — is bit-identical. Same at the nose face.
+ */
+const shoulder = spline(
+  [Z_NOSE_FACE, 0.0],
+  [0.400, 0.0],
+  [0.000, 0.55],
+  [-0.455, 1.0],                                 // front door shutline
+  [-2.463, 1.0],                                 // HP.side.doorRearZ
+  [-2.585, 0.55],
+  [-2.800, 0.0],
+  [Z_TAIL_END, 0.0],
+);
+
+/** Where the shoulder's crown sits, as a fraction of belt-to-max-width. */
+const SHOULDER_K = 0.62;
+/** How far inboard of the maximum half-width that crown stands. */
+const SHOULDER_TUCK = 0.004;
+
 const scratch: number[] = new Array(18).fill(0);
 let scratchZ = Number.NaN;
 
@@ -525,9 +582,16 @@ function levels(z: number): number[] {
   const xd = lerp(xb, xr, kx) + glassBulge.at(z);
   const yd = lerp(yb, yr, ky);
 
-  // t = 0.50 sits where the flank is straightest, crowned very slightly out.
-  const k2 = 0.5;
-  const xc = lerp(xw, xb, k2) + flankCrown.at(z);
+  // t = 0.50 is the shoulder over the doors and the flank's mid-point at both
+  // ends — see `shoulder`. At s = 0 these two lines are the old ones exactly.
+  // Clamped, not trusted raw: a Catmull-Rom through two equal end knots with a
+  // non-zero tangent into them bulges past them — the `xWide` note records a
+  // 14 mm version of exactly this that set the car's width for a while. Here it
+  // would be a −0.05 shoulder, a sub-millimetre dimple in the wing, but the
+  // clamp costs nothing and the failure mode is silent.
+  const s = clamp(shoulder.at(z), 0, 1);
+  const k2 = lerp(0.5, SHOULDER_K, s);
+  const xc = lerp(lerp(xw, xb, k2) + flankCrown.at(z), xw - SHOULDER_TUCK, s);
   const yc = lerp(yw, yb, k2);
 
   scratch[0] = 0;              scratch[1] = yt;
@@ -725,11 +789,30 @@ const ARCH_A = HP.side.archRadius;
 const ARCH_B = HP.side.archRadius * HP.side.archFlatten;
 const ARCH_N = 2.55;
 
+/**
+ * Height of the arch's centre — which is the WHEEL centre, not `wheelRadius`.
+ *
+ * This read `HP.wheelRadius` and that stopped being the wheel centre when
+ * `664ff79` sat the car down on its sidewalls: the hubs are at
+ * `loadedRadius()`, 279.3 front and 291.3 rear, while the arch stayed pinned
+ * to the free radius 307.3. So the front arch floats **28 mm** above its own
+ * wheel and the rear **16 mm**, which is also why the two ends now clear
+ * their tyres by different amounts (63.4 front, 51.4 rear) from one constant.
+ *
+ * `HP.side.archFrontCenter` / `archRearCenter` are the right source and
+ * already say so in their own note — they are the hardpoints that mean "arch
+ * centre". They still carry `R`, so this is bit-identical today; when they
+ * come down to the loaded radii the arch follows without another edit here.
+ */
+function archCenterY(axleZ: number): number {
+  return Math.abs(axleZ) < 1e-6 ? HP.side.archFrontCenter[1] : HP.side.archRearCenter[1];
+}
+
 /** Top of the arch opening at station `z`, or null if no arch there. */
 export function archTopY(z: number, axleZ: number): number | null {
   const dy = superellipseY(z - axleZ, ARCH_A, ARCH_B, ARCH_N);
   if (dy <= 1e-4) return null;
-  return HP.wheelRadius + dy;
+  return archCenterY(axleZ) + dy;
 }
 
 /** Arch opening as a t bound for a side panel; +Infinity where there is none. */

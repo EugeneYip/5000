@@ -226,20 +226,48 @@ export function buildBody(ctx: BuildContext): PartResult {
   });
 
   // =========================================================================
-  // Front wings — leading edge notches back around the lamp aperture
+  // Front wings
   // =========================================================================
+  //
+  // ## The leading edge runs to the nose face. It used to notch back, and the
+  // ## notch was a hole in the car.
+  //
+  // It read `lerp(Z.lampBack, Z_NOSE_FACE, …)` over b 0.56–0.66, so above
+  // y ≈ 0.75 the wing's skin stopped 80 mm behind the face — "notched back
+  // around the lamp aperture". But the aperture is a hole in the *face*,
+  // bounded inboard by the grille and outboard by `lampSideR`; it does not
+  // extend aft, and the wing was never what cut it. What the notch did cut
+  // was the body itself, in two places, and `__AUDI.pick` at `headlight`
+  // finds both:
+  //
+  //  · **The silhouette slot.** The shell is 8–10 mm wider at `Z.lampBack`
+  //    than at the face (0.858 against 0.8498 at y 0.76), so the face patch's
+  //    outer edge hung inboard of the wing's leading edge with nothing between
+  //    them. A −Z ray at x 0.855 passed the face plane and hit the wing at
+  //    z 0.861. That slot is the vertical arm of the "pebbled faceted pale
+  //    L-strip" CRITIQUE-5 §11 attributed to the indicator's chrome surround:
+  //    `headlampReflector` at (330, 480), d 2.690, p (−0.829, 0.760, 0.893),
+  //    with nothing in front of it and the cabin 1.4 m behind.
+  //
+  //  · **The brow.** Between the lamp band's top and the nose's own top the
+  //    face has no panel at all — `noseUpper`'s front flange closes it inboard
+  //    of x 0.642 and nothing closed it outboard. Through that hole you saw
+  //    the wing's leading-edge roll 83 mm back, lit face-on: the white tab
+  //    over the lamp. `noseBrow` below caps the rest of it.
+  //
+  // The front bound keeps its roll — that roll IS the nose's outer corner
+  // radius — but takes **no flange**. An `OPEN` flange here is 34 mm of skirt
+  // lying in the face plane 1–2 mm behind the headlamp lens, which is a
+  // z-fight waiting to happen and would reach 40 mm inboard across the amber.
+  // There is nothing for a flange to hide anyway: `lampSideR` and `noseBrow`
+  // butt onto this edge from the other side.
+  const WING_NOSE: Bound = { gap: 0, radius: QUALITY.edgeRadius, flange: 0 };
   const wingT = (z: number): number => wingTop(z);
   const wingB = (z: number): number => flankBottom(z, FRONT_AXLE);
-  const wingFrontZ = (b: number): number => {
-    // b runs from the bonnet shutline (0) to the rocker (1). The lamp band
-    // occupies roughly the upper 60 %, where the wing stops short of the face.
-    const k = clamp((b - 0.56) / 0.10, 0, 1);
-    return lerp(Z.lampBack, Z_NOSE_FACE, k * k * (3 - 2 * k));
-  };
   const wingR = shellPanel({
-    zFront: wingFrontZ, zRear: Z.doorF,
+    zFront: Z_NOSE_FACE, zRear: Z.doorF,
     tLo: wingT, tHi: wingB,
-    front: OPEN, rear: SHUT, lo: SHUT, hi: ARCH,
+    front: WING_NOSE, rear: SHUT, lo: SHUT, hi: ARCH,
   });
 
   // =========================================================================
@@ -285,26 +313,91 @@ export function buildBody(ctx: BuildContext): PartResult {
     ny: 8,
   });
 
-  // Sliver of front face outboard of the headlamp aperture, between the lamp's
-  // outer edge and the silhouette — the direct analogue of `lampBaseR` at the
-  // tail. Without it `noseLower` simply stops at `HP.front.lampOuterX` (0.779)
-  // while the body's own outline carries on to 0.850, so there were 71 mm of
-  // unpanelled front face across the 160 mm lamp band and the corner was open
-  // to the engine bay: 1624 of 7171 rays fired down −Z through that band came
-  // out on `interior/shell/innerSides`, `underbody/engineBay` and
-  // `underbody/driveline`. Identical count both sides, so not the
-  // `mirrorGeometry` stale-bounds fault recurring. Zero with this patch.
+  // Front face outboard of the headlamp's *clear* lens, between
+  // `HP.front.lampOuterX` (0.779) and the silhouette (0.850). Without it
+  // `noseLower` simply stopped at 0.779 and there were 71 mm of unpanelled
+  // front face across the 160 mm lamp band, open to the engine bay: 1624 of
+  // 7171 rays fired down −Z through that band came out on
+  // `interior/shell/innerSides`, `underbody/engineBay` and
+  // `underbody/driveline`.
   //
-  // Depends on `Z.lampBack` being 80 mm behind the nose face rather than 160 —
-  // see `panels.ts`. Without that correction this patch's outer edge hangs
-  // ahead of the wing's leading edge and opens a slot at the silhouette.
+  // ## It is two panels, because it is two different things
+  //
+  // `HP.front.lampOuterX`'s own note is explicit that the 71 mm outboard of
+  // it is **amber, not paint** — the corner lens butts onto the headlamp
+  // glass and wraps round the corner — and that this panel is the sheet metal
+  // *behind* the indicator. It was not behind it. Built flat on `noseFaceZ`
+  // it came out **1 mm proud of the lens** and rendered the outboard 40 % of
+  // the indicator as a flat grey slab:
+  //
+  //     __AUDI.pick at `headlight` (380, 520)
+  //       lampSideL          paint    d 2.651   z 0.944
+  //       headlampAmberLens  lens:…   d 2.652   z 0.944
+  //
+  // That is not a tolerance. `lights/headlamp.ts` builds the lens with
+  // `slab({ zAt: FACE, front: 0.0018, crown: 0.0014 })`, so its outer skin
+  // runs `noseFaceZ − 0.0018` at the rim and `− 0.0004` at the crown: a panel
+  // ON `noseFaceZ` is proud of it everywhere, by construction and at every
+  // station. Anything the lens covers therefore has to leave the face plane.
+  //
+  // So the covered part is a separate recessed panel in black, and only the
+  // strip the lens genuinely does not reach stays painted and on the face.
+  const LAMP_BACK_SINK = 0.012;
+  /**
+   * Inboard edge of the painted sliver = outboard edge of the amber lens.
+   *
+   * The lens runs to `aperture.xOuter(y) − OUTBOARD_GAP`, and `aperture`
+   * clamps to `noseHalfWidth(y) − 0.004` — our own function, imported from
+   * `body/panels.ts`, so the two files already agree in x and in z. 5.5 mm is
+   * that chain's sum (0.004 + 0.0015) written once here.
+   *
+   * It is deliberately the exact lens edge and not a millimetre less. Leaving
+   * paint under the glass is what this change exists to stop; leaving a GAP
+   * shows the housing wall, which `lampOuterX`'s note calls the single thing
+   * that most makes the nose read as jewellery. The seam is closed from the
+   * other side instead — `inner: OPEN` rolls this edge and returns it 34 mm
+   * aft, behind the lens rim, and `lampBackR` runs 4 mm past it underneath.
+   */
+  const LENS_CLEAR = 0.0055;
+  const lampPaintInner = (y: number): number =>
+    Math.max(noseHalfWidth(y) - LENS_CLEAR, HP.front.lampOuterX + 0.001);
   const lampSideR = facePatch({
     yLo: HP.front.grilleBottomY, yHi: HP.front.lampTopY,
-    xLo: () => HP.front.lampOuterX,
-    xHi: (y) => Math.max(noseHalfWidth(y), HP.front.lampOuterX + 0.001),
+    xLo: lampPaintInner,
+    xHi: (y) => Math.max(noseHalfWidth(y), lampPaintInner(y) + 0.001),
     zAt: noseFaceZ, facing: 1,
     bottom: BUTT, top: BUTT, inner: OPEN, outer: BUTT,
-    ny: 5,
+    ny: 5, nx: 4,
+  });
+  // The sheet metal behind the indicator. 12 mm clears the lens's own back
+  // face (`FACE − 0.006`) by 6 mm, so the amber has a chamber behind it
+  // rather than a skin pressed against its back.
+  const lampBackR = facePatch({
+    yLo: HP.front.grilleBottomY, yHi: HP.front.lampTopY,
+    xLo: () => HP.front.lampOuterX,
+    // 4 mm under the painted sliver, so the two cannot part at the seam.
+    xHi: (y) => lampPaintInner(y) + 0.004,
+    zAt: (x, y) => noseFaceZ(x, y) - LAMP_BACK_SINK,
+    facing: 1,
+    bottom: BUTT, top: BUTT, inner: OPEN, outer: BUTT,
+    ny: 5, nx: 6,
+  });
+
+  // The brow: the band of front face between the lamp aperture's top and the
+  // nose's own top edge. `noseUpper`'s front flange closes it inboard of
+  // t = `T.roofEdge` (x 0.642 at the face) and nothing closed it outboard, so
+  // there was a 50 mm × 160 mm hole per side with the wing's leading edge
+  // visible 80 mm down it. The region closes itself: `noseHalfWidth` falls
+  // from 0.798 at the lamp's top to zero at the crown, so the patch is a
+  // wedge and the upper limit is where it runs out of width.
+  const BROW_X_IN = halfWidthAt(Z_NOSE_FACE, T.roofEdge);
+  const noseBrow = facePatch({
+    yLo: HP.front.lampTopY, yHi: topAt(Z_NOSE_FACE) - 0.004,
+    xLo: (y) => Math.min(BROW_X_IN, noseHalfWidth(y) - 0.002),
+    xHi: noseHalfWidth,
+    zAt: noseFaceZ, facing: 1,
+    bottom: BUTT, top: BUTT, inner: BUTT, outer: BUTT,
+    ny: 8, nx: 6,
   });
 
   // =========================================================================
@@ -349,6 +442,19 @@ export function buildBody(ctx: BuildContext): PartResult {
   addPainted('frontWingL', mirrorGeometry(wingR), frontStructure);
   addPainted('lampSideR', lampSideR, frontStructure);
   addPainted('lampSideL', mirrorGeometry(lampSideR), frontStructure);
+  addPainted('noseBrowR', noseBrow, frontStructure);
+  addPainted('noseBrowL', mirrorGeometry(noseBrow), frontStructure);
+  // Inside the lamp, behind the amber — see `lampBackR` above. `blackTrim`
+  // rather than `bumperPlastic`: this is a painted-black housing wall seen
+  // through a dye, not a moulding anyone sees directly.
+  for (const [n, g] of [
+    ['lampBackR', lampBackR], ['lampBackL', mirrorGeometry(lampBackR)],
+  ] as const) {
+    const m = new THREE.Mesh(g, dark);
+    m.name = n;
+    m.castShadow = false;
+    frontStructure.add(m);
+  }
   nodes.frontStructure = frontStructure;
   nodes.frontWingR = frontStructure.getObjectByName('frontWingR')!;
   nodes.frontWingL = frontStructure.getObjectByName('frontWingL')!;
