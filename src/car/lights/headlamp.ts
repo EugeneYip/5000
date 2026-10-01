@@ -267,6 +267,32 @@ const LENS_BODY = 0.0042;
  * whole car from 7.2 % to 7.5 % and the tone profile from 14.1 to 13.8, and
  * it leaves the aperture 4 levels hot at 35 % `above 240` against 23 %.
  *
+ * ## ⚠ RESOLVED, and the answer is that 0.64 stays
+ *
+ * The IOU above was discharged by someone else's change, not by this one.
+ * `b62a0f6` reweighted the bloom composite per octave — the near octaves,
+ * which carried the lamp's glare at short range, are now zero and 10 %, while
+ * the far octaves that the gate's sky wash lives in are untouched. So the
+ * coupling this note describes, "the bloom pass carries the lamps' above-240
+ * content out over the whole nose", **no longer exists at this radius.**
+ *
+ * Which means the aperture came down on its own. Measured after that change,
+ * over x 960-1060 y 430-480:
+ *
+ *     cavity 0.64    aperture mean 233.8    above-240 4.0 %    dRGB 4.8  tone 16.5
+ *     cavity 0.59    aperture mean 232.8    above-240 2.7 %    dRGB 5.6  tone 16.9
+ *
+ * 233.8 against the photograph's 232.4 — **already right at 0.64.** Taking it
+ * to 0.59 now *overshoots* and costs 0.8 of dRGB and 0.4 of tone, with
+ * below-40 going 8.7 % to 9.7 %. I tried it, measured it, and put it back.
+ *
+ * So: the four-levels-hot condition is gone, and the instruction "whoever
+ * raises the car's lighting should come back here and take `cavity` to 0.59"
+ * is **withdrawn**. The lamp is at its own correct level with `cavity` where
+ * it is. If the paint's ~14-level luminance deficit is ever fixed, re-measure
+ * before touching this — the arithmetic that motivated 0.59 was built on a
+ * bloom pass that no longer behaves that way.
+ *
  * `spread` is **0 now, and this is why**: it asked three's transmission for
  * the same convolution, and three's transmission is a screen-space mip.
  * Swept in this frame it does not flatten the aperture at all — column range
