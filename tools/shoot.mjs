@@ -158,7 +158,29 @@ function startServer() {
 async function waitReady(page, errors, timeout = 120_000) {
   const t0 = Date.now();
   for (;;) {
-    const ok = await page.evaluate(() => globalThis.__AUDI?.ready === true).catch(() => false);
+    const ok = await page.evaluate(() => {
+      if (globalThis.__AUDI?.ready !== true) return false;
+      // **The loading overlay must also be gone, not merely `ready`.**
+      //
+      // `#boot` is hidden by adding `.done`, which is a 0.7 s opacity and
+      // visibility transition on a 0.15 s delay — so there is a ~0.85 s
+      // window where `__AUDI.ready` is true and the splash screen is still
+      // composited over the canvas. Any source edit during a run sends vite
+      // into a reload and drops the harness straight into that window: a
+      // stream got `rc=0` and "✓ 4 view(s)" with two of them **captured as
+      // the splash screen**, 99.9 % of pixels different by more than two
+      // levels. `withReload` cannot catch it, because `__AUDI` is recreated
+      // and `setView`/`settle` both succeed against a live scene that simply
+      // is not the thing being photographed.
+      //
+      // This is the same species as the bug `drive()` was added for — a
+      // harness reporting success for a frame that contains nothing it was
+      // asked to measure — so it belongs in the readiness condition rather
+      // than in a check someone has to remember to call.
+      const boot = document.getElementById('boot');
+      if (boot && getComputedStyle(boot).visibility !== 'hidden') return false;
+      return true;
+    }).catch(() => false);
     if (ok) return;
     if (errors.length) {
       throw new Error(
@@ -167,7 +189,10 @@ async function waitReady(page, errors, timeout = 120_000) {
       );
     }
     if (Date.now() - t0 > timeout) {
-      throw new Error('TIMEOUT: __AUDI.ready never became true, and the page reported no error');
+      throw new Error(
+        'TIMEOUT: the page never became ready — either __AUDI.ready stayed false '
+        + 'or the #boot overlay never finished hiding — and the page reported no error',
+      );
     }
     await page.waitForTimeout(250);
   }

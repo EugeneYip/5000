@@ -198,6 +198,16 @@ every stream running at once, not per-stream. Two streams both wrote
   panel was present in the scene, absent from every frame, and measured as
   "worth +0.6 of a grey level". Two shoot cycles to find. A back-facing panel
   does not error, does not warn, and does not show up in `census()`.
+- **Editing any source file while `shoot.mjs` is running used to produce
+  splash-screen frames with a ✓ beside each one.** Vite reloads the page;
+  `__AUDI` is recreated and `setView`/`settle` both succeed, so `withReload`
+  sees nothing wrong — but `#boot` is hidden by a 0.7 s transition on a 0.15 s
+  delay, so for ~0.85 s `ready` is true with the splash still composited over
+  the canvas. A stream got `rc=0`, "✓ 4 view(s)", with two views **captured as
+  the loading screen**: 99.9 % of pixels different by more than two levels,
+  max 248. Closed — the overlay's computed visibility is now part of the
+  readiness condition, not a check someone has to remember. If you write your
+  own probe, assert it too.
 - **Neither `--dist` NOR the dev server is safe from other streams.** Two
   rounds hit this independently. One had a measured figure move **238 → 156**
   between its control and its verification shoot, because another stream's
