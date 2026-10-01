@@ -17,8 +17,10 @@ import {
   CABIN, ROOF_FRONT_Z, ROOF_REAR_Z, TONE, headlinerShoulder, headlinerY, innerHalfW, skinHalfW,
 } from './layout';
 import {
-  FLUSH, PILLAR_SLIM_Z, SIDE_THICK, T as GT, aPillarLower, glassPoint, surfaceDir, zAtPillarFront,
+  DLO, FLUSH, PILLAR_SLIM_Z, SIDE_THICK, T as GT, aPillarLower, dloBotT, dloTopT, glassPoint,
+  surfaceDir, tDloRear, zAtPillarFront, Z as GZ,
 } from '@/car/glass/aperture';
+import { dtFor } from '@/car/body/surface';
 import { clamp, fbm, flipWinding, lerp, merge, mesh, mirrored, smoothstep, surface, type Vec3 } from './util';
 import type { StaticBatch } from './batch';
 
@@ -342,6 +344,85 @@ function buildAPillarTrim(): THREE.BufferGeometry {
   return g;
 }
 
+/** Depth of the quarter and C-pillar boards below the body skin. */
+const BOARD_DEPTH = FLUSH + SIDE_THICK + 0.016;
+
+/**
+ * A trim board lying on the inside of the body side.
+ *
+ * Both of the boards below were swept sections through hand-typed world
+ * points, which is the authoring mistake that produced the worst defect on
+ * the car: a section swept on a tangent frame leaves the surface the moment
+ * the surface curves, and hand-typed x does not know where the skin is. Here
+ * every vertex is a body-surface point pushed `BOARD_DEPTH` inward, so the
+ * board is inside the skin by construction and tracks the glass apertures it
+ * has to meet.
+ *
+ * `a` runs fore-to-aft between the two z edges, `b` down the section between
+ * the two t edges; both edges may be functions of the other coordinate, which
+ * is what the Avant's raked D-pillar needs.
+ */
+function innerBoard(
+  tLo: (z: number) => number,
+  tHi: (z: number) => number,
+  zAt: (t: number, a: number) => number,
+  nz: number,
+  nt: number,
+): THREE.BufferGeometry {
+  const smp = { p: new THREE.Vector3(), n: new THREE.Vector3(), u: 0, v: 0 };
+  return surface(nz, nt, false, (i, j, out) => {
+    const a = i / nz;
+    const b = j / nt;
+    // Solved on the mid-station's t range, then re-solved at the z it lands
+    // on: the two differ by under a millimetre and one pass is enough.
+    const zMid = zAt(0, a);
+    const t = lerp(tLo(zMid), Math.max(tLo(zMid), tHi(zMid)), b);
+    const z = zAt(t, a);
+    glassPoint(z, t, smp, BOARD_DEPTH);
+    out.copy(smp.p);
+  });
+}
+
+/** 10 mm of arc past the glass's lower edge, so the belt rail laps the board. */
+function belowBelt(z: number): number {
+  const tb = dloBotT(z);
+  return tb + dtFor(z, tb, 0.010);
+}
+
+/**
+ * C-pillar inner: the board between the rear door's aperture and the quarter
+ * light. Narrow, and the one piece of trim the rear belt's upper guide is
+ * screwed to.
+ */
+function cPillarInner(): THREE.BufferGeometry {
+  return innerBoard(
+    (z) => dloTopT(z) + 0.002,
+    belowBelt,
+    (_t, a) => lerp(DLO.cPillarFrontZ + 0.008, DLO.cPillarRearZ - 0.008, a),
+    3, 9,
+  );
+}
+
+/**
+ * D-pillar inner: the Avant's, and the largest piece of trim in the load bay.
+ *
+ * Its leading edge is the quarter glass's trailing edge, which rakes from the
+ * tailgate hinge at the roof to z −3.42 at the beltline — so at the cant rail
+ * the board is a sliver and at the belt it is 180 mm of board. `tDloRear(z)`
+ * is the body's own statement of where that edge falls, which is why the
+ * section range is read from it rather than typed: the old sweep ran down a
+ * straight line at z −3.07 and therefore crossed the *inside* of the quarter
+ * light over the bottom two thirds of the pane.
+ */
+function dPillarInner(): THREE.BufferGeometry {
+  return innerBoard(
+    (z) => dloTopT(z) + 0.002,
+    (z) => Math.max(dloTopT(z) + 0.002, tDloRear(z)),
+    (_t, a) => lerp(GZ.dPillar - 0.004, GZ.dPillarRear + 0.026, a),
+    5, 9,
+  );
+}
+
 function buildPillars(ctx: BuildContext): THREE.Mesh {
   const parts: THREE.BufferGeometry[] = [];
 
@@ -357,25 +438,9 @@ function buildPillars(ctx: BuildContext): THREE.Mesh {
   ], 0.092, 0.036, 7);
   parts.push(b, mirrored(b));
 
-  // C-pillar: the body between the rear door's shutline and the quarter
-  // glass, so it sits at the midpoint of the two.
-  const cz = (HP.side.doorRearZ + HP.glass.quarterRearFrontZ) / 2;
-  const c = pillar([
-    [-0.786, 0.962, cz],
-    [-0.772, 1.128, cz - 0.011],
-    [-0.726, 1.272, cz - 0.021],
-    [-0.664, 1.340, cz - 0.031],
-  ], Math.abs(HP.glass.quarterRearFrontZ - HP.side.doorRearZ) + 0.028, 0.030, 7);
-  parts.push(c, mirrored(c));
-
-  // D-pillar: the Avant's, wide and raked, closing the quarter glass.
-  const d = pillar([
-    [-0.742, 0.986, TAIL + 0.742],
-    [-0.726, 1.128, TAIL + 0.786],
-    [-0.686, 1.262, TAIL + 0.830],
-    [-0.624, 1.338, TAIL + 0.862],
-  ], 0.088, 0.034, 7);
-  parts.push(d, mirrored(d));
+  // C- and D-pillar inner boards. Both are flat trim over the pressed inner
+  // panel, so both are built on the body's own surface; see `innerBoard`.
+  for (const g of [cPillarInner(), dPillarInner()]) parts.push(g, mirrored(g));
 
   // Cant rail: the strip of trim between the headliner and the door glass.
   for (const s of [-1, 1]) {

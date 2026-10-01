@@ -19,8 +19,10 @@ import * as THREE from 'three';
 import type { Articulation, BuildContext } from '@/types';
 import { HP } from '@/car/hardpoints';
 import { rearFaceZ, rearHalfWidth } from '@/car/body/panels';
+import { dtFor } from '@/car/body/surface';
+import { FLUSH, SIDE_THICK, dloBotT, glassPoint } from '@/car/glass/aperture';
 import { CABIN, TONE, skinHalfW } from './layout';
-import { clamp, cyl, fbm, lerp, merge, mesh, mirrored, roundedBox, roundedRect, smoothstep, surface } from './util';
+import { clamp, cyl, fbm, flipWinding, lerp, merge, mesh, mirrored, roundedBox, roundedRect, smoothstep, surface } from './util';
 import type { StaticBatch } from './batch';
 
 const FY = CABIN.cargoFloorY;
@@ -71,6 +73,30 @@ const BAY_BOARD = 0.036;
 function bayFaceX(z: number, y: number): number {
   const k = smoothstep(FY + 0.045, FY + 0.250, y);
   return lerp(HW + 0.014, skinHalfW(z, y) - BAY_BOARD, k);
+}
+
+const _s = { p: new THREE.Vector3(), n: new THREE.Vector3(), u: 0, v: 0 };
+
+/**
+ * The belt rail that caps the side trim, sampled on the glass's own surface.
+ *
+ * Widening the board to `bayFaceX` still leaves its top edge 40-odd mm shy of
+ * the glass, and a 40 mm slot at the sill is the same defect smaller: from any
+ * camera below the beltline you look along it and out of the car. So the last
+ * two stations are not an offset from anything — they are points on the body
+ * surface at the daylight opening's lower edge, pushed inward, the way
+ * `buildAPillarTrim` is built. `k` 0 is the rail's top face where it meets the
+ * glass; `k` 1 is the lip tucked up behind the glass's lower edge, which is
+ * what a belt garnish does and what stops the joint showing daylight.
+ *
+ * `glassPoint` samples the +X flank; the board is authored on −X and mirrored,
+ * so x comes back negated.
+ */
+function railPoint(z: number, k: number, out: THREE.Vector3): void {
+  const tb = dloBotT(z);
+  const up = k === 0 ? 0.005 : 0.019;                 // metres of arc up the glass
+  glassPoint(z, tb - dtFor(z, tb, up), _s, FLUSH + SIDE_THICK + (k === 0 ? 0.018 : 0.004));
+  out.set(-_s.p.x, _s.p.y, _s.p.z);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,21 +299,51 @@ export function buildCargo(ctx: BuildContext, batch: StaticBatch): { group: THRE
   brights.push(latch);
 
   // -- side trims -----------------------------------------------------------
-  const sideTrim = surface(6, 26, false, (i, j, out) => {
+  /**
+   * Section across the board, inboard offset against height. Runs bottom to
+   * top; the sheet is flipped below, for the reason in `BAY_PROFILE`'s note.
+   */
+  const SIDE_PROFILE: Array<[number, number]> = [
+    [0.000, FY - 0.004], [0.006, FY + 0.050], [0.020, FY + 0.130],
+    [0.026, FY + 0.240], [0.020, FY + 0.302], [0.008, FY + 0.326],
+  ];
+  const sideTrim = surface(SIDE_PROFILE.length + 1, 26, false, (i, j, out) => {
     const v = j / 26;
     const z = lerp(Z0 - 0.01, Z1 + 0.02, v);
-    const prof: Array<[number, number]> = [
-      [0.000, FY - 0.004], [0.006, FY + 0.050], [0.020, FY + 0.130],
-      [0.026, FY + 0.240], [0.020, FY + 0.318], [0.006, FY + 0.352], [0.010, FY + 0.372],
-    ];
-    const q = prof[i];
+    // Two stations past the board: the belt rail's top face, running outboard
+    // to the glass, and its lip tucking under the glass's lower edge.
+    if (i >= SIDE_PROFILE.length) {
+      const k = i - SIDE_PROFILE.length;          // 0 = top face, 1 = lip
+      railPoint(z, k, out);
+      return;
+    }
+    const q = SIDE_PROFILE[i];
+    const face = bayFaceX(z, q[1]);
     // The arch pushes the trim inboard, which is why an estate's load width
     // is quoted between the arches and not at the tailgate.
-    const arch = archBulge(HW, z) * (1 - smoothstep(0.0, 0.26, q[1] - FY)) * 1.1;
+    const arch = archBulge(face, z) * (1 - smoothstep(0.0, 0.26, q[1] - FY)) * 1.1;
     // Storage compartment door, one per side.
     const door = (1 - smoothstep(0.30, 0.34, Math.abs(z + 3.20))) * smoothstep(0.05, 0.09, q[1] - FY) * (1 - smoothstep(0.20, 0.24, q[1] - FY));
-    out.set(-(HW + 0.014 - q[0] - arch - door * 0.006), q[1], z);
+    out.set(-(face - q[0] - arch - door * 0.006), q[1], z);
   });
+  /**
+   * **Wound outboard, like everything else built this way.**
+   *
+   * `surface()` takes its winding from the vertex order, and this sheet's two
+   * parameters run (i → +y, j → −z), which puts the normal at −x on a part
+   * built at −x: outboard, into the body skin, which is itself a one-sided
+   * shell facing the same way. So the load bay's sides have been invisible
+   * from inside the car for as long as they have existed, and a cabin ray
+   * through the quarter light ran through the trim, through the skin, and out
+   * to the backdrop. Third occurrence of the trap `flipWinding` is written up
+   * for; a ray cast outboard from the bay's centreline at eight heights found
+   * nothing at all, and the same ray cast inboard from x 0.78 found the trim
+   * 140–230 mm away.
+   *
+   * Flipped before `mirrored()`, which reverses winding again so the +X copy
+   * keeps the same outward face.
+   */
+  flipWinding(sideTrim);
   batch.add(trim, merge([sideTrim, mirrored(sideTrim)]));
 
   // Lashing eyes: bright D-rings on plates, one at each rear corner.

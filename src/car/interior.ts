@@ -20,6 +20,9 @@ import * as THREE from 'three';
 import type { Articulation, BuildContext, PartResult, VehicleState } from '@/types';
 
 import { StaticBatch } from './interior/batch';
+// TEMP cb5 measurement imports — removed before report.
+import { CABIN, headlinerShoulder, headlinerY, innerHalfW, skinHalfW } from './interior/layout';
+import { dloBotT, dloTopT, glassPoint, zAtPillarRear } from '@/car/glass/aperture';
 import { buildShell } from './interior/shell';
 import { buildDash } from './interior/dash';
 import { buildSeats } from './interior/seats';
@@ -95,6 +98,8 @@ export function buildInterior(ctx: BuildContext): PartResult {
 
   // TEMP cb4 A/B hook — removed before report.
   (globalThis as unknown as Record<string, unknown>).__CB4_CABIN = group;
+  // TEMP cb5 measurement hook — removed before report.
+  (globalThis as unknown as Record<string, unknown>).__CB5 = { skinHalfW, innerHalfW, headlinerShoulder, headlinerY, CABIN, glassPoint, dloBotT, dloTopT, zAtPillarRear, THREE };
 
   return {
     group,
