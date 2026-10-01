@@ -23,9 +23,9 @@
 import * as THREE from 'three';
 import { BODY, STEERING, SUSPENSION, wheelPositions } from '@/spec';
 import type { BuildContext, PartResult, VehicleState } from '@/types';
-import { alignment, FACE, FLANGE_R } from './wheels/dims';
+import { alignment, FACE, FLANGE_R, SAG_FRONT, SAG_REAR } from './wheels/dims';
 import { buildRim, SPIDER_FACE_X } from './wheels/rim';
-import { buildTyre, deflectionFor } from './wheels/tyre';
+import { buildTyre } from './wheels/tyre';
 import { buildBrakes } from './wheels/brakes';
 import { buildSpinBlurMap } from './wheels/textures';
 import { smoothstep, triangles } from './wheels/util';
@@ -45,7 +45,6 @@ interface Corner {
   sideSign: number;
   baseY: number;
   angle: number;
-  deflect: number;
 }
 
 export function buildWheels(ctx: BuildContext): PartResult {
@@ -102,7 +101,19 @@ export function buildWheels(ctx: BuildContext): PartResult {
   for (const { key, p, front, left } of layout) {
     const node = new THREE.Group();
     node.name = key;
-    node.position.set(p[0], p[1], p[2]);
+    /**
+     * Down on its sidewalls.
+     *
+     * `wheelPositions()` hands back the **free** radius, so the sag comes off
+     * here — see the long note on `SAG_FRONT` in `wheels/dims.ts`. It is one
+     * subtraction and it belongs to the wheel module because the loaded radius
+     * is a property of the tyre, but the right long-term home for it is
+     * `wheelPositions()` itself, which is where the suspension geometry and
+     * the physics would also see it. When spec adopts it, this line is the one
+     * to delete.
+     */
+    const hubY = p[1] - (front ? SAG_FRONT : SAG_REAR);
+    node.position.set(p[0], hubY, p[2]);
     // The same wheel, turned round, rather than a mirrored one.
     if (left) node.rotation.y = Math.PI;
 
@@ -145,23 +156,22 @@ export function buildWheels(ctx: BuildContext): PartResult {
 
     const corner: Corner = {
       node, steer, hub, blur,
-      front, sideSign, baseY: p[1], angle: 0, deflect: 0,
+      front, sideSign, baseY: hubY, angle: 0,
     };
     corners.push(corner);
     nodes[key] = node;
     nodes[`hub${key.slice(5)}`] = hub;
     nodes[`upright${key.slice(5)}`] = upright;
 
-    // One material, four tyres: the per-corner spin and squash are pushed in
-    // just before each draw rather than by cloning the material four times.
+    // One material, four tyres: the per-corner spin is pushed in just before
+    // each draw rather than by cloning the material four times. The squash
+    // used to be pushed the same way and no longer is — it is derived from the
+    // hub's own `modelMatrix` in the shader, which is the only per-corner
+    // quantity three cannot skip the upload for. See `wheels/tyre.ts`.
     tyreMesh.onBeforeRender = (): void => {
       tyre.uniforms.uSpin.value = corner.sideSign * corner.angle;
-      tyre.uniforms.uDeflect.value = corner.deflect;
     };
   }
-
-  // Initialise to the static ride so the very first frame is already right.
-  for (const c of corners) c.deflect = deflectionFor(0.5);
 
   {
     const per = (o: THREE.Object3D): number => triangles(o);
@@ -193,9 +203,6 @@ export function buildWheels(ctx: BuildContext): PartResult {
         const omega = state.wheelSpin?.[i] ?? 0;
         c.angle = (c.angle + omega * dt) % TAU;
         c.hub.rotation.x = c.sideSign * c.angle;
-
-        const airborne = state.wheelContact?.[i] === false;
-        c.deflect = airborne ? 0.0015 : deflectionFor(comp);
 
         const k = smoothstep(BLUR_FROM, BLUR_TO, Math.abs(omega)) * 0.94;
         c.blur.visible = k > 0.012;

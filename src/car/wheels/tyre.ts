@@ -15,30 +15,58 @@
  *     that clips through the plane is worse. See "Contact patch" below —
  *     neither is possible here by construction.
  *  3. **It is exactly 614.6 mm across.** Built from `tyreRadius()` and
- *     nothing else. The previous build added the static sag to the free
- *     radius so the hub could stay at `wheelPositions()`, which made the tyre
- *     639 mm and — because the deformation shader never actually ran, the
- *     clone it was layered onto having dropped the library's `onBeforeCompile`
- *     — left it 12 mm inside the road as well.
+ *     nothing else. An older build added the static sag to the free radius so
+ *     the hub could stay at `wheelPositions()`, which made the tyre 639 mm
+ *     and — because the deformation shader never actually ran, the clone it
+ *     was layered onto having dropped the library's `onBeforeCompile` — left
+ *     it 12 mm inside the road as well.
  *
  * ## Contact patch
  *
- * `wheelPositions()` puts the hub at exactly one free radius above the road,
- * so the free circle is *tangent* to it: there is nothing to cut away. The
- * patch is therefore made by growing a foot rather than slicing a chord. For
- * every vertex the shader works out `rGround`, the radius at which that vertex
- * would sit exactly on the road, and then
+ * The hub is placed at the **loaded** radius (`dims.loadedRadius`), so the
+ * free circle passes below the road and a chord of it has to come off. For
+ * every vertex the shader works out `rGround`, the radius that would put that
+ * vertex exactly on the road, and takes `min(r, rGround)`. That one line is
+ * the whole patch:
  *
- *   * pulls the carcass **out** to `rGround` inside the patch window, which
- *     makes the tread dead flat along the road, and
- *   * clamps every vertex to `rGround`, which makes penetration impossible
- *     for any load, camber or steering angle.
+ *   * inside the chord the carcass lands on the road plane, dead flat;
+ *   * outside it nothing moves, so the free diameter is untouched and the
+ *     tyre still measures 614.6 mm however hard the corner is loaded;
+ *   * and penetration is impossible for any load, camber or steering angle,
+ *     because a radius that would reach below the road is exactly what the
+ *     `min` rejects.
  *
- * Outside the window nothing moves, so the free diameter is untouched: the
- * tyre measures 614.6 mm loaded or not, and its lowest point is the road
- * plane to the last decimal. The window is `acos((R − sag)/R)` wide, i.e. the
- * chord a real tyre of that sag would cut, so the patch is the right *length*
- * even though it is arrived at from the other direction.
+ * Nothing multiplies that clamp by the sidewall flex ramp, and it must not:
+ * the only stations whose free radius reaches below the road are the tread and
+ * the top three or four rows of the sidewall, so the bead is left alone by
+ * geometry rather than by a fudge factor, and what the clamp draws in between
+ * is the sidewall folding over — which is what it does.
+ *
+ * ### The deflection is derived, not passed in
+ *
+ * `sag = freeRadius − hubHeight`, read out of `modelMatrix` in the shader. It
+ * is deliberately not a uniform:
+ *
+ *   * it **cannot disagree with the flat.** The patch window, the normal blend
+ *     and the sidewall bulge all key off the same `sag` that produced the
+ *     chord, so the shaded patch and the geometric patch are the same length
+ *     by construction. The previous version pushed a `uDeflect` that had
+ *     nothing to do with where the hub actually was, and its window was 143 mm
+ *     wide against a chord of 257.
+ *   * it **cannot go stale.** `modelMatrix` is per draw. A per-corner uniform
+ *     is not: four meshes sharing one material are drawn back to back, and
+ *     three skips the uniform upload for the second, third and fourth of them
+ *     unless something else intervenes. `uSpin` still has that exposure and
+ *     gets away with it because four wheels spin at nearly the same rate; a
+ *     per-corner *sag* would not have, the axles differing by 12 mm.
+ *   * it is **load-responsive for free.** The hub's world height is the load
+ *     state. On flat ground the body's heave and the wheel's travel cancel, so
+ *     the sag holds at the static figure; over a kerb the wheel is pressed up
+ *     into the body and the patch deepens; lift the wheel clear and `sag`
+ *     falls to zero and the tyre is round again, with no `wheelContact` flag
+ *     needed. What it does *not* model is a corner that is loaded without
+ *     moving — the front tyres do not squash under braking dive, because the
+ *     physics tyre is rigid and `VehicleState` exposes no per-corner Fz.
  *
  * `uSpin` rotates the carcass *inside* the shader, so the flat spot stays at
  * the bottom while the tread pattern turns through it, and all four corners
@@ -47,9 +75,7 @@
 
 import * as THREE from 'three';
 import type { BuildContext } from '@/types';
-import {
-  DEFLECT_MAX, DEFLECT_MIN, DEFLECT_STATIC, RIM, TYRE, sidewallProfile,
-} from './dims';
+import { BULGE_RATIO, RIM, TYRE, sidewallProfile } from './dims';
 import { smoothstep } from './util';
 import { buildTyreNormalMap } from './textures';
 import { buildLegend } from './sidewall';
@@ -409,7 +435,6 @@ function dressLegend(legend: THREE.BufferGeometry, xs: CrossSection): THREE.Buff
 const DECLS = /* glsl */ `
 uniform float uSpin;
 uniform float uFreeRadius;
-uniform float uDeflect;
 uniform float uBulgeGain;
 uniform float uGroundY;
 attribute vec2 aFlex;
@@ -435,20 +460,27 @@ const DEFORM = /* glsl */ `
   float cd = -(rot.x * audiTyreUp.y + rot.y * audiTyreUp.z);   // 1 = pointing down
   float rGround = cd > 1e-3 ? (H + position.x * audiTyreUp.x) / cd : 1.0e6;
 
-  // Half-angle of the chord a real tyre of this sag would cut. The ramp is a
-  // fraction of it, so the patch keeps the right length as the load changes
-  // instead of growing a fixed skirt that never scales.
-  float cosA = (uFreeRadius - uDeflect) / uFreeRadius;
-  float ramp = (1.0 - cosA) * 0.45 + 0.002;
+  // The deflection IS the hub's shortfall against the free radius — see the
+  // module header. Everything below keys off it, so the shaded patch and the
+  // clamped patch cannot end up different lengths.
+  float sag = max(0.0, uFreeRadius - H);
+
+  // Half-angle of the chord the free circle cuts below the road, which is
+  // exactly the span the min() flattens. cos of it is H/R; the ramp is a
+  // fraction of the angle, so the window keeps the right length as the load
+  // changes instead of being a fixed skirt. max() rather than +0.002 so that a
+  // wheel in the air (H > R, cosA > 1) leaves the edges ordered and win at 0.
+  float cosA = min(H / uFreeRadius, 1.0);
+  float ramp = max(0.002, (1.0 - cosA) * 0.45);
   float win  = smoothstep(cosA - ramp, cosA + ramp, cd);
-  float push = max(0.0, rGround - uFreeRadius) * win * aFlex.x;
-  // The min() is the no-penetration guarantee: nothing can end up at a radius
-  // that would put it below the road, whatever the load or the camber.
-  float rn   = min(r + push, rGround);
+  // The whole contact patch, and the no-penetration guarantee with it: nothing
+  // can end up at a radius that would put it below the road, whatever the
+  // load, the camber or the steering angle.
+  float rn   = min(r, rGround);
 
   audiTyreFlat = win * aFlex.x * aFlex.x;
   audiTyreRot  = rot;
-  float bulge  = aFlex.y * uDeflect * win * uBulgeGain;
+  float bulge  = aFlex.y * sag * win * uBulgeGain;
   audiTyreDeformed = vec3(
     position.x + sign(position.x) * bulge,
     rn * rot.x,
@@ -476,8 +508,8 @@ export interface TyreResult {
   uniforms: {
     uSpin: THREE.IUniform<number>;
     uFreeRadius: THREE.IUniform<number>;
-    uDeflect: THREE.IUniform<number>;
     uBulgeGain: THREE.IUniform<number>;
+    /** Road plane, for the day the ground stops being flat. */
     uGroundY: THREE.IUniform<number>;
   };
   triangles: number;
@@ -546,8 +578,7 @@ export function buildTyre(ctx: BuildContext): TyreResult {
   const uniforms = {
     uSpin: { value: 0 },
     uFreeRadius: { value: TYRE.freeR },
-    uDeflect: { value: DEFLECT_STATIC },
-    uBulgeGain: { value: 1.0 },
+    uBulgeGain: { value: BULGE_RATIO },
     uGroundY: { value: 0 },
   };
 
@@ -615,18 +646,4 @@ function mergeIntoCarcass(a: THREE.BufferGeometry, b: THREE.BufferGeometry): THR
   for (let i = 0; i < bi.count; i++) idx[ai.count + i] = bi.getX(i) + baseCount;
   out.setIndex(new THREE.BufferAttribute(idx, 1));
   return out;
-}
-
-/**
- * Suspension compression to contact-patch sag. 0.5 is the static ride.
- *
- * Deliberately not linear about the static point: a tyre is a progressive
- * spring, so a corner that is unloading gives up much less radius than a
- * corner taking a kerb gains.
- */
-export function deflectionFor(compression: number): number {
-  const c = Math.max(0, Math.min(1, compression));
-  return c < 0.5
-    ? DEFLECT_MIN + (DEFLECT_STATIC - DEFLECT_MIN) * (c / 0.5)
-    : DEFLECT_STATIC + (DEFLECT_MAX - DEFLECT_STATIC) * Math.pow((c - 0.5) / 0.5, 1.35);
 }

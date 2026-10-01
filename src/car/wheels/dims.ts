@@ -17,24 +17,76 @@ import { BRAKES, QUALITY, WHEEL, tyreRadius } from '@/spec';
 const INCH = 0.0254;
 
 /**
- * Contact-patch sag at the static ride, and its range over suspension travel.
+ * ## Static sag: the car is parked ON its tyres, not on a pair of circles.
  *
- * This is NOT added to the tyre's radius. An earlier build inflated the free
- * radius by the sag so the hub could stay at `tyreRadius()` and the flattened
- * bottom would come back to the ground — which put the tyre 24 mm oversize
- * (639 mm against the spec's 614.6) and, because the shader never ran, left it
- * 12 mm into the road as well. The tyre is now built at exactly `tyreRadius()`
- * and the patch is a *local* deformation: the carcass swells outboard of the
- * patch and is pulled down onto the road plane inside it, which is what a
- * loaded tyre's outline actually does. Free diameter therefore stays 614.6 mm
- * however hard the corner is loaded, and nothing can reach below the road.
+ * `wheelPositions()` puts the hub at `tyreRadius()`, the tyre's **free**
+ * radius, so until this round the model's hubs sat 307.3 mm above the road and
+ * the tread met it as a perfect circle. A contact patch with no flat in it is
+ * the most reliable tell there is that a car was rendered rather than
+ * photographed, and it also biased every ground-referenced measurement in the
+ * project by the whole of the sag — see caution 1 in the long note at
+ * `HP.front.bumperTopY`.
  *
- * The sag is a half-chord: patch length = 2·sqrt(R² − (R − sag)²), so 8.5 mm
- * gives a 143 mm patch on this tyre — a period 185/70 at ~2.1 bar.
+ * `scratchpad/cl2_datum.py` measures hub-to-contact on the two reference
+ * flanks:
+ *
+ *     bat3 (silver Avant, 185/70 HR14)    front 279.1   rear 291.3
+ *     bat  (red CS Turbo quattro)         front 266.9   rear 279.8
+ *
+ * **The silver Avant is the only one of the two that can supply the
+ * absolute.** `scratchpad/ref3/bat_wheel_front.jpg` reads `205 60 R15` off the
+ * red car's sidewall, so its free radius is 313.5 mm and not 307.3 at all, and
+ * a 46.6 mm sag on its 123 mm section height would be a tyre at walking
+ * pressure. Its figures are quoted here only because the two cars agree on the
+ * front-to-rear SPLIT — 12.2 mm and 12.9 mm — which is the one thing a common
+ * bias in finding a hub centre cannot manufacture.
+ *
+ * An independent sub-pixel trace of the same two outlines
+ * (`scratchpad/ty_outline.py`) reads 282.4 / 293.9 on the silver car, 3 mm
+ * shallower. The `cl2_datum` figures are the ones taken: every other hardpoint
+ * in this project is contact-line referenced through that script, and sharing
+ * a datum is worth more than 3 mm of absolute.
+ *
+ * ## The front/rear split is a tuning parameter, and says so
+ *
+ * A radial's deflection is near enough linear in vertical load at a fixed
+ * pressure, so 28.2 / 16.0 implies a **63.6 %** front weight bias.
+ * `BODY.weightDistFront` says 0.60 and CLAUDE.md is explicit that it is not a
+ * sourced figure; neither is this. They are two unsourced estimates that
+ * disagree by 3.6 points, and the sag is deliberately **not** derived from
+ * `weightDistFront`: that is a physics tuning knob, and a change to it must
+ * not be able to move the car's photometric stance behind the gate's back.
+ *
+ * The same trace confirms the shape the deformation has to have. Radial
+ * deficit against the free circle, silver front, mm from the hub:
+ *
+ *     z       0    ±50   ±100   ±120   ±139
+ *     deficit 25.8  21.5   10.2    3.3   -4.0
+ *
+ * i.e. the outline is dead flat out to where the free circle re-emerges from
+ * the road, at ±123 mm for this sag, and untouched beyond it. That is exactly
+ * a chord, so a chord is what the shader cuts.
  */
-export const DEFLECT_STATIC = 0.0085;
-export const DEFLECT_MIN = 0.0020;
-export const DEFLECT_MAX = 0.0235;
+export const SAG_FRONT = 0.028;
+export const SAG_REAR = 0.016;
+
+/** Hub height above the road at the static ride. */
+export function loadedRadius(front: boolean): number {
+  return tyreRadius() - (front ? SAG_FRONT : SAG_REAR);
+}
+
+/**
+ * How far the sidewall swells outboard beside the patch, per metre of radial
+ * deflection, at the widest point of the section.
+ *
+ * Not measurable on either flank frame — a dead-on side view has no axial
+ * information in it — so this one is a judgement tuned by eye on `front3q`
+ * against `scratchpad/ref3/bat_wheel_front.jpg`. 0.20 puts 5.6 mm on the front
+ * sidewall and 3.2 on the rear, a ~6 % local growth in section width, which is
+ * the right order for a loaded radial and is *less* than the 8.5 mm the
+ * previous build was already drawing from a constant sag.
+ */
+export const BULGE_RATIO = 0.20;
 
 export const RIM = {
   /** Bead seat radius — the nominal 14 in. */
