@@ -58,6 +58,28 @@ export interface PostChain {
 
 const CAR_ROOT = 'Audi5000SWagon';
 
+/**
+ * What moved this frame, kept apart because two consumers want different
+ * answers.
+ *
+ * The accumulation pass has to drop its history when ANYTHING moves — a
+ * camera nudge changes every pixel. The sun's shadow map does not: it is
+ * rendered in world space from the sun, so orbiting the camera cannot change
+ * one texel of it. Collapsing both into one boolean meant a drag of the mouse
+ * re-rendered a 4096² depth map over 197 casters sixty times a second for no
+ * change in the result, and measured at the phone tier that is 1.8 ms of a
+ * 9.8 ms frame — 18 % — thrown away during the one interaction a visitor
+ * spends most of their time doing.
+ */
+interface Motion {
+  /** The camera, the lens, or the aspect. */
+  camera: boolean;
+  /** Something in the world that a depth pass would see differently. */
+  scene: boolean;
+}
+
+const NO_MOTION: Motion = { camera: false, scene: false };
+
 export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain {
   const { renderer, scene, camera } = stage;
   // Which of the optional passes run, and at what resolution, is the tier's
@@ -156,6 +178,8 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   let maskMode = false;
   /** Measurement only — see the `shadowEveryFrame` lever below. */
   let forceShadow = false;
+  /** Measurement only — see the `shadowFreeze` lever below. */
+  let freezeShadow = false;
 
   // The accumulator only drops its converged buffer when something MOVES.
   // A repaint moves nothing, so a colour change was being averaged at 1/n
@@ -285,7 +309,7 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
    * before the renderer folds them into `matrixWorld`, so the locals see a
    * move on the same frame it is first rendered.
    */
-  const moved = (): boolean => {
+  const moved = (): Motion => {
     // Parts arrive asynchronously, so keep re-reading the graph until it stops
     // growing, then only occasionally in case a stream adds something later.
     if (lookups++ % 30 === 0) {
@@ -297,17 +321,22 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
     const kPx = (height * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
     camera.getWorldPosition(_cam);
 
-    let dirty = !prevValid;
+    let camDirty = false;
     const e = camera.matrixWorld.elements;
     // 0–11 are the basis, so a delta there is an angle and converts straight
     // to pixels; 12–15 are the translation, which has to be divided by how
     // far away the subject is.
     const camLimit = (MOTION_PX * 0.5) / kPx;
-    for (let i = 0; i < 12; i++) if (Math.abs(e[i] - prev[i]) > camLimit) dirty = true;
-    for (let i = 12; i < 16; i++) if (Math.abs(e[i] - prev[i]) > camLimit * 4) dirty = true;
-    if (Math.abs(camera.fov - prev[16]) > 1e-3 || Math.abs(camera.aspect - prev[17]) > 1e-4) dirty = true;
+    for (let i = 0; i < 12; i++) if (Math.abs(e[i] - prev[i]) > camLimit) camDirty = true;
+    for (let i = 12; i < 16; i++) if (Math.abs(e[i] - prev[i]) > camLimit * 4) camDirty = true;
+    if (Math.abs(camera.fov - prev[16]) > 1e-3 || Math.abs(camera.aspect - prev[17]) > 1e-4) camDirty = true;
 
-    for (let n = 0, k = CAM; !dirty && n < carNodes.length; n++, k += PER_NODE) {
+    // The car's own loop is NOT short-circuited by the camera's result any
+    // more. It used to be, which cost nothing while the two answers were one
+    // boolean — but the shadow map needs the car's answer on its own, and the
+    // comparison is a few hundred float compares against a 1.2 ms frame.
+    let carDirty = false;
+    for (let n = 0, k = CAM; !carDirty && n < carNodes.length; n++, k += PER_NODE) {
       const o = carNodes[n];
       const p = o.position;
       const q = o.quaternion;
@@ -326,10 +355,11 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       const we = o.matrixWorld.elements;
       const dist = Math.max(Math.hypot(we[12] - _cam.x, we[13] - _cam.y, we[14] - _cam.z), 0.05);
       // A quaternion component moves at half the angle, so the arc is 2·dq·r.
-      if (((dPos + 2 * dRot * arm[n]) * kPx) / dist > MOTION_PX) dirty = true;
+      if (((dPos + 2 * dRot * arm[n]) * kPx) / dist > MOTION_PX) carDirty = true;
     }
 
-    if (!dirty) return false;
+    const first = !prevValid;
+    if (!camDirty && !carDirty && !first) return NO_MOTION;
 
     for (let i = 0; i < 16; i++) prev[i] = e[i];
     prev[16] = camera.fov;
@@ -341,11 +371,28 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       prev[k + 3] = q.x; prev[k + 4] = q.y; prev[k + 5] = q.z; prev[k + 6] = q.w;
     }
     prevValid = true;
-    return true;
+    return { camera: camDirty || first, scene: carDirty || first };
   };
 
   let elapsed = 0;
   let frameCount = 0;
+  /**
+   * Frames still owed a shadow rebuild after an event the car-node signature
+   * cannot express — currently only an environment change, which moves the
+   * sun.
+   *
+   * This replaces `accum.index <= 2`, which was standing in for the same idea
+   * and got it wrong in the one case that matters most. `reset()` zeroes the
+   * index, and the accumulator is reset by ANY motion including the camera's,
+   * so throughout an orbit the index sits at 0 or 1 and that term held
+   * `needsUpdate` true every single frame — which is why splitting the motion
+   * signature on its own saved nothing measurable. Three frames because the
+   * sun's frustum is re-fitted from bounds that `Environment` re-measures on
+   * its own schedule, not on the frame the preset changed.
+   */
+  let shadowWarmup = 3;
+  /** How many frames have rebuilt the map, so the rate can be read not guessed. */
+  let shadowUpdates = 0;
 
   // --- measurement levers ----------------------------------------------------
   // Registered on the surface `Stage` publishes, so one boot can A/B a tier
@@ -366,12 +413,40 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   // update makes a still frame cost what a moving one costs, which is the
   // frame the question is actually about.
   perf?.register('shadowEveryFrame', (v) => (forceShadow = !!v));
+  // The other half of the same question, and the one that decides whether
+  // "the frame is shadow-bound" means anything actionable.
+  //
+  // `shadows: false` removes TWO costs at once: re-rendering the depth map
+  // over every caster, and PCF's kernel at every shaded fragment. Those have
+  // opposite levers — the first is fixed by map size and update cadence, the
+  // second only by the filter or the pixel count — so a saving measured with
+  // the switch cannot tell you which one to pull. Freezing holds the map at
+  // whatever was last baked and keeps every shader sampling it, so
+  // `freeze - off` is the sampling cost and `ref - freeze` is the render cost.
+  perf?.register('shadowFreeze', (v) => (freezeShadow = !!v));
+  // Reads the rebuild counter and zeroes it, so a probe can state the rate
+  // instead of inferring it from a frame time. Inferring it is what hid the
+  // `accum.index <= 2` term for a round.
+  perf?.register('shadowUpdates', () => {
+    const n = shadowUpdates;
+    const f = frameCount;
+    shadowUpdates = 0;
+    return { updates: n, frames: f };
+  });
   // The three bloom parameters, so the halo can be searched for in one boot.
   // `applyGrade` only rewrites them when the environment preset changes, so a
   // value set here survives until then.
-  perf?.register('bloomStrength', (v) => (bloom.strength = Number(v)));
-  perf?.register('bloomThreshold', (v) => (bloom.threshold = Number(v)));
-  perf?.register('bloomRadius', (v) => (bloom.radius = Number(v)));
+  //
+  // Each one resets the accumulator, and without that a sweep is worthless:
+  // changing a bloom parameter moves nothing, so `moved()` is false, the
+  // converged buffer is kept and the new value is averaged at 1/n against up
+  // to sixteen frames of the old one — or, once the buffer is full, discarded
+  // outright. This is the trap that made the paint picker look broken.
+  // `UnrealBloomPass` re-reads all three into its uniforms every render, so
+  // with the reset a live sweep is sound.
+  perf?.register('bloomStrength', (v) => { bloom.strength = Number(v); accum.reset(); return bloom.strength; });
+  perf?.register('bloomThreshold', (v) => { bloom.threshold = Number(v); accum.reset(); return bloom.threshold; });
+  perf?.register('bloomRadius', (v) => { bloom.radius = Number(v); accum.reset(); return bloom.radius; });
 
   return {
     render(dt: number): void {
@@ -382,9 +457,12 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
         revision = env.revision;
         applyGrade();
         accum.reset();
+        // A preset moves the sun, so the depth map is genuinely stale.
+        shadowWarmup = 3;
       }
 
-      const inMotion = moved();
+      const motion = moved();
+      const inMotion = motion.camera || motion.scene;
       if (inMotion) accum.reset();
 
       // Several poses are stopped down far enough to be sharp throughout. The
@@ -394,14 +472,25 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       dof.enabled = dofAllowed && !maskMode && dof.active;
 
       // The shadow map is re-rendered through `MeshDepthMaterial` over every
-      // caster in a ±30 m frustum, and at 4096² that is 16 M texels of depth
-      // plus PCF's kernel at every shaded fragment. Re-running it when nothing
-      // has moved is pure waste, so the shadow follows the same motion signal
-      // the accumulation does, with a periodic refresh to catch anything the
-      // signature cannot see (wheels turning on the spot, a door opening).
+      // caster in a ±30 m frustum, and at 4096² that is 16 M texels of depth.
+      // Re-running it when nothing has moved is pure waste, so it follows the
+      // motion signal — but `motion.scene`, NOT `inMotion`. The sun's map is
+      // world space and camera independent, so a camera move cannot change
+      // it; it was being rebuilt every frame of every orbit for an identical
+      // result. Measured: 17.5 ms of a 45 ms desktop-chain frame and 1.8 ms
+      // of a 9.8 ms phone-tier frame, for no change in any pixel.
+      //
+      // `shadowWarmup` covers a sun move, and `frameCount % 15` covers the
+      // frustum re-fit, which `Environment` performs when the measured bounds
+      // change and at most every twentieth frame — so a fifteen-frame refresh
+      // cannot miss one for long. Together they are what catches whatever the
+      // car-node signature cannot express.
       frameCount++;
-      renderer.shadowMap.needsUpdate =
-        forceShadow || inMotion || accum.index <= 2 || frameCount % 15 === 0;
+      if (motion.scene) shadowWarmup = 1;
+      const rebuild = forceShadow || shadowWarmup > 0 || frameCount % 15 === 0;
+      renderer.shadowMap.needsUpdate = !freezeShadow && rebuild;
+      if (renderer.shadowMap.needsUpdate) shadowUpdates++;
+      if (shadowWarmup > 0) shadowWarmup--;
 
       // Sub-pixel jitter for this accumulation sample. Perspective projections
       // shear cleanly: nudging m02/m12 slides the whole frustum sideways

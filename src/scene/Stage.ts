@@ -284,6 +284,13 @@ export class Stage {
   // survives only at p50/p95, where coalesced samples are a tail rather than
   // the answer, and with the sub-millisecond ones folded into the interval
   // that follows so the series still adds up to the window.
+  /**
+   * Every shadow caster as the scene stood the first time `shadowCasters` was
+   * asked, so the lever can put them all back. Built lazily: parts arrive
+   * asynchronously and a set collected in the constructor would be empty.
+   */
+  private casterSet: THREE.Mesh[] | null = null;
+
   private cpuSamples: number[] = [];
   private frameTimes: number[] = [];
   private frameIntervals: number[] = [];
@@ -494,6 +501,14 @@ export class Stage {
     return applied;
   }
 
+  /** Is this node inside the car, rather than the world around it? */
+  private underCar(o: THREE.Object3D): boolean {
+    for (let a: THREE.Object3D | null = o; a; a = a.parent) {
+      if (a.name === 'Audi5000SWagon') return true;
+    }
+    return false;
+  }
+
   // --- wall clock ------------------------------------------------------------
 
   /**
@@ -583,8 +598,58 @@ export class Stage {
     }));
     levers.set('shadows', (v) => {
       this.renderer.shadowMap.enabled = !!v;
+      // Shadowing is a shader permutation, so flipping this recompiles every
+      // lit material. The first frames after the flip are compile time, not
+      // frame time; discard them.
+      this.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const x of Array.isArray(m) ? m : [m]) if (x) x.needsUpdate = true;
+      });
       this.renderer.shadowMap.needsUpdate = true;
       return this.renderer.shadowMap.enabled;
+    });
+    // Measurement only. 0 Basic (one tap), 1 PCF, 2 PCFSoft (committed).
+    // The filter decides the per-fragment tap count, so it moves the sampling
+    // half of the shadow cost and nothing else — the depth map is identical.
+    // Also a shader permutation, so it recompiles; discard the first frames.
+    levers.set('shadowType', (v) => {
+      const types = [THREE.BasicShadowMap, THREE.PCFShadowMap, THREE.PCFSoftShadowMap];
+      this.renderer.shadowMap.type = types[Math.max(0, Math.min(2, Number(v)))];
+      this.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const x of Array.isArray(m) ? m : [m]) if (x) x.needsUpdate = true;
+      });
+      this.renderer.shadowMap.needsUpdate = true;
+      return this.renderer.shadowMap.type;
+    });
+    // Measurement only. Which meshes the depth pass is paying for: 0 none,
+    // 1 the car, 2 everything else (the grove, whose crowns are what cuts the
+    // dapple), 3 both. Restores from the set recorded on the first call, so
+    // it is reversible within a boot and cannot invent a caster.
+    levers.set('shadowCasters', (v) => {
+      if (!this.casterSet) {
+        const found: THREE.Mesh[] = [];
+        this.scene.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh && m.castShadow) found.push(m);
+        });
+        this.casterSet = found;
+      }
+      const mode = Number(v);
+      let on = 0;
+      let tris = 0;
+      for (const m of this.casterSet) {
+        const inCar = this.underCar(m);
+        m.castShadow = mode === 3 || (mode === 1 && inCar) || (mode === 2 && !inCar);
+        if (m.castShadow) {
+          on++;
+          const g = m.geometry;
+          const count = g.index ? g.index.count : (g.attributes.position?.count ?? 0);
+          tris += (count / 3) * (((m as THREE.InstancedMesh).count) || 1);
+        }
+      }
+      this.renderer.shadowMap.needsUpdate = true;
+      return { mode, casters: on, of: this.casterSet.length, tris: Math.round(tris) };
     });
 
     const renderer = this.renderer;
