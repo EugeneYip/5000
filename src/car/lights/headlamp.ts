@@ -44,23 +44,53 @@ const FACE = noseFaceZ;
 const FACING = 1 as const;
 
 /**
- * Rubber seal between the lamp and the wing pressing.
+ * The painted edge of the aperture itself — the rolled lip of the pressing,
+ * plus the hairline of bright trim that runs over it.
  *
- * With `BEZEL` this is the brightwork the glass loses at top and bottom, and
- * 15 mm of it was 3 mm too much. Measured on the owner's photograph at the
- * lamp's own column band: the bezel's outer edge to the glass is 671 → 677
- * and 753 → 759 px, so **11.7 mm a side** at 1.95 mm/px, and the glass fills
- * 148 mm of a 172 mm aperture where the model filled 138 of 168.
+ * **It is a lip, not a bezel, and the previous 9 mm of chrome here is what
+ * made the lamp one unbroken white slab.** See `GASKET`.
  */
-const SEAL = 0.0035;
+const LIP = 0.0015;
 /**
- * Bezel width across its visible face.
+ * The black channel between the lip and the glass: the single most important
+ * dimension on this part.
  *
- * 13 mm ate 26 mm off a 168 mm aperture — 15 % of the glass, and the glass is
- * the brightest element on the car. In the reference frame the bright strips
- * above and below the lamp are thin and the glass fills nearly the whole hole.
+ * ## The brightwork and the gasket were swapped
+ *
+ * Read down the owner's photograph through the lamp (x 1230-1300, rows
+ * 648-791, V = max(R,G,B), 1.826 mm/px off the plate):
+ *
+ *     652-663   150 → 254   sunlit sheet metal above the lamp      22 mm
+ *     664-676   221 → 81 → 248   **BLACK CHANNEL**                24 mm
+ *     677-757   246-253, dipping to 228 at 0.56 down   the glass   148 mm
+ *     758-771   197 → 94 → 135   **BLACK CHANNEL**                26 mm
+ *     772-777   178 → 255   the bumper's bright top                11 mm
+ *     780+      69-89       the bumper face
+ *
+ * So the glass is 148 mm — which this model already had — and it is framed
+ * by **25 mm of near-black per side**, with the bright strips *outside* that.
+ * The 254 and 255 strips are not the lamp's: both are the same warm hue as the
+ * paint and the lens (R/G 1.07 against the lens's 1.05) and the zoom shows
+ * them continuous with the sheet metal and the bumper. They are sunlit body.
+ *
+ * `94fc4ba` measured 671 → 677 and 753 → 759 px and called the resulting
+ * 11.7 mm a side *brightwork*. Those rows are the channel's **rising ramp**
+ * — 671 is V 142 and 677 is V 247 — so the width was right and the sign was
+ * exactly backwards: 12.5 mm a side of bright chrome where the photograph has
+ * black. That is why its row-range fix measured ±4 on a 246 field. The
+ * structure it added inside the lens is real and stays; what was missing is
+ * the joint around it.
+ *
+ * ## Why 11 mm and not 25
+ *
+ * `LIP + GASKET` is held at 12.5 mm so the glass does not move. 25 mm a side
+ * needs `HP.front.lampTopY`/`lampBottomY` to open from 168 mm to ~196 mm, and
+ * the bottom of that additionally needs the bumper to come down — see the
+ * report. 11 mm is 4.4 rows at `photomatch` 1600x900 and carries the edge;
+ * the amplitude comes from the channel's depth and its material, not from
+ * its width.
  */
-const BEZEL = 0.009;
+const GASKET = 0.0110;
 /** Acrylic body thickness. Matches the lens shader's own optical thickness. */
 const LENS_BODY = 0.0042;
 
@@ -202,6 +232,32 @@ const OPTIC: LensOptions = {
 };
 
 /**
+ * The indicator's own optic, which is a **different lamp**.
+ *
+ * Measured across the amber at `photomatch`, before this: R pinned at
+ * 254.4 ± 0.3 for all 32 of its columns while G fell 204 → 124. The red
+ * channel was clipped from end to end, so the amber rendered as a flat
+ * vermilion card with a green-channel gradient on it — and `headlight` was
+ * the only pose in the set that clipped at all, at 5.65 %.
+ *
+ * The photograph does not clip: R runs 252 → 203 across the amber and G
+ * 214 → 105, V falling 252 → 202. So the amber is ~8 levels *below* the
+ * clear lens where this model had it ~8 *above*.
+ *
+ * Two terms, both for the same reason — an indicator is not a headlamp.
+ * `cavity` comes down because there is no H4 and no deep paraboloid in there
+ * to return the sun that many times; `homogenise` comes down because the
+ * photograph's amber is **not** a flat field. It is a left-to-right ramp with
+ * the bowl's lobe plainly in it, and mixing 52 % of the transmitted image
+ * away is what flattened ours into a card.
+ */
+const AMBER_OPTIC: LensOptions = {
+  ...OPTIC,
+  homogenise: 0.30,
+  cavity: 0.46,
+};
+
+/**
  * The aperture the body pressing leaves for the lamp.
  *
  * **It runs to the body's own silhouette, not to `HP.front.lampOuterX`.** The
@@ -234,21 +290,31 @@ const aperture: Outline = {
  * makes the nose look like jewellery rather than like the car.
  */
 const lensOutline: Outline = {
-  yLo: aperture.yLo + SEAL + BEZEL,
-  yHi: aperture.yHi - SEAL - BEZEL,
-  xInner: (y) => aperture.xInner(y) + SEAL + BEZEL,
-  xOuter: (y) => aperture.xOuter(y) - SEAL,
-  radiusInner: Math.max((aperture.radiusInner ?? 0) - SEAL - BEZEL, 0),
-  radiusOuter: Math.max((aperture.radiusOuter ?? 0) - SEAL, 0),
+  yLo: aperture.yLo + LIP + GASKET,
+  yHi: aperture.yHi - LIP - GASKET,
+  xInner: (y) => aperture.xInner(y) + LIP + GASKET,
+  xOuter: (y) => aperture.xOuter(y) - LIP,
+  radiusInner: Math.max((aperture.radiusInner ?? 0) - LIP - GASKET, 0),
+  radiusOuter: Math.max((aperture.radiusOuter ?? 0) - LIP, 0),
 };
 const AMBER_SPLIT = F.indicatorInnerX;
 /**
  * Half-width of the moulded wall between the amber and the clear sections.
  *
- * 4.5 mm read as a dark trench across the glass. The photograph's lamp is a
- * near-featureless sheet: the divisions are there, but as hairlines.
+ * **Not a hairline, and not aluminium.** "The photograph's lamp is a
+ * near-featureless sheet" was read off a frame whose own lamp was already
+ * featureless. Measured across the owner's photograph at the lens's mid rows
+ * (690-730), the clear-to-amber joint falls 252 → **173** → 252 over cols
+ * 1336-1348 — an amplitude of **79**, 13 mm wide at V < 230. In
+ * `bat3_front3q.jpg` at 4x it is a hard black line with the amber's own
+ * rounded corner sitting inside it.
+ *
+ * This model had the gap at 5.2 mm and filled it with `reflector()`, so the
+ * joint read **241 → 254, an amplitude of 4 and the wrong sign**. 6 mm of
+ * half-width gives the measured 12 mm, and it wears `rubber` — see
+ * `amberGasketGeo`.
  */
-const DIVIDER = 0.0026;
+const DIVIDER = 0.0060;
 /**
  * Half-width of the wall between the two CLEAR chambers, which is a different
  * part and a different width — see `CHAMBER_SPLIT`. The photograph resolves
@@ -369,7 +435,7 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   // people see in a headlamp lens is soda-lime *glass*, and this one is PMMA.
   const lenses = audiMaterials(ctx.materials);
   const clearLens = lenses.lens(0xffffff, OPTIC);
-  const amberLens = lenses.lens(LIGHTS.indicatorColor, OPTIC);
+  const amberLens = lenses.lens(LIGHTS.indicatorColor, AMBER_OPTIC);
   // A bulb envelope has to be OPAQUE. Three renders transmissive surfaces
   // against the opaque back buffer, so anything transparent inside the lens is
   // simply absent when you look through it — and the point of the whole
@@ -378,50 +444,67 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   const coldBulb = ctx.materials.emissive(0xe6ebf4, 0.06);
   const coldFilament = ctx.materials.emissive(0xffe6b4, 0.4);
 
-  // --- bezel and seal ------------------------------------------------------
-  // The bezel's crest stands 4 mm proud of the skin, then rolls back and sinks
-  // into the aperture: one bright line round the whole lamp, which is what
-  // ties it to the grille's frame across the nose.
-  const bezelGeo = frame({
-    outline: inset(aperture, SEAL),
-    zAt: FACE, facing: FACING,
-    profile: [
-      [0.0, 0.004],
-      [0.003, -0.0035],
-      [BEZEL - 0.003, -0.0028],
-      [BEZEL, 0.004],
-      [BEZEL + 0.002, 0.014],
-    ],
-    // No bright leg at the outboard end. `perimeter` puts the outboard edge at
-    // t 0.25-0.5; it fades out over the bottom-outboard corner and back in
-    // over the top-outboard one, so the strip above the glass and the strip
-    // below it each run out to the corner radius and stop, which is what the
-    // photograph shows. The amber simply meets the body edge.
-    fade: (t) => {
-      const a = 1 - smoothBand(t, 0.205, 0.255);
-      const b = smoothBand(t, 0.495, 0.545);
-      return Math.min(a + b, 1);
-    },
-  });
-  const sealGeo = frame({
+  // --- lip and gasket ------------------------------------------------------
+  // The pressing's own rolled edge, with the hairline of bright trim on it.
+  // 2.4 mm of visible face: it is one pixel at `photomatch`, and that is the
+  // point — everything 9 mm of chrome used to occupy belongs to `GASKET`.
+  const lipGeo = frame({
     outline: aperture,
     zAt: FACE, facing: FACING,
     profile: [
-      [-0.002, 0.001],
-      [0.002, 0.005],
-      [SEAL, 0.009],
-      [SEAL + 0.001, 0.030],
+      [-0.0022, 0.0022],
+      [-0.0006, -0.0021],
+      [LIP, 0.0012],
     ],
+    fade: perimeterFade,
+  });
+  /**
+   * The black channel: the gasket, the lens's retaining rebate and the shadow
+   * they sit in, which from any distance are one feature.
+   *
+   * The darkness is geometric, not a material trick. The lip's crest stands
+   * 2.1 mm proud and the floor is 12.5-14.2 mm behind the skin, so the sky is
+   * cut off within ~60° of the floor's normal over an 11 mm slot, and the
+   * glass closes the other side. GTAO's 0.18 m radius does the rest.
+   *
+   * **The floor is raked, and which way it tilts is doing real work.** It runs
+   * 1.7 mm deeper as it goes inward, so the normal leans 13° — and because
+   * `frame` sweeps one section round the whole perimeter, that lean is *down*
+   * along the top edge and *up* along the bottom one. The top channel then
+   * looks at the bumper and the road and the bottom one at the sky, which is
+   * the asymmetry the photograph has: 81 at the top against 94 at the bottom,
+   * the top warm (81/67/63) and the bottom cool (94/87/91). One profile, both
+   * readings, with no per-edge special case to get wrong.
+   *
+   * It lands at the reflector's own rim depth so the bowl's `fit` edge meets
+   * it flush; anything shallower leaves an annular void that shows the
+   * housing's aluminium through a 0.4 mm slot.
+   */
+  const gasketGeo = frame({
+    outline: aperture,
+    zAt: FACE, facing: FACING,
+    profile: [
+      [LIP, 0.0012],
+      [LIP + 0.0018, 0.0125],
+      [LIP + GASKET - 0.0016, 0.0142],
+      [LIP + GASKET, 0.0135],
+    ],
+    fade: perimeterFade,
   });
 
   // --- housing -------------------------------------------------------------
   // Closes the aperture off at `Z.lampBack`, the wall the body pressing leaves.
   const housingGeo = slab({
-    outline: inset(aperture, SEAL + 0.002),
+    // **Inboard of the gasket, and starting behind its floor.** At
+    // `inset(aperture, 0.0055)` / `front: 0.012` the rim wall crossed straight
+    // through the new channel at 13 mm, and with `capFront: false` what showed
+    // in the slot was a 7 mm ring of 88 % aluminium — the brightest thing on
+    // the car, exactly where the photograph is at 81.
+    outline: inset(aperture, LIP + GASKET),
     zAt: FACE, facing: FACING,
     // 78 mm keeps the back wall just clear of `Z.lampBack`, the wall the wing
     // pressing already leaves, even where the nose face has rolled 14 mm back.
-    front: 0.012,
+    front: 0.016,
     back: 0.078,
     capFront: false,
     nu: 20, nv: 12,
@@ -572,10 +655,19 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   // surround uses, so part of it presents the sky and part the dark chamber
   // beside it whichever way the camera stands — and it stands 3 mm in front of
   // the bowl rims rather than 1.2, which is what puts its flanks in shadow.
-  const dividerGeo = merge([
-    divider(CHAMBER_SPLIT, CHAMBER_WALL * 2, 0.016, 0.0030, 0.0022),
-    divider(AMBER_SPLIT, 0.0072, 0.018),
-  ])!;
+  const dividerGeo = divider(CHAMBER_SPLIT, CHAMBER_WALL * 2, 0.016, 0.0030, 0.0022);
+  /**
+   * The amber joint, which is the one division on this lamp that is a *gap*
+   * rather than a wall seen through glass.
+   *
+   * It was merged into `headlampDivider` and so wore `reflector()` with it,
+   * which is how a 79-level black line came out as a 4-level bright one. Now
+   * it is a 12 mm rebate 14 mm behind the skin — 12.2 mm below the lens
+   * faces either side of it, so the slot subtends about 45° and the two lens
+   * rims shade it — in `rubber`, and it merges with the perimeter gasket
+   * instead, which costs no draw call because that is the same material.
+   */
+  const amberGasketGeo = divider(AMBER_SPLIT, DIVIDER * 2, 0.024, 0.014);
 
   // --- assembly ------------------------------------------------------------
   const add = (name: string, geo: THREE.BufferGeometry | null, mat: THREE.Material): void => {
@@ -607,8 +699,8 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
     o.traverse((n) => { n.userData.noShadow = true; });
   };
 
-  add('headlampBezel', bezelGeo, chrome);
-  add('headlampSeal', sealGeo, rubber);
+  add('headlampBezel', lipGeo, chrome);
+  add('headlampSeal', merge([gasketGeo, amberGasketGeo]), rubber);
   // **There is no black plastic inside a composite headlamp.** The housing is
   // a black moulding from outside, but every interior surface — the bowl, the
   // shelf around it, the wall between the chambers — is vacuum-aluminised in
@@ -684,6 +776,22 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
 function smoothBand(t: number, lo: number, hi: number): number {
   const k = Math.min(Math.max((t - lo) / (hi - lo), 0), 1);
   return k * k * (3 - 2 * k);
+}
+
+/**
+ * No leg at the outboard end, for the lip and the gasket alike.
+ *
+ * `perimeter` puts the outboard edge at t 0.25-0.5, so this fades out over
+ * the bottom-outboard corner and back in over the top-outboard one: the
+ * strips above and below the glass each run out to the corner radius and
+ * stop. The amber meets the body edge, which is what the photograph shows.
+ * The two parts have to share it — a gasket that kept its 11 mm round the
+ * outboard end would eat that much of the amber's width.
+ */
+function perimeterFade(t: number): number {
+  const a = 1 - smoothBand(t, 0.205, 0.255);
+  const b = smoothBand(t, 0.495, 0.545);
+  return Math.min(a + b, 1);
 }
 
 function divider(
