@@ -209,10 +209,45 @@ export interface PerfSurface {
     n: number; min: number; p05: number; p50: number; p95: number;
     disjoint: number; supported: boolean;
   };
+  /**
+   * Wall clock, in the two forms that mean something. See the note on
+   * `cpuSamples` in `Stage` for why the obvious third form — the minimum
+   * interval between animation-frame callbacks — does not.
+   *
+   * `cpu` is the time the main thread spends inside the frame: building the
+   * command stream and submitting it. Read its `min` for the same reason as
+   * the GPU timer's. `fps` is throughput over the window, which is the only
+   * rate figure here that coalesced callbacks cannot inflate.
+   */
+  wallStats(): {
+    n: number; windowMs: number; fps: number;
+    cpuMin: number; cpuP50: number; cpuP95: number;
+    frameP50: number; frameP95: number; coalesced: number;
+  };
   /** Apply one lever by name; returns whatever the owner reports. */
   set(name: string, value: number | boolean): unknown;
   levers(): string[];
   register(name: string, fn: Lever): void;
+}
+
+/** Longest window any statistic here is taken over. */
+const SAMPLE_CAP = 600;
+
+function push(a: number[], v: number): void {
+  a.push(v);
+  if (a.length > SAMPLE_CAP) a.shift();
+}
+
+function quantiles(a: number[]): (f: number) => number {
+  const s = [...a].sort((x, y) => x - y);
+  return (f: number) =>
+    s.length ? Math.round(s[Math.min(s.length - 1, Math.floor(s.length * f))] * 100) / 100 : 0;
+}
+
+/** The part of the post chain this stage drives. */
+interface Composer {
+  render(dt: number): void;
+  setSize(width: number, height: number): void;
 }
 
 export class Stage {
@@ -223,13 +258,37 @@ export class Stage {
   readonly quality: TierSettings;
 
   /** Set by the post chain once it is installed. */
-  private composer: { render(dt: number): void; setSize(w: number, h: number): void } | null = null;
+  private composer: Composer | null = null;
 
   private clock = new THREE.Clock();
   private frameCount = 0;
-  private fpsSamples: number[] = [];
   private lastCalls = 0;
   private lastTriangles = 0;
+
+  // --- wall clock ---
+  // There are two different wall-clock quantities here and conflating them is
+  // what made the last round's `wall min` meaningless.
+  //
+  // **The interval between animation-frame callbacks is not the frame's
+  // cost.** The browser coalesces callbacks — after a long task, and whenever
+  // the frame-rate limit is off, several fire back to back for work that is
+  // still queued — so a real series reads 40, 0.3, 0.4, 38 ms and its
+  // *minimum* is 0.3. A minimum over that measures the dispatcher, not the
+  // renderer, and it gets cheaper the worse the contention is, which is the
+  // wrong sign.
+  //
+  // So the per-frame cost is measured from *inside* the frame — `cpuSamples`,
+  // the main thread's own time — and the rate is measured as throughput over
+  // the whole window, frames divided by elapsed, which coalescing cannot
+  // inflate because the window's wall time is whatever it was. The interval
+  // survives only at p50/p95, where coalesced samples are a tail rather than
+  // the answer, and with the sub-millisecond ones folded into the interval
+  // that follows so the series still adds up to the window.
+  private cpuSamples: number[] = [];
+  private frameTimes: number[] = [];
+  private frameIntervals: number[] = [];
+  private pendingInterval = 0;
+  private coalesced = 0;
 
   // --- GPU timing ---
   // `performance.now()` around a frame measures the CPU submitting work, not
@@ -332,7 +391,7 @@ export class Stage {
   get width(): number { return this.opts.container.clientWidth; }
   get height(): number { return this.opts.container.clientHeight; }
 
-  setComposer(c: { render(dt: number): void; setSize(w: number, h: number): void } | null): void {
+  setComposer(c: Composer | null): void {
     this.composer = c;
     if (c) c.setSize(this.width, this.height);
   }
@@ -355,6 +414,9 @@ export class Stage {
     // useless exactly when it mattered.
     const rawDt = this.clock.getDelta();
     const dt = Math.min(rawDt, 0.1);
+
+    const t0 = performance.now();
+    this.noteInterval(t0, rawDt * 1000);
     this.renderer.info.reset();
     this.gpuBegin();
     try {
@@ -363,14 +425,11 @@ export class Stage {
     } finally {
       this.gpuEnd();
     }
+    push(this.cpuSamples, performance.now() - t0);
 
     this.lastCalls = this.renderer.info.render.calls;
     this.lastTriangles = this.renderer.info.render.triangles;
     this.frameCount++;
-    if (rawDt > 0) {
-      this.fpsSamples.push(1 / rawDt);
-      if (this.fpsSamples.length > 180) this.fpsSamples.shift();
-    }
     return dt;
   }
 
@@ -379,9 +438,20 @@ export class Stage {
     for (let i = 0; i < n; i++) this.render();
   }
 
+  /**
+   * `fps` is frames divided by the time they took, over the last ~180, and
+   * `ms` is its reciprocal. It used to be the median of `1 / dt` per frame,
+   * which a coalesced callback contributes an arbitrarily large sample to —
+   * a run of them drags the median up exactly when the renderer is in
+   * trouble. Throughput cannot be gamed that way: a coalesced frame still
+   * takes up none of the window, so it adds a frame to the numerator and
+   * nothing to the denominator only if the window really did fit it.
+   */
   stats(): { fps: number; ms: number; drawCalls: number; triangles: number; programs: number } {
-    const s = [...this.fpsSamples].sort((a, b) => a - b);
-    const fps = s.length ? s[Math.floor(s.length / 2)] : 0;
+    const t = this.frameTimes;
+    const from = Math.max(0, t.length - 180);
+    const span = t.length - from > 1 ? t[t.length - 1] - t[from] : 0;
+    const fps = span > 0 ? ((t.length - 1 - from) * 1000) / span : 0;
     return {
       fps,
       ms: fps > 0 ? 1000 / fps : 0,
@@ -422,6 +492,33 @@ export class Stage {
     });
     this.renderer.shadowMap.needsUpdate = true;
     return applied;
+  }
+
+  // --- wall clock ------------------------------------------------------------
+
+  /**
+   * Record when this frame started and how long since the last one.
+   *
+   * A gap under a millisecond is the browser handing out two callbacks for
+   * one display refresh. It is not a frame that took 0.3 ms, so it is not
+   * recorded as one — its time is carried into the next interval, which keeps
+   * the recorded intervals summing to the window instead of leaving a hole.
+   */
+  private noteInterval(now: number, gapMs: number): void {
+    push(this.frameTimes, now);
+    this.pendingInterval += gapMs;
+    if (this.frameTimes.length < 2) { this.pendingInterval = 0; return; }
+    if (this.pendingInterval < 1) { this.coalesced++; return; }
+    push(this.frameIntervals, this.pendingInterval);
+    this.pendingInterval = 0;
+  }
+
+  private wallReset(): void {
+    this.cpuSamples.length = 0;
+    this.frameTimes.length = 0;
+    this.frameIntervals.length = 0;
+    this.pendingInterval = 0;
+    this.coalesced = 0;
   }
 
   // --- GPU timer -------------------------------------------------------------
@@ -503,18 +600,33 @@ export class Stage {
         this.gpuEnabled = on && !!this.timerExt;
         this.gpuSamples.length = 0;
         this.gpuDisjoint = 0;
+        // One call opens both windows, so a probe that reads `gpuStats` and
+        // `wallStats` together is reading the same frames in both.
+        this.wallReset();
         // Queries already in flight belong to the window that just ended.
         this.timerFree.push(...this.timerPending);
         this.timerPending.length = 0;
         return this.gpuEnabled;
       },
       gpuStats: () => {
-        const s = [...this.gpuSamples].sort((a, b) => a - b);
-        const at = (f: number): number =>
-          s.length ? Math.round(s[Math.min(s.length - 1, Math.floor(s.length * f))] * 100) / 100 : 0;
+        const at = quantiles(this.gpuSamples);
         return {
-          n: s.length, min: at(0), p05: at(0.05), p50: at(0.5), p95: at(0.95),
+          n: this.gpuSamples.length, min: at(0), p05: at(0.05), p50: at(0.5), p95: at(0.95),
           disjoint: this.gpuDisjoint, supported: !!this.timerExt,
+        };
+      },
+      wallStats: () => {
+        const cpu = quantiles(this.cpuSamples);
+        const fr = quantiles(this.frameIntervals);
+        const t = this.frameTimes;
+        const windowMs = t.length > 1 ? t[t.length - 1] - t[0] : 0;
+        return {
+          n: this.cpuSamples.length,
+          windowMs: Math.round(windowMs),
+          fps: windowMs > 0 ? Math.round(((t.length - 1) * 1000 * 10) / windowMs) / 10 : 0,
+          cpuMin: cpu(0), cpuP50: cpu(0.5), cpuP95: cpu(0.95),
+          frameP50: fr(0.5), frameP95: fr(0.95),
+          coalesced: this.coalesced,
         };
       },
       set: (name, value) => {

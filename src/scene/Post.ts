@@ -154,6 +154,8 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   let bloomAllowed = q.bloom;
   let dofAllowed = q.dof;
   let maskMode = false;
+  /** Measurement only — see the `shadowEveryFrame` lever below. */
+  let forceShadow = false;
 
   // The accumulator only drops its converged buffer when something MOVES.
   // A repaint moves nothing, so a colour change was being averaged at 1/n
@@ -357,6 +359,19 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   perf?.register('dof', (v) => (dofAllowed = !!v));
   perf?.register('accumSamples', (v) => { accum.maxSamples = Number(v); accum.reset(); return accum.maxSamples; });
   perf?.register('msaa', (v) => { scenePass.setSamples(Number(v)); accum.reset(); return Number(v); });
+  // A frame at rest re-renders the shadow map once in fifteen; a frame being
+  // driven re-renders it every time. So an A/B taken from a pinned pose — the
+  // only kind that is stable on this machine — understates the shadow map by
+  // about fifteen times and makes `shadowMapSize` look free. Forcing the
+  // update makes a still frame cost what a moving one costs, which is the
+  // frame the question is actually about.
+  perf?.register('shadowEveryFrame', (v) => (forceShadow = !!v));
+  // The three bloom parameters, so the halo can be searched for in one boot.
+  // `applyGrade` only rewrites them when the environment preset changes, so a
+  // value set here survives until then.
+  perf?.register('bloomStrength', (v) => (bloom.strength = Number(v)));
+  perf?.register('bloomThreshold', (v) => (bloom.threshold = Number(v)));
+  perf?.register('bloomRadius', (v) => (bloom.radius = Number(v)));
 
   return {
     render(dt: number): void {
@@ -385,7 +400,8 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       // the accumulation does, with a periodic refresh to catch anything the
       // signature cannot see (wheels turning on the spot, a door opening).
       frameCount++;
-      renderer.shadowMap.needsUpdate = inMotion || accum.index <= 2 || frameCount % 15 === 0;
+      renderer.shadowMap.needsUpdate =
+        forceShadow || inMotion || accum.index <= 2 || frameCount % 15 === 0;
 
       // Sub-pixel jitter for this accumulation sample. Perspective projections
       // shear cleanly: nudging m02/m12 slides the whole frustum sideways
