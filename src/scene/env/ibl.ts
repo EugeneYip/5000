@@ -174,6 +174,29 @@ void main() {
 interface Furniture {
   group: THREE.Group;
   apply(preset: EnvPreset, sunDir: THREE.Vector3): void;
+  /**
+   * The transmission the canopy model *asks* for in a direction, so a probe
+   * can check it against what the layer delivers.
+   *
+   * **They disagree, and the gap is load-bearing.** The density solve prices
+   * a lobe as a sphere of `LOBE_SA`; the lobes are scaled `(1, 0.74, 1)`, so
+   * the disc a probe sees is smaller than the sphere that was paid for, and
+   * they are dropped through `clumpAt`, where coverage `1 - exp(-lambda*Om)`
+   * is concave in the rate and clumping at a constant mean therefore delivers
+   * less than the uniform process the solve assumes. Measured over 60
+   * directions by rendering the bake scene's cone twice, once with
+   * `ibl:canopy` visible and once hidden (`scratchpad/pb3_cover.mjs`),
+   * delivered opacity against asked opacity came to **0.598**.
+   *
+   * Do not "fix" that without re-fitting the colour. `COVER_KERB`,
+   * `COVER_ROAD` and the bonnet-thirds solve were all calibrated against the
+   * layer as *delivered*, so closing the gap darkens the car: scaling the
+   * requested optical depth by 1.33 took the gate's dRGB from 6.8 to **14.9**
+   * (past its aim of 12) while improving tone profile 16.1 to 14.8, and it
+   * moved the paint's highlight not at all. The patch is kept at
+   * `scratchpad/pb3_delivery.patch` for whoever re-fits the two together.
+   */
+  ask?(azDeg: number, elDeg: number): number;
 }
 
 /**
@@ -768,7 +791,13 @@ function buildStreet(): Furniture {
   const CANOPY_GOLD = new THREE.Color(1.0, 0.8, 0.42);
   const bakedSky = new THREE.Color();
 
+  const ask = (azDeg: number, elDeg: number): number => {
+    const a = azDeg * (Math.PI / 180), e = elDeg * (Math.PI / 180);
+    return layerTransmit(coverAt(Math.sin(a), Math.sin(e)));
+  };
+
   return {
+    ask,
     group,
     apply(preset, sunDir) {
       // The sun's irradiance, resolved onto the two orientations that matter.
@@ -1264,8 +1293,54 @@ export function createIbl(renderer: THREE.WebGLRenderer, skyUniforms: SkyUniform
     return out;
   };
 
+  /**
+   * The same render as `sample`, but every texel rather than their mean.
+   *
+   * `sample` averages a 24 x 24 patch, and the average is exactly what hides
+   * the thing a highlight round is looking for: a panel's specular lobe does
+   * not see the mean of its cone, it sees the *distribution*, and a cone whose
+   * mean is right can still be a flat wash with no bright texel in it. Returns
+   * linear radiance, tone mapping off, N x N x 3, so a probe can take
+   * percentiles of the environment in the directions a panel actually mirrors.
+   */
+  const image = (
+    dir: readonly [number, number, number],
+    fovDeg = 30,
+    n = 192,
+  ): number[] => {
+    const rt = new THREE.WebGLRenderTarget(n, n, { type: THREE.FloatType });
+    const buf = new Float32Array(n * n * 4);
+    const prevTarget = renderer.getRenderTarget();
+    const prevTone = renderer.toneMapping;
+    // Clear black for the reason given against `sample`: the app's clear
+    // colour is a bright blue and it lands in every unfilled direction.
+    const prevClear = renderer.getClearColor(_clear).clone();
+    const prevAlpha = renderer.getClearAlpha();
+    const prevAuto = renderer.autoClear;
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.autoClear = true;
+    renderer.setClearColor(0x000000, 1);
+    const cam = new THREE.PerspectiveCamera(fovDeg, 1, 0.1, 400);
+    cam.position.copy(PROBE);
+    cam.lookAt(PROBE.x + dir[0], PROBE.y + dir[1], PROBE.z + dir[2]);
+    cam.updateMatrixWorld(true);
+    renderer.setRenderTarget(rt);
+    renderer.render(scene, cam);
+    renderer.readRenderTargetPixels(rt, 0, 0, n, n, buf);
+    renderer.setRenderTarget(prevTarget);
+    renderer.toneMapping = prevTone;
+    renderer.setClearColor(prevClear, prevAlpha);
+    renderer.autoClear = prevAuto;
+    rt.dispose();
+    const out: number[] = [];
+    for (let i = 0; i < n * n; i++) out.push(buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2]);
+    return out;
+  };
+
   (globalThis as unknown as Record<string, unknown>).__IBL_DBG = {
-    scene, cubeRT, renderer, probe: PROBE, groundUniforms, sample,
+    scene, cubeRT, renderer, probe: PROBE, groundUniforms, sample, image,
+    /** The layer's *requested* transmission, to check delivery against. */
+    ask: street.ask,
     rebake: (p: EnvPreset, s: { x: number; y: number; z: number }): void =>
       bake(p, new THREE.Vector3(s.x, s.y, s.z)),
   };

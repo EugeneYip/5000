@@ -367,8 +367,66 @@ export const HP = {
      */
     archLipXRear: HW - 0.045,
     archRadius: R + 0.082,
-    /** Arches are not circular — they flatten at the top. */
-    archFlatten: 0.88,
+    /**
+     * Arches are not circular — they flatten at the top.
+     *
+     * **0.88 → 0.940, and the brief that produced this was wrong twice over.**
+     * Two rounds chased "archFlatten eats 47 mm of the crown" against a model
+     * lip of 652 mm. Both figures are superseded: **the arch never moved,
+     * `664ff79` moved the tyre.** `archTopY = archCenterY + archRadius ×
+     * archFlatten = 307.3 + 389.3 × 0.88 = **649.9 mm** above the contact
+     * line, analytically and at both ends, and with the hubs now at loaded
+     * radii the clearance over the tyre is **63.3 front / 51.3 rear**, not 37.
+     *
+     * Reference, `bat3_side_profile` by direct image read on the contact-line
+     * datum, V-segmented, and **confirmed by marking the detected row back
+     * onto the frame and looking at it** — the line lands on the lip at both
+     * ends:
+     *
+     *     front arch lip crown   673.2 mm     model 649.9     +23.3
+     *     rear  arch lip crown   632.6 mm     model 649.9     −17.3
+     *
+     * 0.940 puts the front lip at 673.2 and the clearance at 86.6, against the
+     * references' 83.5 and 86. The two routes agree at the front to 3 mm.
+     *
+     * **`archRadius = R + 0.082` stays, confirmed independently**: with
+     * flatten 0.94 the superellipse gives 641.4 mm at dz ±210 and 566.8 at
+     * ±315, against the reference's measured 632-638 and 555-566. The shape
+     * and the exponent are right; only the crown was short.
+     *
+     * ⚠ **Measurement trap specific to this.** A "lowest painted hit / highest
+     * tyre hit" pick loop over an arch measures the arch *opening's*
+     * silhouette, not the lip — the tyre stops being the frontmost hit exactly
+     * at the lip, so it reports a flat 537 mm across ±200 mm and looks like a
+     * rectangular arch. Use a direct image read and verify it by overlay.
+     *
+     * ## What this does to the front furniture
+     *
+     * The chain in the note at `HP.front.bumperTopY` used a 0.699 lip; the
+     * measurement says **0.6732**. With `arch lip − bead top = 104.4 / 104.0`
+     * the bead goes to **0.5688**, not 0.595 — and 0.5688 lands on the
+     * photographs' own absolute of 567, so the datum-free relation and the
+     * absolute now agree to 2 mm. That is **63 mm down from the current 0.632,
+     * not 47.**
+     *
+     * ## Keep the arch centres at `R`
+     *
+     * `archCenterY()` in `surface.ts` reads `archFrontCenter[1]` /
+     * `archRearCenter[1]` rather than `HP.wheelRadius`; both still carry `R`,
+     * so it is bit-identical today and follows automatically if they move.
+     * But if they ever come down to the loaded radii the required flattens
+     * become **1.012 front / 0.877 rear**, and a "flatten" above 1 breaks the
+     * constant's meaning. They should stay at `R`.
+     */
+    archFlatten: 0.940,
+    /**
+     * **One constant cannot serve both ends.** The reference's rear lip sits
+     * **40.6 mm below its front** (632.6 against 673.2), which the table in
+     * the `HP.front.bumperTopY` note independently says from a different
+     * measurement (640 against 671). Same split `archLipX` / `archLipXRear`
+     * already carries.
+     */
+    archFlattenRear: 0.836,
 
     /** Door shutlines, measured at the beltline. */
     doorFrontZ: -0.455,
