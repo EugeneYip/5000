@@ -28,7 +28,7 @@ import { Z_TAIL_END } from '@/car/body/surface';
 import { sideNormal, sidePoint, sideX, skinFrame, roofOuterNormal, roofOuterPoint, type SkinFrame } from './bodyref';
 import { badgeText } from './glyphs';
 import {
-  at, clamp, DEG, dish, framesFrom, lathe, lerp, merge, mesh, mirrorX, offsetPolyline,
+  at, clamp, DEG, framesFrom, lathe, lerp, merge, mesh, mirrorX, offsetPolyline,
   roundedBox, smoothstep, sweep, type Frame, type Pt,
 } from './util';
 
@@ -273,32 +273,110 @@ function onSkin(z: number, f: Frame, sec: ReadonlyArray<Pt>): Pt[] {
   return onSkinAt(z, f, STRIP_Y, sec);
 }
 
+/**
+ * The moulding is **four extrusions, not one** — fender, front door, rear
+ * door, quarter — and it was built as a single 4.2 m sweep with no joint in
+ * it anywhere.
+ *
+ * That is the clearest "injection-moulded in one piece" signal the flank can
+ * give, and it is measurable. Picked at `side`, x 865 (the rear door cut), the
+ * gap's depth against the local level per band:
+ *
+ *                      built      `bat3_side_profile.jpg`, same bands
+ *     paint              107      143   (2 px at half depth, 5 mm)
+ *     bright cap + band    0.5     42 on the cap / 11 on the band, to **L 2**
+ *     paint below         21      114
+ *
+ * So the strip's gap did not exist at all. On the photograph the joint is the
+ * strongest dark feature in the whole moulding: at 8x the two end caps are
+ * rolled over, the bright cap stops and restarts with a lit nose on the aft
+ * piece, and the void between them reads **L 2–6 in an 8 mm width** — darker
+ * than the band it interrupts, because you are looking into the gap.
+ *
+ * Gap width measured on that frame at the two door cuts: **3 px at half depth
+ * through the moulding = 7.9 mm**, against 2 px / 5.2 mm through the paint
+ * above. The moulding's gap is the wider of the two, which is what the rolled
+ * end caps do to it, so it is not `QUALITY.panelGap` and is not derived from
+ * it.
+ *
+ * (The paint-below band, 21 against 114, is the body's shutline on `doorFR`
+ * tumbling under at −21° — not this part. Reported, not touched.)
+ */
+const STRIP_JOINT_GAP = 0.0079;
+/**
+ * How far back from a joint the section starts rolling in, and how much of
+ * itself is left at the end face.
+ *
+ * Short and shallow where the outer ends are long and deep: an outer end dies
+ * into a wheel arch over 45 mm and wants to disappear, a panel joint is a
+ * moulded end cap 16 mm long that keeps most of the band's height — the
+ * photograph has the black band almost full depth right up to the void.
+ */
+const STRIP_JOINT_TAPER = 0.016;
+const STRIP_JOINT_SCALE = 0.72;
+const STRIP_END_TAPER = 0.045;
+const STRIP_END_SCALE = 0.55;
+
+/** Rear-to-front spans of the four extrusions, with the joint voids removed. */
+function stripSpans(): Array<[number, number]> {
+  const g = STRIP_JOINT_GAP / 2;
+  // Aft is −z, so sorting ascending walks the cuts from the tail forwards.
+  const cuts = [S.doorFrontZ, S.doorMidZ, S.doorRearZ].sort((a, b) => a - b);
+  const out: Array<[number, number]> = [];
+  let rear = STRIP_REAR_Z;
+  for (const z of cuts) {
+    if (z - g <= rear) continue;
+    out.push([rear, z - g]);
+    rear = z + g;
+  }
+  out.push([rear, S.rubStripFrontZ]);
+  return out;
+}
+
 function rubbingStrip(): { body: THREE.BufferGeometry; bright: THREE.BufferGeometry } {
-  const frames = flankFrames(STRIP_REAR_Z, S.rubStripFrontZ, STRIP_Y, STRIP_FRAMES);
-  const span = Math.abs(S.rubStripFrontZ - STRIP_REAR_Z);
-  const capFrac = 0.045 / span;
-  const zAt = (j: number): number => lerp(STRIP_REAR_Z, S.rubStripFrontZ, j / STRIP_FRAMES);
-  const taper = (t: number): number =>
-    lerp(0.55, 1, smoothstep(clamp(Math.min(t, 1 - t) / capFrac, 0, 1)));
-
-  const body = sweep(
-    (j, t) => onSkin(zAt(j), frames[j], stripSection(taper(t))),
-    frames,
-    { closed: true, capStart: true, capEnd: true, uvScale: 0.25 },
-  );
-
-  // The bright line along the top edge, offset off the moulding's own profile
-  // so the two can never drift apart.
+  const spans = stripSpans();
+  const total = Math.abs(S.rubStripFrontZ - STRIP_REAR_Z);
+  // The whole run keeps its old station pitch, so splitting it costs the
+  // moulding nothing in triangles beyond six more end caps.
+  const pitch = total / STRIP_FRAMES;
   const line = offsetPolyline(STRIP_FACE.slice(0, 4), -0.0014);
-  const bright = sweep(
-    (j, t) => {
-      const k = taper(t);
-      return onSkin(zAt(j), frames[j], line.map(([x, y]) => [x * k, y * k] as Pt));
-    },
-    frames,
-    { uvScale: 0.25 },
-  );
-  return { body, bright };
+  const bodies: THREE.BufferGeometry[] = [];
+  const brights: THREE.BufferGeometry[] = [];
+
+  for (let s = 0; s < spans.length; s++) {
+    const [zRear, zFront] = spans[s];
+    const len = Math.abs(zFront - zRear);
+    const n = Math.max(6, Math.round(len / pitch));
+    const frames = flankFrames(zRear, zFront, STRIP_Y, n);
+    const zAt = (j: number): number => lerp(zRear, zFront, j / n);
+    // t is 0 at the aft end of this piece and 1 at its forward end.
+    const rearOuter = s === 0;
+    const frontOuter = s === spans.length - 1;
+    const taper = (t: number): number => {
+      const a = lerp(rearOuter ? STRIP_END_SCALE : STRIP_JOINT_SCALE, 1,
+        smoothstep(clamp((t * len) / (rearOuter ? STRIP_END_TAPER : STRIP_JOINT_TAPER), 0, 1)));
+      const b = lerp(frontOuter ? STRIP_END_SCALE : STRIP_JOINT_SCALE, 1,
+        smoothstep(clamp(((1 - t) * len) / (frontOuter ? STRIP_END_TAPER : STRIP_JOINT_TAPER), 0, 1)));
+      return Math.min(a, b);
+    };
+
+    bodies.push(sweep(
+      (j, t) => onSkin(zAt(j), frames[j], stripSection(taper(t))),
+      frames,
+      { closed: true, capStart: true, capEnd: true, uvScale: 0.25 },
+    ));
+    // The bright line along the top edge, offset off the moulding's own
+    // profile so the two can never drift apart.
+    brights.push(sweep(
+      (j, t) => {
+        const k = taper(t);
+        return onSkin(zAt(j), frames[j], line.map(([x, y]) => [x * k, y * k] as Pt));
+      },
+      frames,
+      { uvScale: 0.25 },
+    ));
+  }
+  return { body: merge(bodies), bright: merge(brights) };
 }
 
 // ---------------------------------------------------------------------------
@@ -424,19 +502,144 @@ function lowerCladding(): THREE.BufferGeometry {
 // ---------------------------------------------------------------------------
 
 /**
+ * ## The handle was an outline of itself, and the reason is a hard constraint
+ *
+ * What rendered at `side` was a 2–3 px bright rounded rectangle with the
+ * door's own paint inside it — `pick` at x 690 / y 393, dead centre of the
+ * handle, returned `doorFR` and material `paint`. Nothing of the handle was in
+ * front of the door skin:
+ *
+ *  · `dish(…, { rim: 0.0010 })` puts the pocket's **boundary** 1 mm proud and
+ *    its floor at `rim − (depth + rim)` = **−26 mm**, i.e. 26 mm *behind* the
+ *    paint. The 1 mm boundary ring was the entire visible part; that ring is
+ *    the "outline", and it blooms, which is the white halo round it.
+ *  · the lever was placed at `dn = −0.0098` with a 15 mm section, so its front
+ *    face sat **2.3 mm behind the skin**. It was never visible from anywhere.
+ *
+ * **And a recess cannot be shown here at all.** `doorFR` is a single-sided
+ * lofted panel with no aperture in it, so it wins the depth test against
+ * anything behind it. Measured with `pick` on the live scene — world points on
+ * the door skin against the tangent plane at the handle's own station
+ * (0.8690, 0.9060, −1.1310), over ±67 mm in z and ±33 mm in y — the skin
+ * falls away from that plane by **0.0 to 0.86 mm** and nowhere more. That is
+ * the whole depth budget for anything built behind the tangent plane. A 12 mm
+ * pressing needs the door skin to carry it; it is reported, not worked around.
+ *
+ * ## So it is built proud, and the shading does the work
+ *
+ * Structure measured on `bat3_side_profile.jpg` at 2.6212 mm/px, column
+ * through the front-door handle (ref x 1040, y 789→819):
+ *
+ *     dish, body colour, L 227–233      the pressing's upper face
+ *     thin dark line                    y 799, L 144
+ *     lever top face, lit               y 801–803, L 199–211, ~6 mm
+ *     finger gap, hard black            y 805–810, **L 7–65**, ~10 mm
+ *     dish lower half                   L 124→190, rising
+ *
+ * and in plan the lever bar runs ref x 980→1044 = **168 mm** with the lock pod
+ * butted onto its aft end (to x 1072, so 215 mm over the assembly), while the
+ * dish's own wall is 115 × 90 mm.
+ *
+ * Three of those four rows are proud of the paint on the real car, so three of
+ * them can be built: the lit lever, the black gap under it, and the lock. The
+ * dish is the one that needs depth, and it gets `HANDLE.crest`/`depth` — a
+ * 4 mm swell scooped 3.6 mm back, floor 0.4 mm proud, which is the deepest
+ * scoop that keeps every vertex in front of the skin. Its wall still turns
+ * through ~21°, which is what puts a tone step across it.
+ *
+ * The pressing's **boundary is laid on the skin, not on the tangent plane** —
+ * same reason `onSkin` exists for the moulding. On the plane its edge would
+ * stand up to 0.86 mm proud at the corners and draw exactly the hairline
+ * outline this function exists to remove.
+ */
+const HANDLE = {
+  /** Outer boundary of the pressing, where it is flush with the door skin. */
+  size: [0.148, 0.118] as [number, number],
+  /** Rounded rectangle, not an ellipse. */
+  shape: 2.6,
+  /** Superellipse radii: crest ring, inner edge of the wall, floor. */
+  rCrest: 0.80,
+  rWall: 0.74,
+  rFloor: 0.34,
+  crest: 0.0040,
+  depth: 0.0036,
+  rings: 9,
+  spokes: 40,
+};
+
+/** `HANDLE.crest - HANDLE.depth` — the pocket floor, still proud of the paint. */
+const HANDLE_FLOOR = HANDLE.crest - HANDLE.depth;
+
+/**
+ * The pressing: a superellipse height field whose every vertex is placed on
+ * `sidePoint` at its own height and then lifted along the local normal, so the
+ * boundary is flush with the door however the flank is shaped there.
+ *
+ * `dish()` cannot do this — it ends at a hard rim and is built on one plane.
+ */
+function handlePressing(z0: number, y0: number): THREE.BufferGeometry {
+  const [w, h] = HANDLE.size;
+  const { shape: p, rCrest, rWall, rFloor, crest, depth, rings, spokes } = HANDLE;
+  const liftAt = (r: number): number =>
+    crest * (1 - smoothstep(clamp((r - rCrest) / (1 - rCrest), 0, 1)))
+    - depth * (1 - smoothstep(clamp((r - rFloor) / (rWall - rFloor), 0, 1)));
+
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const pt = new THREE.Vector3();
+  const push = (dz: number, dy: number, lift: number, u: number, v: number): void => {
+    const y = y0 + dy;
+    pt.copy(sidePoint(z0 + dz, y)).addScaledVector(sideNormal(z0 + dz, y), lift);
+    pos.push(pt.x, pt.y, pt.z);
+    uv.push(u, v);
+  };
+
+  push(0, 0, liftAt(0), 0.5, 0.5);                     // centre of the fan
+  for (let i = 1; i <= rings; i++) {
+    const r = i / rings;
+    for (let j = 0; j < spokes; j++) {
+      const a = (j / spokes) * Math.PI * 2;
+      const c = Math.cos(a), s = Math.sin(a);
+      // Superellipse of exponent p at radius r.
+      const ex = Math.sign(c) * Math.pow(Math.abs(c), 2 / p);
+      const ey = Math.sign(s) * Math.pow(Math.abs(s), 2 / p);
+      push(r * ex * w / 2, r * ey * h / 2, liftAt(r), 0.5 + 0.5 * r * ex, 0.5 + 0.5 * r * ey);
+    }
+  }
+  const at2 = (i: number, j: number): number => 1 + (i - 1) * spokes + (j % spokes);
+  for (let j = 0; j < spokes; j++) idx.push(0, at2(1, j), at2(1, j + 1));
+  for (let i = 1; i < rings; i++) {
+    for (let j = 0; j < spokes; j++) {
+      const a = at2(i, j), b = at2(i, j + 1), c = at2(i + 1, j), d = at2(i + 1, j + 1);
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
  * Pre-facelift recessed pull handle (§6.8).
  *
- * A pocket pressed into the door skin — body-coloured, because it *is* the
- * door skin — with a black lever across its top and the finger gap under it.
- * The lock barrel goes on the driver's door only, which on a LHD car is the
- * left one.
+ * `lever` is the bar, `gap` the shadowed finger void beneath it, `bright` the
+ * lock barrel. The lock goes on the driver's door, and on an LHD car — which
+ * `bat3_side_profile.jpg` is, because the flank it shows has one — that is the
+ * car's **left**, i.e. **+X** (see the frame note in `hardpoints.ts`). It was
+ * mirrored to −X, so the one flank the `side` pose looks at was the one
+ * without it.
  */
-function handle(f: SkinFrame, withLock: boolean): {
+function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
   pocket: THREE.BufferGeometry;
   lever: THREE.BufferGeometry;
+  gap: THREE.BufferGeometry;
   bright: THREE.BufferGeometry;
 } {
-  const [w, h, d] = S.handleSize;
+  const [w, h] = S.handleSize;
   const m = new THREE.Matrix4().makeBasis(f.along, f.up, f.n);
   const place = (g: THREE.BufferGeometry, dx: number, dy: number, dn: number): THREE.BufferGeometry => {
     g.applyMatrix4(m);
@@ -448,9 +651,19 @@ function handle(f: SkinFrame, withLock: boolean): {
     return g;
   };
 
-  const pocket = place(dish(w + 0.030, h + 0.030, d, { shape: 4.2, rim: 0.0010, floor: 0.46 }), 0, 0, 0);
-  // Lever across the top of the pocket; the gap beneath it is the finger hole.
-  const lever = place(roundedBox(w - 0.014, h * 0.54, 0.015, 0.0038), -0.002, h * 0.26, -0.0098);
+  const pocket = handlePressing(z0, y0);
+  // The bar, standing 8 mm off the paint. A tight top radius on purpose: the
+  // one row the photograph has at L 199-211 is a specular highlight on that
+  // radius, not a bright insert, so the radius is the feature.
+  const barH = h * 0.34;
+  const barY = h * 0.30;
+  const lever = place(roundedBox(w - 0.014, barH, 0.0080, 0.0022), -0.002, barY, HANDLE_FLOOR + 0.0044);
+  // The finger void. Modelled rather than left to the shadow map, because the
+  // feature is 10 mm tall and no shadow cascade on this car resolves that; on
+  // the photograph it is the darkest thing on the door at L 7.
+  const gapH = 0.0095;
+  const gap = place(roundedBox(w - 0.022, gapH, 0.0030, 0.0008),
+    -0.002, barY - barH / 2 - gapH / 2 + 0.0010, HANDLE_FLOOR + 0.0013);
 
   const bright: THREE.BufferGeometry[] = [];
   if (withLock) {
@@ -459,10 +672,12 @@ function handle(f: SkinFrame, withLock: boolean): {
       [0.0104, -0.0012], [0.0104, -0.0090], [0, -0.0090],
     ], 18);
     barrel.rotateX(Math.PI / 2);
-    bright.push(place(barrel, w / 2 + 0.020, 0, 0.0016));
+    // Butted onto the bar's aft end, which is where the photograph has it —
+    // not floating 27 mm beyond it.
+    bright.push(place(barrel, (w - 0.014) / 2 + 0.013, barY * 0.4, HANDLE_FLOOR + 0.0026));
   }
 
-  return { pocket, lever, bright: merge(bright) };
+  return { pocket, lever, gap, bright: merge(bright) };
 }
 
 // ---------------------------------------------------------------------------
@@ -624,14 +839,14 @@ export function buildSides(ctx: BuildContext): THREE.Group {
   const levers: THREE.BufferGeometry[] = [];
   const locks: THREE.BufferGeometry[] = [];
   for (const [z, isFront] of [[S.handleFrontCenter[2], true], [S.handleRearCenter[2], false]] as const) {
-    const right = handle(skinFrame(z, S.handleFrontCenter[1]), false);
-    pockets.push(right.pocket, mirrorX(right.pocket));
-    levers.push(right.lever, mirrorX(right.lever));
-    // LHD car: the lock barrel is on the driver's — left-hand — front door.
-    if (isFront) {
-      const left = handle(skinFrame(z, S.handleFrontCenter[1]), true);
-      locks.push(mirrorX(left.bright));
-    }
+    const y = S.handleFrontCenter[1];
+    const h = handle(skinFrame(z, y), z, y, isFront);
+    pockets.push(h.pocket, mirrorX(h.pocket));
+    // The void goes in with the lever, not with the pressing: both want
+    // `blackTrim` and merging them keeps the handle at two draws, not three.
+    levers.push(h.lever, h.gap, mirrorX(h.lever), mirrorX(h.gap));
+    // LHD car: the lock barrel is on the driver's — left-hand, +X — front door.
+    if (isFront) locks.push(h.bright);
   }
   group.add(mesh('doorHandlePockets', merge(pockets), paint));
   group.add(mesh('doorHandleLevers', merge(levers), dark));
