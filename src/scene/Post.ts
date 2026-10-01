@@ -198,12 +198,133 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   renderer.shadowMap.autoUpdate = false;
   renderer.shadowMap.needsUpdate = true;
 
+  // --- the glare's shape across octaves --------------------------------------
+  //
+  // `UnrealBloomPass` composites five blurred mip levels. The finest is at HALF
+  // resolution with a kernel-6 separable Gaussian, so it reaches about ±12
+  // full-resolution pixels; each level after it doubles that. The amplitude
+  // each contributes is `mix(bloomFactors[i], 1.2 - bloomFactors[i], radius)`,
+  // and the shipped `radius` of 0.5 is the one value that makes all five
+  // EQUAL — every octave at 0.6.
+  //
+  // Equal amplitude per octave is a pedestal, not a glare. Measured against
+  // the grille recess, which is the nearest thing to absolute black on this
+  // car, the floor beside the headlamp lens was a pure function of distance
+  // from it — 202 at 1-3 px, 137 at 6-7 px, 64 at 20 px, 28 at 50 px — and the
+  // same curve appeared at three rows 20 px apart, which is a kernel and not
+  // geometry. It is why the lamp gaskets could not be made to exist: a lamp
+  // stream replaced the gasket surface with an absolute black (metalness 1,
+  // F0 = 0, no IBL) and the groove moved by ZERO levels, 202 either way.
+  //
+  // So the weighting is a parameter now, and one number rather than five.
+  // Octave i gets weight proportional to `k^i`, renormalised so the five sum
+  // to 3.0 — which is what they sum to at EVERY value of `radius`, the
+  // algebra being Σ[f(1−r) + (1.2−f)r] = 3(1−r) + 3r. Holding that sum is what
+  // makes a falloff comparable to the shipped state: the total glare is
+  // unchanged and only its distribution across octaves moves.
+  //
+  //   k = 1   flat, every octave 0.6 — the shipped behaviour exactly
+  //   k > 1   coarse-dominant: the near-field pedestal comes off and the wide
+  //           wash carries the energy instead
+  //   k < 1   fine-dominant, which is worse on both counts
+  //
+  // Coarse-dominant is also the direction the colour gate wants, which is not
+  // obvious and was measured rather than assumed: the ~14 levels by which the
+  // glare lifts the paint come from the sky, which is a huge low-frequency
+  // source, so that lift lives in the coarse octaves. Shifting weight the
+  // other way (`radius` 0.5 → 0) took the paint DOWN, (94,107,137) to
+  // (90,103,135), and dRGB 6.0 → 7.5.
+  //
+  // `radius` is pinned to 0 while a falloff is in force, because
+  // `lerpBloomFactor` would otherwise mirror the weights back toward flat.
+  const MIP_SUM = 3.0;
+
+  /**
+   * The shipped weighting, as a multiplier on the flat 0.6 each octave used to
+   * get. **This is the headlamp gasket fix.**
+   *
+   * Measured by zeroing one octave at a time at `photomatch`, reading the
+   * grille recess beside the lens (the nearest thing to absolute black on this
+   * car) at x 950 against the colour gate. What each octave owns:
+   *
+   *   octave  reach   halo at x950   gate if removed
+   *   1       ±12 px       4         no change at all
+   *   2       ±24 px      43         dRGB 6.0 -> 5.2, below-40 unchanged
+   *   3       ±48 px      28         tone 16.3 -> 19.7, below-40 9.0 -> 10.6
+   *   4       ±96 px       8         dRGB 6.0 -> 9.4, below-40 9.0 -> 12.1
+   *   5      ±192 px       2         dRGB 6.0 -> 6.7, below-40 9.0 -> 10.7
+   *
+   * So the near octaves are almost pure defect and the far octaves are almost
+   * pure gate: octave 2 alone is a third of the halo and costs the gate
+   * nothing, while octave 4 is 8 levels of halo and is holding dRGB and the
+   * shadow tail up on its own. The glare the gate needs is the sky's wash,
+   * which is a huge low-frequency source and therefore lives in octaves 4-5;
+   * the halo is the lamp's own glare at short range, which lives in 1-3.
+   *
+   * Hence: octaves 1-2 off, 3 at a sixth, 4-5 up by 1.42 to buy back what 1-3
+   * were contributing to the gate. The sum falls from 3.0 to 1.81, so this is
+   * 40 % less glare in total — the 40 % that was sitting on the paintwork
+   * beside bright objects rather than veiling the frame.
+   *
+   * Measured against the control at 1600x900, which is the gate's resolution:
+   *
+   *                       x950 y430/450/470     dRGB   tone   <40     >224
+   *   flat 0.6 (before)      124 / 131 /  90     6.0   16.3   9.0 %   7.1 %
+   *   this                    50 /  55 /  53     4.8   16.4   8.8 %   6.7 %
+   *
+   * `above 224` is the one figure that does not come back, in this or any
+   * other weighting tried, and it should not: those pixels were glare painted
+   * over the gasket groove, not highlights. The photograph's 10.3 % is an
+   * albedo ceiling on the plate and the lenses — see the note in
+   * `env/presets.ts` — and 0.4 points of what we had was counterfeit.
+   *
+   * A flatter alternative that conserves the total (`bloomMipFalloff`) was
+   * tried first and rejected: redistributing 3.0 across the octaves takes the
+   * halo from 131 only to 64 at best, and pays for it by lifting the far field
+   * everywhere, which drags `below 40` from 9.0 % to 6.1 %. The energy has to
+   * leave, not move.
+   *
+   * Why `bloomRadius` is pinned to 0 below: the composite applies
+   * `mix(factor, 1.2 - factor, radius)`, so any non-zero radius mirrors these
+   * weights back toward flat and undoes the whole thing. The `bloomRadius`
+   * field on an `EnvPreset` is therefore inoperative now — see the report.
+   */
+  const MIP_SHAPE = [0, 0, 0.17, 1.42, 1.42];
+
+  /** Per-octave multiplier on top of whatever the falloff left. */
+  const mipScale = [...MIP_SHAPE];
+  const applyMips = (): void => {
+    const f = bloom.compositeMaterial.uniforms.bloomFactors.value as number[];
+    const k = mipFalloff;
+    let total = 0;
+    for (let i = 0; i < f.length; i++) total += Math.pow(k, i);
+    for (let i = 0; i < f.length; i++) {
+      f[i] = (Math.pow(k, i) / total) * MIP_SUM * mipScale[i];
+    }
+    bloom.radius = 0;
+  };
+  const setMipFalloff = (k: number): void => {
+    mipFalloff = k;
+    applyMips();
+  };
+  const mipWeights = (): number[] =>
+    (bloom.compositeMaterial.uniforms.bloomFactors.value as number[])
+      .map((w) => Math.round(w * 1000) / 1000);
+  let mipFalloff = 1;
+  // `applyGrade` runs on the first frame (revision starts at -1) and would set
+  // this anyway; doing it here as well means the pass never holds the flat
+  // weighting, not even for the frame before the first grade.
+  applyMips();
+
   const applyGrade = (): void => {
     const g = env.grade;
     grade.apply(g);
     bloom.strength = g.bloomStrength;
     bloom.threshold = g.bloomThreshold;
     bloom.radius = g.bloomRadius;
+    // A preset carries `bloomRadius`, which is the five-equal-octaves knob;
+    // re-apply the falloff after it so the shape survives a preset change.
+    applyMips();
     gtao.blendIntensity = g.aoIntensity;
     gtao.updateGtaoMaterial({ radius: g.aoRadius, distanceExponent: 1.4, thickness: 0.35, scale: 1, samples: 16, screenSpaceRadius: false });
   };
@@ -447,6 +568,15 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   perf?.register('bloomStrength', (v) => { bloom.strength = Number(v); accum.reset(); return bloom.strength; });
   perf?.register('bloomThreshold', (v) => { bloom.threshold = Number(v); accum.reset(); return bloom.threshold; });
   perf?.register('bloomRadius', (v) => { bloom.radius = Number(v); accum.reset(); return bloom.radius; });
+  perf?.register('bloomMipFalloff', (v) => { setMipFalloff(Number(v)); accum.reset(); return mipWeights(); });
+  // Per-octave scale, so one octave can be removed and its contribution read
+  // off. `bloomMipFalloff` is a one-parameter path through this space and it
+  // conserves the total; these do not, which is the point — the question is
+  // which octaves own the halo, and the answer is only visible if the others
+  // are held still.
+  for (let i = 0; i < 5; i++) {
+    perf?.register(`bloomMip${i + 1}`, (v) => { mipScale[i] = Number(v); applyMips(); accum.reset(); return mipWeights(); });
+  }
 
   return {
     render(dt: number): void {
