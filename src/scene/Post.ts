@@ -30,7 +30,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import type { Stage } from './Stage';
+import type { PerfSurface, Stage } from './Stage';
 import type { EnvironmentHandle } from './Environment';
 import { focusDistanceFor, type Pose } from './CameraRig';
 import { AccumulationPass, DofPass, GradePass, ScaledGtaoPass, ScenePass } from './post/passes';
@@ -58,14 +58,12 @@ export interface PostChain {
 
 const CAR_ROOT = 'Audi5000SWagon';
 
-/**
- * Fraction of the output resolution the ambient occlusion is computed at.
- * See `ScaledGtaoPass`: this one number was worth 20 ms of a 112 ms frame.
- */
-const AO_SCALE = 0.5;
-
 export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain {
   const { renderer, scene, camera } = stage;
+  // Which of the optional passes run, and at what resolution, is the tier's
+  // decision — see `TIERS` in `Stage.ts` for the table and what each entry
+  // gives up. `desktop` is field-for-field the committed behaviour.
+  const q = stage.quality;
   const pr = renderer.getPixelRatio();
   let width = Math.max(1, Math.round(stage.width * pr));
   let height = Math.max(1, Math.round(stage.height * pr));
@@ -103,9 +101,14 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   // handed; the sizes above are already device pixels.
   composer.setPixelRatio(1);
 
-  const scenePass = new ScenePass(scene, camera, width, height, 2);
+  const scenePass = new ScenePass(scene, camera, width, height, q.msaaSamples);
 
-  const gtao = new ScaledGtaoPass(scene, camera, width, height, AO_SCALE);
+  // The AO pass is constructed even on a tier that does not run it. A disabled
+  // pass is skipped by the composer and its shaders never compile, so it costs
+  // a couple of half-resolution targets and nothing per frame — cheaper than
+  // making every consumer of `gtao` below nullable and risking the desktop
+  // path on it.
+  const gtao = new ScaledGtaoPass(scene, camera, width, height, q.aoScale);
   // The whole point of `ScenePass`: hand GTAO the depth the colour pass just
   // wrote and it stops re-rendering all 307 meshes to make its own. No normal
   // texture is supplied, so it reconstructs normals from that depth — which
@@ -131,6 +134,7 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.22, 0.5, 1.15);
 
   const accum = new AccumulationPass(width, height);
+  accum.maxSamples = q.accumSamples;
   const grade = new GradePass();
 
   composer.addPass(scenePass);
@@ -139,6 +143,17 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   composer.addPass(bloom);
   composer.addPass(accum);
   composer.addPass(grade);
+
+  gtao.enabled = q.ao;
+  bloom.enabled = q.bloom;
+  stage.setShadowMapSize(q.shadowMapSize);
+
+  // `dof.enabled` and `bloom.enabled` are rewritten every frame (defocus
+  // follows the pose) and by `setMaskMode`, so the tier's decision has to be
+  // held separately or the next frame would undo it.
+  let bloomAllowed = q.bloom;
+  let dofAllowed = q.dof;
+  let maskMode = false;
 
   // The accumulator only drops its converged buffer when something MOVES.
   // A repaint moves nothing, so a colour change was being averaged at 1/n
@@ -330,6 +345,18 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
   let elapsed = 0;
   let frameCount = 0;
 
+  // --- measurement levers ----------------------------------------------------
+  // Registered on the surface `Stage` publishes, so one boot can A/B a tier
+  // against another. Two builds measured against each other is not a usable
+  // instrument here: six streams share the tree, and the same committed build
+  // has read 9.3, 23.1 and 44.6 fps within a few minutes.
+  const perf = (globalThis as unknown as { __AUDI_PERF?: PerfSurface }).__AUDI_PERF;
+  perf?.register('ao', (v) => (gtao.enabled = !!v));
+  perf?.register('aoScale', (v) => { gtao.setScale(Number(v)); accum.reset(); return Number(v); });
+  perf?.register('bloom', (v) => (bloom.enabled = bloomAllowed = !!v));
+  perf?.register('dof', (v) => (dofAllowed = !!v));
+  perf?.register('accumSamples', (v) => { accum.maxSamples = Number(v); accum.reset(); return accum.maxSamples; });
+  perf?.register('msaa', (v) => { scenePass.setSamples(Number(v)); accum.reset(); return Number(v); });
 
   return {
     render(dt: number): void {
@@ -349,13 +376,14 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
       // shader already exits early for those, but a full-screen quad that only
       // copies is still a full-screen quad; skipping the pass also saves the
       // composer a buffer swap.
-      dof.enabled = dof.active;
+      dof.enabled = dofAllowed && !maskMode && dof.active;
 
-      // A 4096² VSM map costs two blur passes over 16 M texels. Re-running
-      // that when nothing has moved is pure waste, so the shadow follows the
-      // same motion signal the accumulation does, with a periodic refresh to
-      // catch anything the signature cannot see (wheels turning on the spot,
-      // a door opening).
+      // The shadow map is re-rendered through `MeshDepthMaterial` over every
+      // caster in a ±30 m frustum, and at 4096² that is 16 M texels of depth
+      // plus PCF's kernel at every shaded fragment. Re-running it when nothing
+      // has moved is pure waste, so the shadow follows the same motion signal
+      // the accumulation does, with a periodic refresh to catch anything the
+      // signature cannot see (wheels turning on the spot, a door opening).
       frameCount++;
       renderer.shadowMap.needsUpdate = inMotion || accum.index <= 2 || frameCount % 15 === 0;
 
@@ -389,8 +417,12 @@ export function createPostChain(stage: Stage, env: EnvironmentHandle): PostChain
     },
 
     setMaskMode(on: boolean): void {
-      bloom.enabled = !on;
-      dof.enabled = !on;
+      // `!on` and not `true`: a tier that has bloom off must not have a mask
+      // frame switch it back on, or the silhouette and the frame it is cut
+      // from would come from two different chains.
+      maskMode = on;
+      bloom.enabled = !on && bloomAllowed;
+      dof.enabled = !on && dofAllowed;
       accum.reset();
       prevValid = false;
     },

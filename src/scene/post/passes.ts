@@ -99,6 +99,21 @@ export class ScenePass extends Pass {
     return this.target.depthTexture as THREE.DepthTexture;
   }
 
+  /**
+   * Change the multisample count after construction, for A/B measurement.
+   *
+   * `samples` is read when three sets the framebuffer up, and it only does
+   * that when there is no framebuffer — so the count has to be set and the
+   * allocation dropped. `dispose()` frees the GPU side and leaves every JS
+   * object, `depthTexture` included, identical, so the passes holding it stay
+   * pointed at the right thing.
+   */
+  setSamples(samples: number): void {
+    if (this.target.samples === samples) return;
+    this.target.samples = samples;
+    this.target.dispose();
+  }
+
   render(
     renderer: THREE.WebGLRenderer,
     _writeBuffer: THREE.WebGLRenderTarget,
@@ -161,13 +176,26 @@ export class ScaledGtaoPass extends GTAOPass {
   ) {
     super(scene, camera, Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
     this.scale = scale;
+    this.outWidth = width;
+    this.outHeight = height;
   }
 
+  private outWidth: number;
+  private outHeight: number;
+
   setSize(width: number, height: number): void {
+    this.outWidth = width;
+    this.outHeight = height;
     super.setSize(
       Math.max(1, Math.round(width * this.scale)),
       Math.max(1, Math.round(height * this.scale)),
     );
+  }
+
+  /** For A/B measurement: re-evaluate at a different fraction of the output. */
+  setScale(scale: number): void {
+    this.scale = scale;
+    this.setSize(this.outWidth, this.outHeight);
   }
 }
 
