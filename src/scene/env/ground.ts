@@ -72,6 +72,12 @@ interface Patch {
   uShadeTint: THREE.IUniform<THREE.Color>;
   uKerbColor: THREE.IUniform<THREE.Color>;
   uVergeColor: THREE.IUniform<THREE.Color>;
+  /** Amplitude of the fragment-space grit. 0 restores the pre-grit surface. */
+  uGritAmp: THREE.IUniform<number>;
+  /** Band-limit margin on that grit, in footprints per noise cell. */
+  uGritBand: THREE.IUniform<number>;
+  /** Domain warp on the tiled maps, in uv units (one unit = one tile). */
+  uWarpAmp: THREE.IUniform<number>;
 }
 
 function patchAsphalt(mat: THREE.MeshStandardMaterial, gobo: THREE.Texture): Patch {
@@ -99,6 +105,44 @@ function patchAsphalt(mat: THREE.MeshStandardMaterial, gobo: THREE.Texture): Pat
     uShadeTint: { value: new THREE.Color(0.42, 0.46, 0.58) },
     uKerbColor: { value: new THREE.Color(0.08, 0.08, 0.08) },
     uVergeColor: { value: new THREE.Color(0.05, 0.06, 0.03) },
+    // 0.6 against the photographs, not by eye.
+    //
+    // The target is relative texture — mean |laplacian| over the box mean,
+    // because the render's road is in the planting's shade at a mean of 40-61
+    // and both references are in sun at 92-178, and comparing the absolute
+    // figures (which is what CRITIQUE-5 § 8's "2.5-6x too smooth" does)
+    // charges the difference in exposure to the texture. Relatively, the
+    // references run 11.2 % (owner pavement), 15.4 % and 18.2 % (bat3 road),
+    // and this surface read 6.9-9.8 % before. Swept in one boot, at the
+    // band limit below set to 2.2:
+    //
+    //      amp     front3q   pm left   pm right   side
+    //      0          9.4 %     8.0 %      6.9 %    8.1 %
+    //      0.15       9.7       8.4        7.8      9.2
+    //      0.30      10.7       9.4        9.8      8.0
+    //      0.60      14.2      12.7       14.8      9.9
+    //      1.00      20.6      17.4       21.1     12.9
+    //
+    // 1.0 overshoots the references at three of the four boxes. 0.6 sits
+    // inside them, and it is the first setting at which the near road reads
+    // as aggregate rather than as a sheet.
+    uGritAmp: { value: 0.60 },
+    // 1.8, which lets the 30 mm octave through at the side pose where 2.2
+    // holds it at half weight: relative texture 11.2 % against 10.2 % there
+    // and 15.8 % against 14.2 % at front3q, for the same gate to the decimal
+    // and the same pixel-diff magnitude. Below about 1.5 the finest octave
+    // starts arriving while its cell is under the four-tap kernel's own
+    // Nyquist, and a still frame cannot show what that does while driving.
+    uGritBand: { value: 1.8 },
+    // Zero, and this is a **measured null** rather than an unfinished idea.
+    // A domain warp is the obvious answer to CRITIQUE-5 § 8's "repeating
+    // diamond lattice" and it was the next thing the previous round intended
+    // to test. Tested: at a 5 cm warp on a 0.8 m field the near road's
+    // |laplacian| went 6.33 -> 6.37 and its x/y correlation ratio 3.63 ->
+    // 3.72, i.e. nothing, because there is no tile to break — see the note
+    // above audiGritHash. Kept as a lever so the next person can re-measure
+    // it in one call instead of rebuilding it.
+    uWarpAmp: { value: 0 },
   };
 
   mat.onBeforeCompile = (shader) => {
@@ -128,6 +172,118 @@ uniform vec2 uCastHalf;
 uniform vec3 uShadeTint;
 uniform vec3 uKerbColor;
 uniform vec3 uVergeColor;
+uniform float uGritAmp;
+uniform float uGritBand;
+uniform float uWarpAmp;
+
+// --- the road's missing centimetre, and why no texture could supply it -----
+//
+// Measured on the gate's own frames, the near road's correlation length is
+// 3.7 px along screen x against 1.1 px down y at front3q, and **36 px against
+// 1.8 px** at side — a ratio of 3.5 and 20 where both reference photographs
+// read 1.15 to 1.56. The spectrum has no peak at any pitch, so the "repeating
+// diamond lattice" in CRITIQUE-5 § 8 is not a tiling artefact: it is that
+// every surviving feature is the same shape, a short horizontal dash, which
+// is what a surface looks like once it has been low-passed an order of
+// magnitude harder across one axis than the other.
+//
+// The cause is the filter, not the content. A ground plane at a grazing angle
+// has a pixel footprint tens of times longer in depth than across, and the
+// mip level is chosen by the LONG axis — so the across-road detail, which the
+// screen has resolution to spare for, is averaged away with it. Anisotropic
+// filtering caps at 16:1 and this is well past that. Authoring a finer tile in
+// textures.ts cannot reach it: whatever is in the map, the sampler throws
+// the same band away.
+//
+// So the fine grain is computed here instead, per fragment, with the two
+// things a sampler cannot do: the band limit comes from the SHORT axis of the
+// footprint rather than the long one, and the long axis is pre-filtered by
+// hand with four taps along it. Octaves fade out individually as they reach
+// that limit, so the far road stays smooth — which is correct, it is past the
+// resolution — and nothing is drawn that the pixel cannot carry.
+float audiGritHash(vec2 p) {
+  // Wrapped first: the plane is 4 km across and this noise has centimetre
+  // cells, so the raw cell index reaches six figures and fract() of it has no
+  // mantissa left. 4096 cells is a 45 m period on the finest octave, which no
+  // eye reads as a repeat of an 11 mm stone.
+  p = mod(p, 4096.0);
+  p = fract(p * vec2(0.3183099, 0.3678794) + vec2(0.71, 0.113));
+  p *= 23.0;
+  return fract(p.x * p.y * (p.x + p.y));
+}
+float audiGritNoise(vec2 x) {
+  vec2 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(audiGritHash(i), audiGritHash(i + vec2(1.0, 0.0)), f.x),
+             mix(audiGritHash(i + vec2(0.0, 1.0)), audiGritHash(i + vec2(1.0)), f.x), f.y);
+}
+/** One octave, box-filtered along the footprint's long axis. */
+float audiGritOct4(vec2 p, vec2 s) {
+  return 0.25 * (audiGritNoise(p - s * 1.5) + audiGritNoise(p - s * 0.5)
+               + audiGritNoise(p + s * 0.5) + audiGritNoise(p + s * 1.5));
+}
+float audiGritOct2(vec2 p, vec2 s) {
+  return 0.5 * (audiGritNoise(p - s) + audiGritNoise(p + s));
+}
+/**
+ * Signed grit, mean zero, sd 0.128 where every octave prints.
+ *
+ * Returned as a deviation rather than a colour because two things read it:
+ * the albedo and the roughness. Relief is deliberately absent — the road
+ * beside the car stands in the planting's shade, so what it returns is sky
+ * and bounce rather than a sun it could cast a slope shadow from, and a
+ * gradient costs two more taps an octave to obtain.
+ */
+float audiGrit(vec2 w) {
+  vec2 dX = dFdx(w);
+  vec2 dY = dFdy(w);
+  float lX = length(dX), lY = length(dY);
+  vec2 majorV = lX > lY ? dX : dY;
+  // The band limit is the SHORT axis of the footprint, floored at a quarter
+  // of the long one because the kernel has four taps and cannot pre-filter
+  // finer than that. Taking the short axis is the whole trick: it is what the
+  // sampler cannot do, and it is where the missing detail is.
+  float band = max(min(lX, lY), max(lX, lY) * 0.25);
+  const float CA = 0.011, CB = 0.030, CC = 0.085;
+  float ia = 1.0 / (uGritBand * band);
+  float wa = clamp(CA * ia - 0.35, 0.0, 1.0);
+  float wb = clamp(CB * ia - 0.35, 0.0, 1.0);
+  float wc = clamp(CC * ia - 0.35, 0.0, 1.0);
+  float dev = 0.0;
+  if (wa > 0.0) dev += 0.45 * wa * (audiGritOct4(w / CA, majorV / (4.0 * CA)) - 0.5);
+  if (wb > 0.0) dev += 0.32 * wb * (audiGritOct4(w / CB, majorV / (4.0 * CB)) - 0.5);
+  if (wc > 0.0) dev += 0.23 * wc * (audiGritOct2(w / CC, majorV / (2.0 * CC)) - 0.5);
+  // Both tails pulled out, and ODD in dev, which is what keeps this out of
+  // the tonal band. A road is dark bitumen with bright stone faces in it —
+  // a distribution with two tails, not a brighter or darker grey — and an
+  // even term here would read as a drift laid over the whole near field,
+  // which the world-space pass below already owns. The noise is symmetric
+  // about 0.5, so an odd function of it has mean exactly zero and this term
+  // cannot move the albedo's average however hard it is driven.
+  //
+  // The *rendered* road does still come up 0.9-2.2 levels, and it is the
+  // roughness term that does it, not this one: a lower roughness on the
+  // positive tail returns more environment specular than the negative tail
+  // gives back. Worth knowing before anyone reads that as an exposure drift.
+  return dev * (1.0 + 3.0 * abs(dev));
+}
+/**
+ * Domain warp on the tiled maps' uv, in tile units.
+ *
+ * The idea: the two-tap cross-fade above removes the four-metre tile's
+ * *phase*, but both taps are still axis-aligned samples of a Worley field
+ * whose cell walls run with u and v, i.e. with world x and z, so bending the
+ * lookup on a sub-metre field should curve those walls.
+ *
+ * It does, and it buys nothing, because there were no straight ridges to
+ * curve — see uWarpAmp, where the measurement is. Shipped at zero and kept
+ * only so the next person can re-measure it with one lever call.
+ */
+vec2 audiWarp(vec2 uv, vec2 w) {
+  if (uWarpAmp <= 0.0) return uv;
+  return uv + uWarpAmp * vec2(audiGritNoise(w * 1.3 + 7.1) - 0.5,
+                              audiGritNoise(w * 1.3 + 19.7) - 0.5);
+}
 
 // --- breaking the four-metre repeat ---------------------------------------
 //
@@ -170,14 +326,15 @@ vec3 audiTileNormal(sampler2D t, vec2 uv, vec2 w) {
       )
       .replace(
         '#include <normal_fragment_maps>',
-        `vec3 mapN = audiTileNormal(normalMap, vNormalMapUv, vGroundXZ);
+        `vec3 mapN = audiTileNormal(normalMap, audiWarp(vNormalMapUv, vGroundXZ), vGroundXZ);
 mapN.xy *= normalScale;
 normal = normalize( tbn * mapN );`,
       )
       .replace(
         '#include <map_fragment>',
-        `diffuseColor *= audiTileColor(map, vMapUv, vGroundXZ);
+        `diffuseColor *= audiTileColor(map, audiWarp(vMapUv, vGroundXZ), vGroundXZ);
 float audiShade = 0.0;
+float audiGritDev = 0.0;
 {
   // Low-frequency tonal drift, in WORLD space, so nothing at this scale can
   // ever wrap with the four-metre albedo tile. Two octaves an order of
@@ -188,6 +345,10 @@ float audiShade = 0.0;
   float drift = texture2D(uGobo, vGroundXZ * uDriftScale).r;
   float wear = texture2D(uGobo, vGroundXZ * uDriftScale * 7.3 + vec2(0.41, 0.17)).r;
   diffuseColor.rgb *= 0.80 + 0.30 * drift + 0.14 * wear;
+
+  // …and the centimetre band the sampler threw away. See audiGrit above.
+  audiGritDev = audiGrit(vGroundXZ);
+  diffuseColor.rgb *= 1.0 + uGritAmp * audiGritDev;
 
   // Longitudinal tar seams: metres apart, running with the road, not a
   // lattice. One low-frequency band across x, jittered along z so it wanders
@@ -373,11 +534,17 @@ reflectedLight.indirectSpecular *= 1.0 - 0.24 * audiShade;`,
 {
   vec4 texelRoughness = texture2D( roughnessMap, vRoughnessMapUv );
   roughnessFactor *= mix(texelRoughness.r, texelRoughness.g, uWetness);
+  // A polished stone face is smoother than the bitumen it sits in, so the
+  // grit has to reach the specular as well — a term that only moves the
+  // albedo reads as dirt on a smooth sheet rather than as the sheet being
+  // made of stones. Roughly half of what this surface returns is environment
+  // reflection, so an albedo-only grit arrives at half strength.
+  roughnessFactor *= 1.0 - 1.6 * uGritAmp * audiGritDev;
 }`,
       );
   };
   // Force a fresh program: onBeforeCompile is keyed on the material's cache key.
-  mat.customProgramCacheKey = () => 'audi-asphalt-v11';
+  mat.customProgramCacheKey = () => 'audi-asphalt-v12';
   return u;
 }
 
@@ -459,6 +626,16 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
   floor.mesh.updateMatrix();
   asphalt.mesh.updateMatrix();
 
+  // Sweepable in one boot, because that is the only kind of sweep this
+  // machine supports: two boots of identical code differ in ~6 % of pixels.
+  // `groundGrit` 0 is the pre-grit surface exactly.
+  const perf = (globalThis as unknown as {
+    __AUDI_PERF?: { register(name: string, fn: (v: number | boolean) => unknown): void };
+  }).__AUDI_PERF;
+  perf?.register('groundGrit', (v) => (asphalt.patch.uGritAmp.value = Number(v)));
+  perf?.register('groundGritBand', (v) => (asphalt.patch.uGritBand.value = Number(v)));
+  perf?.register('groundWarp', (v) => (asphalt.patch.uWarpAmp.value = Number(v)));
+
   const tint = new THREE.Color();
   const shade = new THREE.Color();
   const sun = new THREE.Color();
@@ -473,7 +650,7 @@ export function createGround(renderer: THREE.WebGLRenderer): GroundHandle {
     asphalt.mat.color.copy(tint);
     // Kerb and verge, at the same reflectances the IBL's proxy ground uses —
     // 0.197 for weathered concrete against asphalt's 0.155, 0.11 for grass.
-    // These substitute for `diffuseColor` after the map has been sampled, and
+    // These substitute for diffuseColor after the map has been sampled, and
     // by then it is already true albedo (the 4x baked into the map and the
     // 0.25 in `material.color` have cancelled), so they are written as plain
     // reflectances.

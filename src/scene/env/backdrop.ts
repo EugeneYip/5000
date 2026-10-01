@@ -125,9 +125,48 @@ float leafNoise(vec3 x) {
  */
 const LEAF_CUT = /* glsl */ `
 {
-  float v = 0.62 * leafNoise(vLeafPos * 3.2 * LEAF_FREQ)
-          + 0.26 * leafNoise(vLeafPos * 7.6 * LEAF_FREQ + 11.0)
-          + 0.12 * leafNoise(vLeafPos * 18.0 * LEAF_FREQ + 31.0);
+  // --- five octaves of 3D noise, and why there is a cheap door out ---------
+  //
+  // This block is the most expensive thing in the frame, and the cost is not
+  // where "fill-bound" suggests. Five leafNoise calls is forty leafHash
+  // evaluations, run at every fragment of every lobe, with a discard that
+  // stops the hardware rejecting the ones behind — and a sun ray crosses five
+  // or more lobes through a crown. The map is 4096², so the grove pays for
+  // tens of millions of fragments at a few hundred flops each. That is the
+  // 17 ms, and it is ALU, not rasterisation. Measured: the same lobes at the
+  // same count with a plain MeshDepthMaterial cost 75.2 ms of GPU against
+  // 93.6 with this cut, and 75.1 with the grove not casting at all — so
+  // rasterising 208,404 triangles into a 4096 map is free to within 0.2 ms
+  // and every millisecond of the 18.4 is here.
+  //
+  // The cheap path keeps the first octave and replaces the other two with one
+  // hash, because **octaves two and three are below the texel**. At the ±30 m
+  // frustum a texel is 14.6 mm; those octaves have wavelengths of 8.8 and
+  // 3.7 mm, so a texel samples each of them once, at one point, and what
+  // reaches the map is their *distribution* and nothing else. A single hash
+  // with the same mean and spread is the same instrument at a sixteenth of
+  // the price: mean 0.19 (= 0.5 * (0.26 + 0.12)) and sd 0.0530
+  // (= LEAF_SIGMA * hypot(0.26, 0.12)), and a U(0,1) hash scaled by
+  // 0.0530 * sqrt(12) = 0.1835 carries exactly that. Measured, 5.6 ms of GPU
+  // on the desktop chain and no readable change in any frame.
+  //
+  // The FIRST octave is sub-texel too — 2.1 cm against 14.6 mm is 1.43
+  // samples a cycle — so the same argument retires it, and it is left alone
+  // on purpose. It carries 0.62 of the weight, and collapsing it would take
+  // the last of the shade's graininess with it: the residual across the
+  // bumper is already 0.9 % against the photograph's 4.7 %, so this surface
+  // is over-smooth, not under. The next 11 ms is not here. It is in how many
+  // lobes a sun ray crosses: cost falls roughly linearly with the crown
+  // instance count (groveCrownFrac), so a shadow-only proxy of four or six
+  // lobes a tree instead of twenty should take most of it — at the price of
+  // re-tuning uLeafBase against the gate, because fewer layers transmit more.
+  float v = 0.62 * leafNoise(vLeafPos * 3.2 * LEAF_FREQ);
+  if (uCheapCut > 0.5) {
+    v += 0.19 + 0.1835 * (leafHash(floor(vLeafPos * 18.0 * LEAF_FREQ + 31.0)) - 0.5);
+  } else {
+    v += 0.26 * leafNoise(vLeafPos * 7.6 * LEAF_FREQ + 11.0)
+       + 0.12 * leafNoise(vLeafPos * 18.0 * LEAF_FREQ + 31.0);
+  }
   // Thin towards the rim of the lobe: a leaf mass has no hard edge, and a
   // uniform cut just gives a solid ball with freckles.
   float edge = smoothstep(0.34, 0.98, LEAF_EDGE);
@@ -149,6 +188,17 @@ const LEAF_CUT = /* glsl */ `
   // a low sun is streaks, not spots, and this is why.
   vec2 across2 = vec2(-uSunGround.y, uSunGround.x);
   vec2 gq = vec2(dot(gp, across2), dot(gp, uSunGround) * uTanElev);
+  // These two octaves are NOT cheapened, and the attempt is worth recording.
+  //
+  // They are 3D calls whose third coordinate never moves, so each pays eight
+  // hashes to interpolate between two identical planes, and a 2D noise of the
+  // same mean and spread costs four. That swap saves 2.7 ms and it is wrong:
+  // a different noise is a different *realisation*, and unlike the octaves
+  // above these are resolved — 3.3 m and 1.4 m wavelengths against a 14.6 mm
+  // texel. So moving them moves where the dapple's holes are. Measured, the
+  // near road at the side pose went from a mean of 60.9 to 82.1, twenty-one
+  // levels, because one box swapped shade for sun. Cheapening a term is only
+  // free below the texel; at 200 texels a wavelength it is a redesign.
   float gap = 0.62 * leafNoise(vec3(gq * uGapFreq, 3.1))
             + 0.38 * leafNoise(vec3(gq * uGapFreq * 2.3, 17.7));
   // Pushed to its own ends over ±0.37 sd of the sum above, so the field
@@ -771,6 +821,18 @@ vLeafPos = position;
     uCoreAcross: { value: 3.0 },
     uCoreAlong: { value: 5.5 },
     uCoreSoft: { value: 0.9 },
+    /**
+     * Which of the two cuts below runs. 1 is the cheap one and is shipped;
+     * 0 restores the five-octave cut exactly. See `LEAF_CUT`.
+     *
+     * A uniform rather than two programs because the point was to measure the
+     * difference inside one boot: this layer is the single most expensive
+     * thing in the frame and a two-build A/B on this machine is worthless.
+     * Verified that way — 0 and 1 scored dRGB 7.5, tone 16.0, below-40 8.3 %,
+     * above-224 6.8 % and car mask 16.0 % in the same boot, with the near
+     * road's mean and texture identical to two decimals at every pose.
+     */
+    uCheapCut: { value: 1 },
   };
 
   const crownDepthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
@@ -799,7 +861,7 @@ vLeafN = normalize(normalMatrix * normal);
         + `uniform float uGapFreq;\nuniform float uGapDepth;\n`
         + `uniform vec2 uSunGround;\nuniform float uTanElev;\n`
         + `uniform vec2 uCoreAt;\nuniform float uCoreAcross;\nuniform float uCoreAlong;\n`
-        + `uniform float uCoreSoft;\n${LEAF_NOISE}`,
+        + `uniform float uCoreSoft;\nuniform float uCheapCut;\n${LEAF_NOISE}`,
       )
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${LEAF_CUT}`)
       .replace('LEAF_EDGE', 'length(vLeafN.xy) / max(length(vLeafN), 1e-3)')
@@ -837,7 +899,7 @@ vLeafN = normalize(normalMatrix * normal);
       .replace(/LEAF_RIM/g, 'uLeafRim');
     Object.assign(shader.uniforms, depthCut);
   };
-  crownDepthMat.customProgramCacheKey = () => 'audi-canopy-depth-vD';
+  crownDepthMat.customProgramCacheKey = () => 'audi-canopy-depth-vE';
 
   const trunkMat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.92, metalness: 0, vertexColors: true,
@@ -1593,6 +1655,38 @@ vBarkPos = position;
     mesh.frustumCulled = false;
     group.add(mesh);
   }
+
+  // --- measurement levers, all inert at their defaults -----------------------
+  //
+  // The grove's three casters are 17-19 ms of every frame that rebuilds the
+  // shadow map, which while driving is every frame. These split that figure
+  // inside one boot, which is the only way it can honestly be split on this
+  // machine. `shadowCasters` in `Stage` isolates the grove; these say what
+  // *about* the grove costs the time.
+  const perf = (globalThis as unknown as {
+    __AUDI_PERF?: { register(name: string, fn: (v: number | boolean) => unknown): void };
+  }).__AUDI_PERF;
+  /** A depth pass with no cut at all: the raster floor under `crownDepthMat`. */
+  const plainDepthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  perf?.register('groveDepthPlain', (v) => {
+    crowns.customDepthMaterial = v ? plainDepthMat : crownDepthMat;
+    return v ? 'plain' : 'cut';
+  });
+  perf?.register('groveCheapCut', (v) => {
+    depthCut.uCheapCut.value = v ? 1 : 0;
+    return depthCut.uCheapCut.value;
+  });
+  /**
+   * Fraction of the crown instances drawn, for the overdraw slope only.
+   *
+   * It truncates, and the shading rank is at the END of the instance list, so
+   * anything below 1 takes the car out of the trees' shade. Timing only —
+   * never read an image through this.
+   */
+  perf?.register('groveCrownFrac', (v) => {
+    crowns.count = Math.max(1, Math.round(trees.length * LOBES * Number(v)));
+    return { count: crowns.count, of: trees.length * LOBES };
+  });
 
   const lit = new THREE.Color();
   const shade = new THREE.Color();
