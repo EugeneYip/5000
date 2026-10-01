@@ -198,6 +198,26 @@ every stream running at once, not per-stream. Two streams both wrote
   panel was present in the scene, absent from every frame, and measured as
   "worth +0.6 of a grey level". Two shoot cycles to find. A back-facing panel
   does not error, does not warn, and does not show up in `census()`.
+- **Neither `--dist` NOR the dev server is safe from other streams.** Two
+  rounds hit this independently. One had a measured figure move **238 → 156**
+  between its control and its verification shoot, because another stream's
+  materials edit landed in between (mtimes 04:20 and 04:23), and nearly
+  attributed it to its own change. Another was handed a **near-black
+  `photomatch.png`** mid-session, frame mean 8.4, while its other three views
+  were fine. So: date every figure against `git status` mtimes, hold copies of
+  your own files and diff the tree either side of an A/B pair, and prefer a
+  single-script run that shoots both halves back to back.
+- **`__AUDI.setMaskMode` takes `'off' | 'car' | 'paint'`, not a boolean.**
+  Passing `false` evaluates `post.setMaskMode(false !== 'off')` as *true*, so
+  the car is painted magenta and never restored — every frame after the first
+  comes back magenta and scores tone 83.3. It cost one stream a whole sweep.
+- **Read a rate from a counter; never infer it.** A shadow-rebuild cadence was
+  "fixed" by splitting a boolean, and the fix did nothing, because
+  `accum.index <= 2` was also in the condition and any motion resets the
+  accumulator. An hour went into that before a `shadowUpdates` counter showed
+  the rate had never changed.
+- **`bloom*` sweeps must `accum.reset()`.** Without it a sweep silently
+  re-reads the converged buffer, which is what made a paint picker look broken.
 - **Never threshold a reference photograph on luminance.** The red car on
   `scratchpad/ref3/bat_side_profile.jpg` has paint at RGB (160, 1, 0) —
   **luma 34**, below the luma-60 line that separates black plastic from paint
