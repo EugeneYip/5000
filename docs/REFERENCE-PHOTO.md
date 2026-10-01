@@ -129,11 +129,35 @@ All three rise with scale, so the *shape* is right — the dapple work fixed the
 coarse end. **The fine end did not move: 6.7 against 6.7**, where the
 photograph is 2.8.
 
-That stream died mid-verification ("the badge frame caught the dev-server
-reload, re-shooting the new code twice for a proper pair") and never reported
-these figures, so whatever it changed, it did not reduce the 1-3 px energy.
-This is the measurement to steer by, and the task is still open:
-`src/materials/paint.ts`.
+That stream died mid-verification and never reported these figures.
+
+> ### ⚠ Corrected: this table cannot see the flake, because the flake is not
+> ### resolvable at this pose
+>
+> At `photomatch` the plate is 124 px for 305 mm, so **1 px ≈ 2.46 mm**. The
+> flake's sampling lattice is 0.38 mm — **0.15 px** — and a particle is 39.5 µm,
+> 0.016 px. Both are averaged away completely. So the 6.7 in the 1-3 px column
+> above is **not flake**; a later critique attributes the render's fine-grain
+> excess at this pose to the IBL instead, a 512² cube returning canopy as soft
+> bands.
+>
+> Measured where the flake *is* resolvable — `badge.png`, ~0.45 mm/px — the
+> round did help:
+>
+> |  | 1-3 px | 3-8 | 8-20 |
+> |---|---|---|---|
+> | before (`crit4`) | 4.81 | 6.73 | 8.96 |
+> | after (`35c4597`) | **3.23** | 5.03 | 8.70 |
+>
+> A 33 % reduction in fine grain at the scale the flake lives at. So
+> `35c4597` did its job and my "did not move the fine grain" conclusion was
+> drawn from a pose that cannot see the thing. The lesson is the same one this
+> project keeps paying for: **a number that is real and reproducible can still
+> be about something other than what you think.** Check that your measurement
+> can resolve your subject before you believe it.
+>
+> The 20-100× flake-size figure from `badge.png`'s specks stands on its own
+> evidence and is unaffected by this.
 
 The direct evidence agrees: in `badge.png` the tailgate letters are ~40 mm
 tall over ~90 px, so ~0.45 mm/px, and the specks in the surrounding paint are
