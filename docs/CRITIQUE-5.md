@@ -132,6 +132,35 @@ leading edge. **The trees** read as camouflage stencils against a white sky —
 ranked low only because they are not the car, but they cost more of the first
 impression than that suggests.
 
+> ### ⚠ Three of the items above were misattributed. Corrected in place.
+>
+> **The "indicator's chrome surround" is not a surround.** `pick` at
+> `headlight` (330, 480) returns `headlampReflector` at d 2.689 against
+> `frontWingL` at d 2.718 — **the reflector bowl is drawn in front of the
+> wing.** The pebbled faceted pale L-strip at x 320-430 is the bowl poking
+> through the body. Separately `lampSideL`, material **`paint`**, is 1 mm proud
+> of `headlampAmberLens` and covers the outboard ~40 % of the indicator as a
+> flat grey slab. Both are lamp-vs-body registration failures in
+> `src/car/body/**`, not lamp material or tessellation.
+>
+> **The amber's woven cross-hatch is the shader, not the mesh.** `createLens`
+> draws **two** prism runs (`audiPhaseA`, `audiPhaseB`), the second's pitch
+> from `uLensBody.w`. A 2-D prism grid: invisible on the clear lens, orange
+> canvas on the dyed amber, and still there after the mesh was refined from
+> 14×10 to 20×24. `LensOptions` has no way to express a 1-D fluted lens, and
+> both the US headlamp and the indicator want horizontal flutes only.
+> `src/materials/lamp.ts`.
+>
+> The "folded paper" half of this item **is** closed by that refinement: the
+> amber is the one lens panel whose outline wraps, the wrap is in *y*, and ten
+> steps over 148 mm gave a 14.8 mm pitch — **two stations across a 28 mm
+> corner radius, and a radius sampled twice is a chamfer.**
+>
+> **`platecam` (item 12) does not reproduce as a bloom defect.** Characters
+> read mean 69.8 with bloom and 65.0 without — bloom is 5 of 70 levels, 7 %.
+> They are too light, but not because of bloom. Hard triangulation facets
+> across the A, 2 and M are visible there and are a separate, real finding.
+
 ## Checked and **not** a defect
 
 - **The door shutlines on the paint are right** — positions within 25 mm,
