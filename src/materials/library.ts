@@ -22,9 +22,12 @@
  * The registry memoises on the option key, so two callers a hundredth of a
  * roughness apart silently get two materials, two programs, and two meshes
  * that can never be merged into one draw. Counted in the built scene that was
- * costing twelve chrome instances spanning an *effective* roughness of 0.123
- * to 0.168 — a spread no one can see — and three separate near-black cabin
- * plastics whose colours differed by one part in 255.
+ * costing twelve chrome instances for four distinct finishes, and three
+ * separate near-black cabin plastics whose colours differed by one part in 255.
+ * (The chrome figure used to be quoted as "an effective roughness of 0.123 to
+ * 0.168 — a spread no one can see". That was true and it was the wrong thing to
+ * be pleased about: the reason nobody could see it was `createChrome` lerping
+ * every authored roughness back into the polished band. See `CHROME_RUNGS`.)
  *
  * So identity is decided on a ladder rather than on the exact number. The
  * rungs are placed at the clusters the call sites actually form — read off
@@ -62,7 +65,7 @@ import { createGlass } from './glass';
 import {
   createChrome, createAlloy, createBrakeDisc, createReflector, createDirtyMetal,
   createAnodised, createCastIron, createCaliperPaint, createPadFriction,
-  CHROME_BRUSH_THRESHOLD,
+  CHROME_BRUSH_THRESHOLD, CHROME_DEFAULT_ROUGHNESS,
   type AnodisedOptions, type DirtyMetalOptions, type CastIronOptions,
 } from './metals';
 import { createBlackTrim, createBumperPlastic, createRubber, type RubberOptions } from './trim';
@@ -148,11 +151,25 @@ export function audiMaterials(m: MaterialLibrary): AudiMaterialLibrary {
 // ---------------------------------------------------------------------------
 
 /**
- * Brightwork. `createChrome` folds roughness into a brush amount, so what the
- * eye sees is `lerp(r, 0.09, clamp((r - 0.07) / 0.35))`: the twelve call sites
- * spanned 0.012–0.38 but only 0.012–0.168 of *effective* roughness. Worst
- * shift on any part is 0.039 (an interior sill plate of 224 triangles); every
- * exterior part moves by less than 0.016.
+ * Brightwork. Worst shift on any part is 0.039 (an interior sill plate of 224
+ * triangles); every exterior part moves by less than 0.016.
+ *
+ * **The rungs have not moved and did not need to; what the rungs *mean* has.**
+ * This docstring used to add that `createChrome` folds roughness into a brush
+ * amount, so the twelve call sites spanning 0.012–0.38 covered only 0.012–0.168
+ * of *effective* roughness — and treated that as a reason the ladder was
+ * harmless. It was the defect. A ladder nobody can see the rungs of is not a
+ * cheap ladder, it is a ladder with one rung, and CRITIQUE-5 found four of its
+ * symptoms: every bright trim part on the car reads blue, because a near-mirror
+ * at a trim angle samples one direction and at these angles that direction is
+ * the blue zenith. `createChrome` now honours the number, so the top two rungs
+ * are 0.18 and 0.30 of real finish rather than 0.152 and 0.162 of nearly the
+ * same one, and the no-argument default lands on 0.18 instead of in the
+ * polished band — see `CHROME_DEFAULT_ROUGHNESS`.
+ *
+ * Instance count is unchanged: the four no-argument callers fold onto the 0.18
+ * rung, which the roof rails, the grille crest and the flank bright trim
+ * already hold, and `chrome:0.050` stays for the headlamp bead at 0.055.
  */
 const CHROME_RUNGS = [0.016, 0.05, 0.18, 0.3] as const;
 
@@ -550,7 +567,7 @@ export function createMaterialLibrary(renderer: THREE.WebGLRenderer): AudiMateri
      */
     chrome: (o) => {
       record('chrome', o);
-      const r = nearest(o?.roughness ?? 0.045, CHROME_RUNGS);
+      const r = nearest(o?.roughness ?? CHROME_DEFAULT_ROUGHNESS, CHROME_RUNGS);
       const axis = r > CHROME_BRUSH_THRESHOLD ? snapAxis(o?.brushAxis) : undefined;
       return shared(
         `chrome:${r.toFixed(3)}${axis ? `:${axisKey(axis)}` : ''}`,
