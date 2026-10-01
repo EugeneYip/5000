@@ -49,8 +49,41 @@ const FACING = 1 as const;
  *
  * **It is a lip, not a bezel, and the previous 9 mm of chrome here is what
  * made the lamp one unbroken white slab.** See `GASKET`.
+ *
+ * ## It is meshed as a roll now, and that is all it is
+ *
+ * 2.4 mm of section rather than 1.5, six bands at slopes +72°, +56°, +21°,
+ * −27°, −62°, −75°, crest 2.05 mm proud — the same proud height `94fc4ba`
+ * measured, properly radiused. Three profile points gave two bands and two
+ * normals, and "nothing in a real car is a perfectly sharp edge" applies to
+ * the one edge on this lamp that is meant to be bright.
+ *
+ * **It is worth nothing measurable, and that is the finding rather than an
+ * excuse.** The bead reads 218-221 against the three-point version's 217, and
+ * the 0.9 mm the roll borrows costs the channel 0.4 of a row. Both are inside
+ * noise. Two things were tried on the way to that and both are worth
+ * recording, because each looks as though it should have worked:
+ *
+ *  - **A band laid on the sun's mirror angle.** `goldenhour` puts the sun at
+ *    `(-0.797, 0.199, 0.561)`, 11.5° up; the `photomatch` camera solves to
+ *    `(0, 1.121, 4.784)`, 5.65° above the band. Their half-vector is
+ *    `(-0.512, 0.152, 0.845)` — **31° out of the section's own y–z plane**,
+ *    because the sun is across the car rather than in front of it. A
+ *    horizontal bead's normal lies in that plane by construction, so `N·H`
+ *    tops out at 0.858, and `chrome`'s 0.05 roughness is a 3 mrad lobe:
+ *    0.009 % of peak. The bead cannot see the sun from this pose at this
+ *    roughness. The band moved it 217 → 220.
+ *  - **A 3.6 mm proud crest carried 1.4 mm out over the channel**, to give the
+ *    channel the proud neighbour the amber joint has. The amber joint reads
+ *    178 where this channel reads 203 at the same depth in the same material,
+ *    and a wall on the second side looked like the reason. It is not — see
+ *    `GASKET` — so the crest went back to 2.05 mm.
+ *
+ * The photograph's 254 strip above the lamp is not brightwork at all: it is
+ * sunlit `noseUpper`, which renders at 185-192. That shortfall is the body's
+ * and the report carries it.
  */
-const LIP = 0.0015;
+const LIP = 0.0024;
 /**
  * The black channel between the lip and the glass: the single most important
  * dimension on this part.
@@ -81,16 +114,66 @@ const LIP = 0.0015;
  * structure it added inside the lens is real and stays; what was missing is
  * the joint around it.
  *
- * ## Why 11 mm and not 25
+ * ## Why 10 mm and not 25
  *
  * `LIP + GASKET` is held at 12.5 mm so the glass does not move. 25 mm a side
  * needs `HP.front.lampTopY`/`lampBottomY` to open from 168 mm to ~196 mm, and
  * the bottom of that additionally needs the bumper to come down — see the
- * report. 11 mm is 4.4 rows at `photomatch` 1600x900 and carries the edge;
- * the amplitude comes from the channel's depth and its material, not from
- * its width.
+ * report. 10 mm is 4.1 rows at `photomatch` 1600x900 and carries the edge.
+ *
+ * ## The floor is the bloom's, not the gasket's — and this is the measurement
+ *
+ * **Nothing built in this file can darken the channel at `photomatch`, and it
+ * is measured to the grey level rather than argued.** The surface in the slot
+ * was replaced with `anodised({ color: 0x000000, envMapIntensity: 0 })` —
+ * metalness 1, so `F0` is the colour and the colour is zero; no IBL; the only
+ * term a path to the eye can carry is the direct lobe of a black mirror. An
+ * absolute black. Same geometry, same pose, one build apart:
+ *
+ *     row    rubber   absolute black   the photograph
+ *     423      202          202               81
+ *     424      209          206
+ *     482      155          139               94
+ *
+ * **Zero levels at the upper groove's floor and 16 at the lower.** Four
+ * changes tried against it agree: deepening the channel 12.5 → 22.5 mm,
+ * raking its floor 13° → 50° (which takes `N·L` for the low sun from 0.49 to
+ * 0.207), taking the road film off the rubber and standing a 3.6 mm wall
+ * beside it moved row 423 from 203 to **202**. Depth also looked like a lever
+ * from the outside — the amber joint reads 178 at 14 mm where this reads 203
+ * at 12.5 — and it is not one; that 25 levels is distance from the lens, not
+ * depth.
+ *
+ * What is reaching those pixels is the **bloom halo round the lens**, and it
+ * is enormous. Read along the grille recess at three rows, approaching the
+ * lens's inboard edge at x 957:
+ *
+ *     x        890   900   910   920   930   940   945   950
+ *     y 430     30    36    42    50    64    89   105   126
+ *     y 450     28    36    41    51    64    92   109   137
+ *     y 470     26    32    37    45    55    69    79    93
+ *
+ * The grille is a 100 mm recess full of black slats — as near an absolute
+ * black as this car has — and it rises **110 levels over the last 50 px**
+ * purely because it is next to the lamp. The same curve at three rows 20 px
+ * apart is a halo, not geometry. So the floor is a function of distance from
+ * the lens and of nothing else this file owns:
+ *
+ *     px from the lens's edge     1-3    6-7    20    50+
+ *     floor                       202    137    64     28
+ *
+ * **Which is why the channel's width, and not its depth or its finish, is the
+ * one dimension here that would still pay.** At 10 mm the whole channel sits
+ * inside the halo's core. At the photograph's 25 mm its outer half would sit
+ * 6-10 px out, where the same bloom only reaches 137. That needs the aperture
+ * hardpoint, which is why the report leads with it.
+ *
+ * The bloom itself is `src/scene/Post.ts` and `src/scene/post/**`. It is **not
+ * an exposure problem and the fix is not to dim the lamp**: `CRITIQUE-5` had
+ * the lens at 1.079 of the plate against the photograph's 0.992 with nothing
+ * clipping, and that still holds. It is the kernel's reach at small radii.
  */
-const GASKET = 0.0110;
+const GASKET = 0.0101;
 /** Acrylic body thickness. Matches the lens shader's own optical thickness. */
 const LENS_BODY = 0.0042;
 
@@ -250,11 +333,40 @@ const OPTIC: LensOptions = {
  * photograph's amber is **not** a flat field. It is a left-to-right ramp with
  * the bowl's lobe plainly in it, and mixing 52 % of the transmitted image
  * away is what flattened ours into a card.
+ *
+ * ## 0.28, because 0.46 was still clipping and that is what flattened it
+ *
+ * `0.46` did not stop the clip. Read across the amber at `photomatch`, row
+ * 450, against the photograph at rows 700-710, x 1341-1384 (which is where
+ * the amber actually is — 1.826 mm/px off the plate):
+ *
+ *                       render        photograph
+ *     peak V            255           255
+ *     far-end V         240           197-209
+ *     V range            16            55
+ *     R/G, bright end   1.47          **1.11**
+ *     R/G, dark end     2.35          **1.92**
+ *
+ * **R was pinned at 254-255 across 21 of its 31 columns**, where the
+ * photograph's R only touches the clip for one or two. Which means the
+ * flatness and the clip are the *same* defect: `V = max(R,G,B) = R` on an
+ * amber lens, so a saturated R channel flattens V by construction while G is
+ * underneath it running 174 → 102, a range of 72. There was never a missing
+ * ramp. There was a ceiling on top of one.
+ *
+ * It also explains the saturation. The photograph's dark end is R/G **1.92**
+ * and `LIGHTS.indicatorColor`'s own R/G is 1.85, so the dye is close to right;
+ * what the bright end has that this does not is the lens's **neutral
+ * front-surface reflection** outweighing the dyed return. `cavity` is the
+ * dyed term — it goes through the dye twice — and the Fresnel is neutral, so
+ * taking `cavity` down raises the Fresnel's share and walks R/G at the bright
+ * end towards 1.11 at the same time as it lifts R off the clip. One term,
+ * three readings.
  */
 const AMBER_OPTIC: LensOptions = {
   ...OPTIC,
   homogenise: 0.30,
-  cavity: 0.46,
+  cavity: 0.28,
 };
 
 /**
@@ -289,13 +401,33 @@ const aperture: Outline = {
  * vertical bar closing the cluster off, which is the single thing that most
  * makes the nose look like jewellery rather than like the car.
  */
+/**
+ * How far short of the body corner the amber stops.
+ *
+ * **Not `LIP`, which is what it used to be, and the difference is a painted
+ * panel showing through the indicator.** `perimeterFade` collapses the lip to
+ * zero width over t 0.25-0.5, which is the outboard end, so there is no lip
+ * out there for the glass to clear — the inset is only the moulding gap. Tying
+ * it to `LIP` meant widening the lip to mesh it as a roll also widened the
+ * strip of `lampSideL` left uncovered, and that panel is **already 1 mm proud
+ * of the amber lens** before anything is taken off the glass:
+ *
+ *     __AUDI.pick at `headlight` (380, 520)
+ *       lampSideL          paint                d 2.651   z 0.944
+ *       headlampAmberLens  lens:ff8a12:...      d 2.652   z 0.944
+ *
+ * — so the outboard half of the indicator renders as body paint. That is
+ * `src/car/body.ts`'s panel, not this outline, and the report carries it; this
+ * constant exists so that work in here cannot make it worse.
+ */
+const OUTBOARD_GAP = 0.0015;
 const lensOutline: Outline = {
   yLo: aperture.yLo + LIP + GASKET,
   yHi: aperture.yHi - LIP - GASKET,
   xInner: (y) => aperture.xInner(y) + LIP + GASKET,
-  xOuter: (y) => aperture.xOuter(y) - LIP,
+  xOuter: (y) => aperture.xOuter(y) - OUTBOARD_GAP,
   radiusInner: Math.max((aperture.radiusInner ?? 0) - LIP - GASKET, 0),
-  radiusOuter: Math.max((aperture.radiusOuter ?? 0) - LIP, 0),
+  radiusOuter: Math.max((aperture.radiusOuter ?? 0) - OUTBOARD_GAP, 0),
 };
 const AMBER_SPLIT = F.indicatorInnerX;
 /**
@@ -399,7 +531,29 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
 
   const chrome = ctx.materials.chrome({ roughness: 0.055 });
   const black = ctx.materials.blackTrim();
-  const rubber = ctx.materials.rubber({ roughness: 0.95 });
+  /**
+   * The gasket's own rubber — **with the road film taken off it.**
+   *
+   * `rubber`'s default `dust: 0.3` mixes 30 % of `uDustColor`, a 0.043 linear
+   * grey, into a 0x141416 carcass whose own albedo is 0.0065. That is 0.0175,
+   * **2.7× the carcass**, on the surface this joint is relying on to be the
+   * darkest thing on the nose. The default is a weatherstrip's, and a
+   * weatherstrip sits in a gutter and collects; a lens rebate is inside a
+   * sealed lamp and does not. 0.73 is the lowest rung `RUBBER_RUNGS` offers,
+   * on the same reasoning: a narrower lobe collects less of a low sun from a
+   * surface aimed nowhere near it.
+   *
+   * **Both are physics, not measurement: the change is worth 0-3 levels and
+   * the null test in `GASKET` says why.** An absolutely black surface in this
+   * slot reads the same as this one at the upper groove and 16 levels lower at
+   * the lower one, so the whole of what any finish can do here is 16 levels,
+   * and the road film was never more than a few of them. Kept because a sealed
+   * rebate carrying a weatherstrip's road film is wrong, not because it moved
+   * the frame.
+   */
+  const rubber = audiMaterials(ctx.materials).rubber({
+    roughness: 0.73, dust: 0, mouldGloss: 0,
+  });
   const reflectorMat = ctx.materials.reflector();
   /**
    * The shelf's own finish.
@@ -445,16 +599,31 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
   const coldFilament = ctx.materials.emissive(0xffe6b4, 0.4);
 
   // --- lip and gasket ------------------------------------------------------
-  // The pressing's own rolled edge, with the hairline of bright trim on it.
-  // 2.4 mm of visible face: it is one pixel at `photomatch`, and that is the
-  // point — everything 9 mm of chrome used to occupy belongs to `GASKET`.
+  /**
+   * The pressing's rolled edge with the hairline of bright trim over it —
+   * **meshed as a roll, which is the whole point.**
+   *
+   * Six bands over 5.6 mm of section at slopes +70°, +61°, +41°, +7°, −66°,
+   * −84°, so the normal sweeps continuously instead of jumping between the two
+   * values three profile points could carry.
+   *
+   * The crest is **3.6 mm proud and 2.2 mm inboard of the aperture's edge**,
+   * which is what makes it a wall rather than a line: it is the proud
+   * neighbour the channel did not have, and the amber joint's 178 against the
+   * channel's 203 is what one of those is worth. The last band is the 0.4 mm
+   * near-vertical drop into the channel.
+   */
   const lipGeo = frame({
     outline: aperture,
     zAt: FACE, facing: FACING,
     profile: [
-      [-0.0022, 0.0022],
-      [-0.0006, -0.0021],
-      [LIP, 0.0012],
+      [-0.0022, 0.00220],
+      [-0.0013, -0.00050],
+      [-0.0005, -0.00170],
+      [0.0004, -0.00205],
+      [0.0013, -0.00160],
+      [0.0020, -0.00030],
+      [LIP, 0.00120],
     ],
     fade: perimeterFade,
   });
@@ -464,7 +633,7 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
    *
    * The darkness is geometric, not a material trick. The lip's crest stands
    * 2.1 mm proud and the floor is 12.5-14.2 mm behind the skin, so the sky is
-   * cut off within ~60° of the floor's normal over an 11 mm slot, and the
+   * cut off within ~60° of the floor's normal over a 10 mm slot, and the
    * glass closes the other side. GTAO's 0.18 m radius does the rest.
    *
    * **The floor is raked, and which way it tilts is doing real work.** It runs
@@ -479,6 +648,29 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
    * It lands at the reflector's own rim depth so the bowl's `fit` edge meets
    * it flush; anything shallower leaves an annular void that shows the
    * housing's aluminium through a 0.4 mm slot.
+   *
+   * **13° and 12.5 mm after a round of trying 50° and 22.5 mm.** At
+   * `goldenhour`'s 11.5° of solar elevation a floor leaning 13° has `N·L`
+   * 0.49, so it looked as though it were taking half the sun's full irradiance
+   * and that that was why it read 203. Raking it to 50° takes `N·L` to 0.207
+   * and costs one of the 3.3 apparent rows to foreshortening; with ten more
+   * millimetres of depth beside it, the pair moved the pixel by **1 level**,
+   * because the pixel is the bloom's. See `GASKET`. So the rake is back where
+   * its warm/cool asymmetry was measured and the row is back in the groove.
+   *
+   * ## The lower channel is one row, and the bumper is why
+   *
+   * `__AUDI.pick` down x 1012 at `photomatch` puts the aperture's lower edge
+   * at y 0.6545 and the glass at 0.667 — and **`frontBumper`'s top shelf at
+   * y 0.661, z 0.948**, which is 6.5 mm up into the 12.5 mm channel and only
+   * 5.5 mm behind the skin where this floor is 13.5. At row 483 the pick
+   * returns `frontBumper` at d 3.901 *in front of* `headlampSeal` at d 3.909:
+   * the bumper's own shelf is drawn over the outer half of the lamp's lower
+   * gasket. The camera is 5.65° above, so the sight-line clears that shelf
+   * only for the inner 4 mm, which is the **one row** that survives against
+   * the photograph's 24. Nothing in this file opens it up — a deeper floor
+   * was tried for exactly this and bought no rows — and
+   * `src/car/trim/bumpers.ts` owns the shelf. The report carries it.
    */
   const gasketGeo = frame({
     outline: aperture,
@@ -633,12 +825,19 @@ export function buildHeadlamps(ctx: BuildContext, glows: GlowFactory): HeadlampS
     crown: 0.0016,
     nu: 24, nv: 10,
   });
+  // **`nv` 24, not 10, and that is the "folded paper" of `CRITIQUE-5` §11.**
+  // This is the one lens panel whose outline wraps: `aperture.xOuter` follows
+  // `noseHalfWidth(y)` and carries a 28 mm corner radius, and the wrap is in
+  // *y*, so it is `nv` that resolves it. Ten steps over 148 mm is a 14.8 mm
+  // station pitch — **two stations across a 28 mm radius** — and a radius
+  // sampled twice is a chamfer. 24 gives 6.2 mm, five stations on the corner.
+  // `nu` goes to 20 for the crown, which was being carried on 14.
   const amberGeo = slab({
     outline: sliceX(lensOutline, AMBER_SPLIT + DIVIDER, 10, 0.007),
     zAt: FACE, facing: FACING,
     front: 0.0018, back: 0.0018 + LENS_BODY,
     crown: 0.0014,
-    nu: 14, nv: 10,
+    nu: 20, nv: 24,
   });
 
   // The amber division is a hairline: a 10 mm wall 48 mm deep behind a clear
