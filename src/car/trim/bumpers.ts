@@ -491,24 +491,60 @@ function rubStrip(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
  * be — see the report. `a` is the tangent at the knee and `a + 3b` the tangent
  * at the bottom edge, both as depth per unit of drop.
  */
-const VALANCE_KNEE_SLOPE = 0.50;
-const VALANCE_TOE_SLOPE = 0.60;
+const VALANCE_KNEE_SLOPE = 0.42;
+const VALANCE_TOE_SLOPE = 0.52;
+/**
+ * How far the top of the valance is set back behind the apron's lip, and over
+ * how much of the drop it scoops back out again.
+ *
+ * ## Curvature is worth three levels here; an undercut is worth fifteen
+ *
+ * The roll this sits on top of was built to give the panel a top-to-bottom
+ * gradient out of its own curvature, and measured at `photomatch` it does not:
+ * binned by world height, `frontValance` reads
+ *
+ *     h mm   218  240  261  282  304  326  347  368
+ *     ny   -0.91 -.85 -.79 -.71 -.63 -.55 -.49 -0.28
+ *     lum     76   66   60   56   55   54   55   53
+ *
+ * — 53-56 across 110 mm, and the 76 at the bottom is ground bounce on a
+ * surface that is nearly facing the road, not shading. Turning a normal under
+ * the horizon buys nothing in an IBL-dominated scene, because there is
+ * nothing below the horizon but one roughly uniform ground term. The part is
+ * 8.8 % of the whole car mask (`pick` on a 5 px grid over the silhouette) and
+ * 7.5 of the 48-64 bucket's 16.8, at a p90/p10 spread of **1.29**.
+ *
+ * What *does* move in this scene is occlusion. On the same frame `frontApron`'s
+ * own top strip — 16 mm of surface at ny +0.66, facing up into the underside
+ * of the moulding — reads **45**, against 132 at the apron's crown and 55 on
+ * the valance. A surface that faces back up under an overhang loses the sky
+ * and goes a bucket and a half darker; one that merely turns away from it
+ * does not.
+ *
+ * So the valance's top is an undercut now: set back behind the apron's lip,
+ * which is itself deeper than it was, and scooping outward as it falls so its
+ * first 40 mm carry a positive normal in y under that lip.
+ */
+const VALANCE_UNDERCUT = 0.034;
+const VALANCE_UNDERCUT_DROP = 0.23;
 
 function valance(s: BumperSpec, frames: Frame[], spinePts: Array<[number, number]>): THREE.BufferGeometry {
   const b = s.apronBottomY;
   const drop = b - s.valanceBottomY;
-  // 2 mm proud of the apron's own bottom edge (`frontApron` ends at −0.0447)
-  // and starting 6 mm up behind it, so the apron's edge laps over this crown
-  // instead of meeting it: coplanar edges here grazed each other and left a
-  // row of dark slivers along the join, which is what the note this replaces
-  // was about.
-  const crownD = -0.0425;
+  // The apron's lip now reaches −0.081, so this sits behind that and is
+  // lapped by it: coplanar edges here grazed each other and left a row of
+  // dark slivers along the join, which is what the note this replaces was
+  // about.
+  const crownD = -0.0425 - VALANCE_UNDERCUT;
   const face: Array<readonly [number, number]> = [];
-  const N = 9;
+  const N = 12;
   for (let i = 0; i <= N; i++) {
     const t = i / N;
+    // The undercut gives its depth back over the first quarter of the drop,
+    // so the face swells out from under the lip before the roll takes over.
+    const relief = VALANCE_UNDERCUT * smoothstep(clamp(t / VALANCE_UNDERCUT_DROP, 0, 1));
     face.push([
-      crownD - drop * (VALANCE_KNEE_SLOPE * t + VALANCE_TOE_SLOPE * t * t * t),
+      crownD + relief - drop * (VALANCE_KNEE_SLOPE * t + VALANCE_TOE_SLOPE * t * t * t),
       -drop * t,
     ]);
   }
@@ -611,11 +647,12 @@ function frontApron(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
     [-0.0374, lerp(top, knee, 0.88)],
     [-0.0447, knee],
     // The lip's underside faces the road and reads as the shadow line the
-    // photograph has here. It is shorter than it was: 12 mm of depth in 5 mm
-    // of height rather than 17 in 6, because `valance` now carries the tuck
-    // and the apron only has to hand over to it.
-    [-0.0565, knee - 0.005],
-    [-0.1150, knee - 0.009],
+    // photograph has here. 36 mm of depth in 11 mm of height, so it genuinely
+    // overhangs: `valance`'s top is set 34 mm back behind it and has to be in
+    // its shade, which is where that part's only real tonal range comes from.
+    [-0.0640, knee - 0.004],
+    [-0.0810, knee - 0.011],
+    [-0.1150, knee - 0.015],
     [-0.1150, top + 0.022],
   ];
   const nf = frames.length;
@@ -638,18 +675,17 @@ function frontApron(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
 // The rear apron's knee is `HP.rear.apronBottomY` (0.340) — the value
 // `6714c4e` reported as having no hardpoint. It has one now.
 
-/** How far the apron's face stands proud of the painted tail behind it. */
-const APRON_PROUD = 0.009;
+/**
+ * How far the apron's crown stands proud of the painted tail behind it.
+ *
+ * It was 9 mm with the face held at that depth all the way down, which left
+ * the panel with no tuck of its own — see `rearApron`'s shape. 20 mm buys
+ * room for the tuck without ever letting `rearLower`, which runs right behind
+ * this panel from the tailgate shutline down to 0.338, come through it.
+ */
+const APRON_PROUD = 0.020;
 /** …and how far its top and bottom edges are let in behind that tail. */
 const APRON_BURY = 0.026;
-/**
- * How much of the tail's own lean the rear apron gives back, so the panel is
- * flat rather than tucked. See `rearApron`'s `section`. 1 would make it dead
- * vertical; 0.8 leaves it leaning in by 6 mm over its height, which is a world
- * normal in y of about −0.04 — enough to be a panel and not a wall, far too
- * little to sit in the bounce light's lobe.
- */
-const REAR_APRON_LEVEL = 0.80;
 
 /**
  * The tail's body-coloured apron.
@@ -773,41 +809,61 @@ function rearApron(s: BumperSpec): THREE.BufferGeometry {
   // direction the section walks, and the same axes swept the other way round
   // need the opposite setting.
   //
-  // `out` is measured from a LEVELLED datum, not from the skin — see
-  // `REAR_APRON_LEVEL` and `section` below.
+  // ## The tuck, and the measurement that sets it
+  //
+  // `out` ramps down the face, so the panel turns progressively under on top
+  // of the tail's own 29 mm of lean. The previous shape held `out` constant
+  // and then gave 80 % of that lean back as well, which left the face dead
+  // vertical: `__AUDI.pick` at `rear` returned world normal y −0.03…−0.14
+  // over the whole panel and it measured L 128-148 against `rearLower` — the
+  // same paint, 200 mm higher up, on the same tail — at 128-139. A ratio of
+  // **1.07**.
+  //
+  // The photograph is the other way round. On `bat_rear_straight.jpg`, read
+  // at x 450 and x 675 and segmented on chroma so the black moulding cannot
+  // be confused with red paint (S 3-17 neutral against S 67-193 red):
+  //
+  //     tailgate panel above the moulding   L 58-65
+  //     black moulding                      L 46-97, falling downward
+  //     the apron                           L 67 at its top -> 35 at its edge
+  //     under the apron                     L 0-3
+  //
+  // So the apron starts level with the panel above and falls to about half by
+  // its bottom edge: apron/panel **0.79**, which is the 0.82 this file's
+  // docstring already recorded from the other frame.
+  //
+  // Measured on the render, that panel's level against its own world normal:
+  // ny −0.03 → 148, −0.14 → 128, −0.30…−0.10 → 128, −0.55…−0.30 → 89. The
+  // ramp below takes the face to ny ≈ −0.4, which is the only lever this
+  // file has on it; the residual is the `env:bounce` artefact diagnosed
+  // above and is not fixable here.
   const shape: Array<readonly [number, number]> = [
     [top + 0.010, -APRON_BURY],
     [top + 0.004, -0.004],
-    [top - 0.007, APRON_PROUD * 0.70],
-    [top - 0.020, APRON_PROUD],
-    // Flat from here to the knee. It used to crown 9 mm proud at 42 % of the
-    // height and give the 9 mm back by the knee; that is where the specular
-    // band came from.
-    [lerp(top, knee, 0.40), APRON_PROUD],
-    [lerp(top, knee, 0.74), APRON_PROUD],
-    [knee + 0.010, APRON_PROUD * 0.92],
-    [knee, APRON_PROUD * 0.70],
-    // A tight radius, not a shelf. The 22 mm-deep, 5 mm-high lip this replaces
-    // sat at world normal y −0.46, which is within a few degrees of the
-    // specular peak of the `env:bounce` light documented above, and it
-    // measured L 138 against the 45-51 of the moulding it hangs under. At
-    // 5 mm of depth the same surface is one or two pixels instead of twenty.
-    [knee - 0.004, APRON_PROUD * 0.10],
+    [top - 0.006, APRON_PROUD * 0.72],
+    // Crown just under the moulding, where the photograph puts the apron's
+    // one bright line — not at mid-height, which spreads that single
+    // specular over the whole panel.
+    [top - 0.018, APRON_PROUD],
+    [lerp(top, knee, 0.30), APRON_PROUD * 0.86],
+    [lerp(top, knee, 0.55), APRON_PROUD * 0.60],
+    [lerp(top, knee, 0.78), APRON_PROUD * 0.26],
+    // The last tenth dips behind the tail skin, which is safe only because
+    // `rearLower` ends at 0.338 and the knee is 0.340.
+    [knee + 0.008, -0.004],
+    [knee, -0.016],
+    // A tight radius, not a shelf. The 22 mm-deep, 5 mm-high lip two rounds
+    // ago sat at world normal y −0.46 and measured L 138 against the 45-51 of
+    // the moulding it hangs under. At 4 mm of height the same surface is one
+    // or two pixels instead of twenty.
+    [knee - 0.004, -0.030],
     [knee - 0.007, -APRON_BURY],
   ];
 
   const section = (j: number): Pt[] => {
     const x = xs[j];
     const z0 = rearFaceZ(x, midY);
-    // Level the panel against the tail's own lean. `rearFaceZ` comes forward
-    // ~29 mm over the apron's 156 mm of height, so a section held at constant
-    // `out` inherits a −0.18 world normal in y whatever its own profile does,
-    // and the lower half of the panel then sits in the bounce light's lobe.
-    // Giving most of that lean back makes the panel what the photograph shows
-    // it to be: flat, and the same value as the moulding above it.
-    const level = (y: number): number =>
-      REAR_APRON_LEVEL * (rearFaceZ(x, y) - rearFaceZ(x, top));
-    return shape.map(([y, out]) => [z0 - rearFaceZ(x, y) + out + level(y), y - midY] as Pt);
+    return shape.map(([y, out]) => [z0 - rearFaceZ(x, y) + out, y - midY] as Pt);
   };
 
   return sweep(section, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.18 });
