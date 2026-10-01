@@ -198,6 +198,38 @@ every stream running at once, not per-stream. Two streams both wrote
   panel was present in the scene, absent from every frame, and measured as
   "worth +0.6 of a grey level". Two shoot cycles to find. A back-facing panel
   does not error, does not warn, and does not show up in `census()`.
+- **A `photomatch` run whose car mask is not ~16.1 % is a WRONG-POSE frame.
+  Discard it.** Twice in one evening a boot came back at **32.0 %** with dRGB
+  50.2 / 54.2 and tone 20.8 / 21.4, and `photomatch_mask.png` held a `front3q`
+  silhouette — the rig reverted between the colour pass and the mask pass. The
+  colour frame still *looks* like a plausible `photomatch`, because it is also
+  a dead-on front view, so **the mask percentage is the only tell.**
+- **The gate's `dRGB` is a median over a mask that is body geometry, so a
+  geometry edit can move it without any colour changing — and in the direction
+  that rewards a defect.** `19b839a` removed a grey slab lying over the
+  indicator; the mask lost 2,766 px at mean (134.7, 138.0, 153.4) — 3.3 % of
+  the paint mask, 30 levels brighter than the paint's own median — and dRGB
+  went 4.8 → 6.8. **The 4.8 this project quoted for two days was the defect
+  flattering the gate.** When a geometry edit moves dRGB, difference the two
+  `photomatch_paint.png` masks and read the means of the pixels that enter and
+  leave *before* attributing anything to colour. A head-vs-head control puts
+  the mask's own boot noise at ~290 px at mean (92, 99, 122);
+  `scratchpad/bd4_maskdiff.py` does it.
+- **Date every boot against the environment files' mtimes.** `sky.ts`,
+  `ibl.ts` and `backdrop.ts` moved six times in forty minutes one evening and
+  **HEAD read 4.8, 12.5, 13.4 and 15.8 on identical code.** Only back-to-back
+  pairs whose mtimes did not move *inside the pair* are measurements.
+  `scratchpad/bd4_ab.sh` logs mtimes per boot.
+- **`drawImage` on the WebGL canvas returns a stale composite.** A stream swept
+  eight material kills and read all eight identical to 0.1 of a level,
+  including ones that must change the frame — and concluded "the kills barely
+  move the panel", which was the opposite of the truth. Use `page.screenshot`,
+  with a throwaway frame first.
+- **CRITIQUE-6's paint figures are on `V = max(R,G,B)`, not the RGB mean
+  `sheet.py` uses.** On the mean the photograph reads p99 234 and ≥240 0.20 %
+  instead of 250 and 2.65 %, because its highlights are blue sky and the mean
+  reads them 13 levels low. Do not mix the two spaces.
+  `scratchpad/pb3_paint.py` reproduces both sides to ±2 levels.
 - **Editing any source file while `shoot.mjs` is running used to produce
   splash-screen frames with a ✓ beside each one.** Vite reloads the page;
   `__AUDI` is recreated and `setView`/`settle` both succeed, so `withReload`
