@@ -113,6 +113,40 @@ flattening the dapple.
 **Steer by the sign of B−R at p90, not by dRGB.** When the dapple is right it
 goes positive on its own.
 
+### The fine grain is 2.4× the photograph, and the flake round did not move it
+
+Band energy over the bonnet patch, by difference of Gaussians, sd as a
+percentage of the patch mean, measured **at the photograph's pixel pitch** so
+the frequencies mean the same thing on both sides (`scratchpad/vf_bands.py`):
+
+| | 1-3 px | 3-8 | 8-20 | 20-50 |
+|---|---|---|---|---|
+| **photograph** | **2.8** | 4.9 | 6.2 | 7.3 |
+| before the flake round | 6.7 | 7.1 | 8.4 | 8.0 |
+| after it (`35c4597`) | **6.7** | 6.9 | 9.0 | 7.7 |
+
+All three rise with scale, so the *shape* is right — the dapple work fixed the
+coarse end. **The fine end did not move: 6.7 against 6.7**, where the
+photograph is 2.8.
+
+That stream died mid-verification ("the badge frame caught the dev-server
+reload, re-shooting the new code twice for a proper pair") and never reported
+these figures, so whatever it changed, it did not reduce the 1-3 px energy.
+This is the measurement to steer by, and the task is still open:
+`src/materials/paint.ts`.
+
+The direct evidence agrees: in `badge.png` the tailgate letters are ~40 mm
+tall over ~90 px, so ~0.45 mm/px, and the specks in the surrounding paint are
+2-4 px across — **0.9-1.8 mm of real flake** against 10-50 µm for aluminium
+flake in a 1980s basecoat. 20-100× too coarse. It reads as glitter.
+
+One caveat on the table, stated because it would otherwise be invisible: the
+photograph's patch is 141 px tall against the render's 69, so it carries more
+of the bonnet's vertical tonal sweep. The bands are high-pass, so a broad
+gradient contributes little — but the absolute figures are not comparable with
+an earlier round's 5.7 / 6.2 / 7.2 / 7.6, which used a different band
+construction. Compare rows within this table only.
+
 ## Licence plate
 
 Pennsylvania issue of the period: white face, dark navy characters, a thin
