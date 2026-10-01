@@ -93,6 +93,9 @@ export function buildInterior(ctx: BuildContext): PartResult {
   });
   if (tris > TRIANGLE_BUDGET) console.warn(`interior: ${Math.round(tris)} triangles, over the ${TRIANGLE_BUDGET} budget`);
 
+  // TEMP cb4 A/B hook — removed before report.
+  (globalThis as unknown as Record<string, unknown>).__CB4_CABIN = group;
+
   return {
     group,
     articulations,

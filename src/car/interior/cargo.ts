@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import type { Articulation, BuildContext } from '@/types';
 import { HP } from '@/car/hardpoints';
 import { rearFaceZ, rearHalfWidth } from '@/car/body/panels';
-import { CABIN, TONE } from './layout';
+import { CABIN, TONE, skinHalfW } from './layout';
 import { clamp, cyl, fbm, lerp, merge, mesh, mirrored, roundedBox, roundedRect, smoothstep, surface } from './util';
 import type { StaticBatch } from './batch';
 
@@ -33,6 +33,44 @@ function archBulge(x: number, z: number): number {
   const along = 1 - clamp(Math.abs((z + 2.687) / 0.395) ** 1.6, 0, 1);
   const across = smoothstep(0.455, 0.60, Math.abs(x));
   return along * across * 0.155;
+}
+
+/**
+ * Inner panel plus trim board, inboard of the body skin at the beltline.
+ *
+ * A fixed light's aperture has no door in it: outer skin, the inner panel it
+ * is spot-welded to, the bonded glass's channel, and a 5 mm board. 36 mm is
+ * that stack. (The doors keep their own, larger figure —
+ * `CABIN.innerHalfWBelt` is `tumblehomeTop − 0.052` — because a door has a
+ * drop glass and a run channel in the same section.)
+ */
+const BAY_BOARD = 0.036;
+
+/**
+ * Half-width of the load-bay side trim's FACE at station `z`, height `y`.
+ *
+ * It used to be the constant `HW + 0.014` at every height — and `HW` is
+ * `cargoHalfW`, the load width measured **between the arches**, which is only
+ * right down at the floor. Read off the body's own surface, the side at the
+ * beltline is 0.852 at z −2.5 falling to 0.735 at the DLO's trailing edge, so
+ * the trim's top edge stood **212 mm inboard of the quarter light's inner face
+ * at the front of the bay and 95 mm at the back**: a slot the length of the
+ * load bay, open at exactly the glass's sill, with the one-sided body skin
+ * behind it and therefore nothing at all.
+ *
+ * Cross-checked against `bat_cargo_area.jpg` rather than taken on the
+ * argument: at mid-bay the trim's top edge measures 1400 px across against
+ * 1150 for the flat load floor, a ratio of 1.22 (and that frame is shot from
+ * behind and above, which magnifies the nearer, higher edge, so the true
+ * ratio is a little under it). `skinHalfW(−2.9, 1.0) − BAY_BOARD` over
+ * `cargoHalfW` is **1.20**.
+ *
+ * The blend to the floor width is what keeps the arch: below it the trim has
+ * to come in over the wheelhouse, and `archBulge` already carries that.
+ */
+function bayFaceX(z: number, y: number): number {
+  const k = smoothstep(FY + 0.045, FY + 0.250, y);
+  return lerp(HW + 0.014, skinHalfW(z, y) - BAY_BOARD, k);
 }
 
 // ---------------------------------------------------------------------------
