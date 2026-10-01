@@ -578,6 +578,20 @@ export class Powertrain {
       // ceiling and refuses; at 5 m/s it gives 1213 and allows. The upshift
       // above is left on engine rpm deliberately: a locked wheel drags rpm
       // *down*, so it cannot provoke a spurious upshift.
+      //
+      // Verified at runtime, braking to a stop from 20.8 m/s. Every condition
+      // that produced the original defect is present — the fronts lock
+      // completely and the engine is dragged far under the 1080 threshold —
+      // and the box holds its gear anyway:
+      //
+      //     brake 2.4s   speed  8.2   gear 2   rpm 506   frontSpin 0.0   slip 8.64
+      //     brake 2.8s   speed  6.0   gear 2   rpm 577   frontSpin 0.0   slip 8.64
+      //     brake 3.2s   speed  3.4   gear 1   rpm 705
+      //
+      // First is now selected at 3.4 m/s, which is walking pace and correct.
+      // The probe reports "never selected first above 8 m/s"; the original
+      // defect was first gear at 18.4 m/s turning 4453 rpm.
+      // `scratchpad/vf_ws2.mjs` reproduces it in one run.
       const roadRpm = Math.abs(inp.speed) / tyreRadius()
         * Math.abs(this.ratioTotal(this.gear)) * RADS_TO_RPM;
       if (roadRpm * next < upRpm - 420) this.beginShift(this.gear - 1, false);
