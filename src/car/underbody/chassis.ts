@@ -201,32 +201,45 @@ export function buildTank(): THREE.BufferGeometry {
   return merge(parts);
 }
 
-/** The soft front air dam, and the sill and rear valance lips. */
+/**
+ * Aerodynamic add-ons under the floor line.
+ *
+ * ## The front air dam and the rear valance lip that used to be here are gone
+ *
+ * Both were built before `c24af8a` re-derived the bumper hardpoints, and both
+ * became duplicates of parts `trim/bumpers.ts` now builds properly — in the
+ * same place, on the wrong side of the silhouette.
+ *
+ * The **front dam** ran y 0.296 → 0.178 across z `noseZ`−0.086…−0.258, which
+ * is inside `bumpers.ts`'s `valance` and 34 mm below it. `__AUDI.pick` on
+ * `photomatch` found it the frontmost hit at fx 0.46-0.54, fy 0.74 — y **180
+ * mm**, world normal (0, +0.97, +0.20) and L 38-65: a sky-facing tongue of
+ * `bumperPlastic` poking out of the bottom of the nose, 124 mm below the
+ * silver Avant's measured lowest point of 305-322 mm. That is the
+ * "`floorpan` wears `bumperPlastic` into the silhouette down to 181 mm" that
+ * `c24af8a` recorded against the hardpoint. Its own docstring said it existed
+ * so the spoiler would not read as "a shelf bolted to nothing"; the bumper's
+ * valance is that spoiler, swept on the bumper's own plan so it wraps the
+ * corner and dies into the arch, and it needs no help.
+ *
+ * The **rear lip** was a 1.30 × 0.030 × 0.090 box at `HP.rear.bumperBottomY`
+ * + 0.004. That hardpoint means the bottom of the black *moulding* now, not
+ * the bottom of the bumper, so the box sat 19 mm up inside the moulding with
+ * nothing but z-fighting available to it.
+ *
+ * What is left is the sill strakes, which nothing else builds.
+ */
 export function buildAero(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
 
-  // A soft rubber spoiler bolted under the valance. It has to start *at* the
-  // body's lower face and curl back under, not hang off it: a flat plate below
-  // a gap reads as a shelf bolted to nothing, which is exactly how it looked
-  // the first time round.
-  parts.push(grid(34, 9, (u, v, out) => {
-    const x = lerp(-0.760, 0.760, u);
-    const e = Math.abs(x) / 0.760;
-    // Dies away into the wheel arches at both ends.
-    const drop = (0.118 - 0.070 * Math.pow(e, 2.6)) * (1 - Math.pow(Math.max(0, e - 0.86) / 0.14, 2));
-    // v runs down the front face, round the lip, and back under.
-    const k = Math.min(1, v / 0.62);
-    const back = Math.max(0, (v - 0.62) / 0.38);
-    const y = 0.296 - drop * (k * k * (3 - 2 * k)) + back * 0.022;
-    const z = lerp(HP.noseZ - 0.086, HP.noseZ - 0.140, k) - back * 0.118;
-    out.p.set(x, y, z);
-    out.n.set(x * 0.25, -Math.sin(v * Math.PI * 0.9), Math.cos(v * Math.PI * 0.9)).normalize();
-    out.u = x * 5; out.v = v * 1.4;
-  }));
-
-  // Rear valance lip under the bumper.
-  parts.push(place(sqBox(1.30, 0.030, 0.090, 0.85, 20, 6),
-    { pos: [0, HP.rear.bumperBottomY + 0.004, HP.tailZ + 0.060] }));
+  // Sill strakes: the short mouldings ahead of each rear arch that keep spray
+  // off the flank. Shallow, inboard of the rocker's own lowest point, and the
+  // only aero part under here that is not built somewhere else.
+  for (const s of [1, -1] as const) {
+    parts.push(place(sqBox(0.028, 0.034, 0.620, 0.85, 6, 14), {
+      pos: [s * (halfWidthAt(-1.700, T.floor) - 0.052), floorY(-1.700) + 0.006, -1.700],
+    }));
+  }
 
   return merge(parts);
 }

@@ -452,21 +452,77 @@ function rubStrip(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
  * `apronBottomY`, not `bottomY`: since the moulding stops at 0.525 the 140 mm
  * below that is the body-coloured apron, and this part is only the shadowed
  * undercut beneath it.
+ *
+ * ## It was a vertical wall, and that wall was the whole tone defect
+ *
+ * The shape this replaces held the face at depth −0.078…−0.094 from
+ * `apronBottomY` down through two thirds of the drop — **174 mm of dead
+ * vertical surface** — and only curled under over the last 60 mm. Dead
+ * vertical means one surface normal, and one surface normal in an
+ * IBL-dominated scene means one grey level: measured on `photomatch` it
+ * filled rows 601–639 across the full 660-column width at L 52–58 without
+ * varying by more than six levels anywhere. That is ~28,000 px, 11.7 % of the
+ * car mask, **all of it in the 48-64 bucket** — which is the whole of that
+ * bucket's +11.6 excess over the photograph. `245728a` handed this over as
+ * "the sun was providing all of that panel's shading variation"; what the
+ * panel had instead of shading of its own was a wall.
+ *
+ * So the section walks a **continuous roll** now: it leaves the apron's knee
+ * at the tangent the apron arrives with and turns progressively under until it
+ * is facing the road at `valanceBottomY`. Because the camera is level at every
+ * standard pose, image row maps to `y`, and `y` maps to the roll's parameter —
+ * so the normal's y component ramps smoothly from −0.45 at the knee to −0.92
+ * at the bottom edge and the part carries a top-to-bottom gradient of its own
+ * instead of a single level. Measured on the silver Avant's own nose
+ * (`scratchpad/ref3/bat3_side_profile.jpg`, contact-line referenced, x 220-280,
+ * V = max(R,G,B) so the segmentation cannot be fooled by paint luma), the real
+ * car's lower nose does exactly this:
+ *
+ *     h mm   460   450   440   430   410   390   370   350   330   320
+ *     V       31   179   143   122   115   103    76    67    59    62
+ *             |     |                   apron face     | tuck-under |
+ *          moulding crown line
+ *
+ * A bright crown line right under the moulding, a face falling 143 → 103 over
+ * 50 mm, then a tuck-under falling 76 → 59 and the car ending at 315-320.
+ *
+ * The roll is authored against `drop`, not against absolute heights, so it is
+ * the right shape at 0.212 and at the 0.305 `HP.front.valanceBottomY` should
+ * be — see the report. `a` is the tangent at the knee and `a + 3b` the tangent
+ * at the bottom edge, both as depth per unit of drop.
  */
+const VALANCE_KNEE_SLOPE = 0.50;
+const VALANCE_TOE_SLOPE = 0.60;
+
 function valance(s: BumperSpec, frames: Frame[], spinePts: Array<[number, number]>): THREE.BufferGeometry {
   const b = s.apronBottomY;
   const drop = b - s.valanceBottomY;
-  // The top of the apron is buried inside the moulding's bottom roll: leaving
-  // the two edges coplanar put a row of z-fighting slashes across the valance.
-  // Near-vertical where it shows under the moulding, then turning hard under
-  // for the bottom half.
-  // The top edge is carried right up inside the moulding: anywhere it came out
-  // level with the moulding's underside the two surfaces grazed each other and
-  // left a row of dark slivers along the join.
+  // 2 mm proud of the apron's own bottom edge (`frontApron` ends at −0.0447)
+  // and starting 6 mm up behind it, so the apron's edge laps over this crown
+  // instead of meeting it: coplanar edges here grazed each other and left a
+  // row of dark slivers along the join, which is what the note this replaces
+  // was about.
+  const crownD = -0.0425;
+  const face: Array<readonly [number, number]> = [];
+  const N = 9;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    face.push([
+      crownD - drop * (VALANCE_KNEE_SLOPE * t + VALANCE_TOE_SLOPE * t * t * t),
+      -drop * t,
+    ]);
+  }
+  const deepest = face[N][0];
   const shape: Array<readonly [number, number]> = [
-    [-0.090, 0.060], [-0.078, -drop * 0.20], [-0.082, -drop * 0.44],
-    [-0.094, -drop * 0.66], [-0.120, -drop * 0.86], [-0.158, -drop * 0.97],
-    [-0.196, -drop], [-0.222, -drop + 0.004], [-0.262, -drop * 0.50], [-0.262, 0.060],
+    // Carried right up inside the apron so no edge of it can show.
+    [crownD - 0.030, 0.060],
+    [crownD - 0.004, 0.012],
+    [crownD, 0.006],
+    ...face,
+    // Return, back along the underside and up inside the apron.
+    [deepest - 0.026, -drop + 0.006],
+    [deepest - 0.040, -drop * 0.55],
+    [deepest - 0.040, 0.060],
   ];
   return sweep(
     (j) => {
@@ -538,15 +594,28 @@ function frontApron(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
   const shape: Array<readonly [number, number]> = [
     [-0.090, top + 0.022],
     [-0.062, top + 0.004],
-    [-0.033, top - 0.008],
-    [-0.0215, lerp(top, knee, 0.32)],
-    [-0.0235, lerp(top, knee, 0.66)],
-    [-0.0300, knee + 0.014],
-    [-0.0395, knee],
-    // 17 mm of depth in 6 mm of height: the lip's underside faces the road
-    // and reads as the shadow line the photograph has here.
-    [-0.0560, knee - 0.006],
-    [-0.1150, knee - 0.010],
+    [-0.036, top - 0.006],
+    // Crown high and tight rather than at mid-height. On the silver Avant the
+    // bright line under the moulding sits at h 450 against a moulding whose
+    // bottom is at 460 — 10 mm below it, not 45 — and it is 179-215 against a
+    // face that has fallen to 103 by h 390. A crown at mid-height spreads that
+    // one specular line over the whole panel and is half of why this reads as
+    // a flat pale band.
+    [-0.0205, lerp(top, knee, 0.16)],
+    // Then the face rolls progressively under, so the normal's y component
+    // ramps 0 → −0.06 → −0.175 → −0.34 → −0.45 down the panel and the level
+    // falls with it. The depths are that ramp integrated over the stations,
+    // and the last one is the tangent `valance` picks the roll up at.
+    [-0.0225, lerp(top, knee, 0.40)],
+    [-0.0284, lerp(top, knee, 0.66)],
+    [-0.0374, lerp(top, knee, 0.88)],
+    [-0.0447, knee],
+    // The lip's underside faces the road and reads as the shadow line the
+    // photograph has here. It is shorter than it was: 12 mm of depth in 5 mm
+    // of height rather than 17 in 6, because `valance` now carries the tuck
+    // and the apron only has to hand over to it.
+    [-0.0565, knee - 0.005],
+    [-0.1150, knee - 0.009],
     [-0.1150, top + 0.022],
   ];
   const nf = frames.length;
@@ -573,6 +642,14 @@ function frontApron(s: BumperSpec, frames: Frame[]): THREE.BufferGeometry {
 const APRON_PROUD = 0.009;
 /** …and how far its top and bottom edges are let in behind that tail. */
 const APRON_BURY = 0.026;
+/**
+ * How much of the tail's own lean the rear apron gives back, so the panel is
+ * flat rather than tucked. See `rearApron`'s `section`. 1 would make it dead
+ * vertical; 0.8 leaves it leaning in by 6 mm over its height, which is a world
+ * normal in y of about −0.04 — enough to be a panel and not a wall, far too
+ * little to sit in the bounce light's lobe.
+ */
+const REAR_APRON_LEVEL = 0.80;
 
 /**
  * The tail's body-coloured apron.
@@ -695,27 +772,42 @@ function rearApron(s: BumperSpec): THREE.BufferGeometry {
   // for the reason spelled out in `spoiler.ts`: the winding follows the
   // direction the section walks, and the same axes swept the other way round
   // need the opposite setting.
+  //
+  // `out` is measured from a LEVELLED datum, not from the skin — see
+  // `REAR_APRON_LEVEL` and `section` below.
   const shape: Array<readonly [number, number]> = [
     [top + 0.010, -APRON_BURY],
     [top + 0.004, -0.004],
-    [top - 0.008, APRON_PROUD * 0.62],
-    [top - 0.024, APRON_PROUD * 0.92],
-    // Crown of the convex face, a little above mid-height: that is where the
-    // photograph puts the highlight band.
-    [lerp(top, knee, 0.42), APRON_PROUD],
-    [lerp(top, knee, 0.76), APRON_PROUD * 0.86],
-    [knee + 0.012, APRON_PROUD * 0.52],
-    [knee, APRON_PROUD * 0.18],
-    // The lip's underside: 22 mm of depth in 5 mm of height, so it faces the
-    // road and reads as the shadow line the photograph has here.
-    [knee - 0.005, -0.013],
+    [top - 0.007, APRON_PROUD * 0.70],
+    [top - 0.020, APRON_PROUD],
+    // Flat from here to the knee. It used to crown 9 mm proud at 42 % of the
+    // height and give the 9 mm back by the knee; that is where the specular
+    // band came from.
+    [lerp(top, knee, 0.40), APRON_PROUD],
+    [lerp(top, knee, 0.74), APRON_PROUD],
+    [knee + 0.010, APRON_PROUD * 0.92],
+    [knee, APRON_PROUD * 0.70],
+    // A tight radius, not a shelf. The 22 mm-deep, 5 mm-high lip this replaces
+    // sat at world normal y −0.46, which is within a few degrees of the
+    // specular peak of the `env:bounce` light documented above, and it
+    // measured L 138 against the 45-51 of the moulding it hangs under. At
+    // 5 mm of depth the same surface is one or two pixels instead of twenty.
+    [knee - 0.004, APRON_PROUD * 0.10],
     [knee - 0.007, -APRON_BURY],
   ];
 
   const section = (j: number): Pt[] => {
     const x = xs[j];
     const z0 = rearFaceZ(x, midY);
-    return shape.map(([y, out]) => [z0 - rearFaceZ(x, y) + out, y - midY] as Pt);
+    // Level the panel against the tail's own lean. `rearFaceZ` comes forward
+    // ~29 mm over the apron's 156 mm of height, so a section held at constant
+    // `out` inherits a −0.18 world normal in y whatever its own profile does,
+    // and the lower half of the panel then sits in the bounce light's lobe.
+    // Giving most of that lean back makes the panel what the photograph shows
+    // it to be: flat, and the same value as the moulding above it.
+    const level = (y: number): number =>
+      REAR_APRON_LEVEL * (rearFaceZ(x, y) - rearFaceZ(x, top));
+    return shape.map(([y, out]) => [z0 - rearFaceZ(x, y) + out + level(y), y - midY] as Pt);
   };
 
   return sweep(section, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.18 });
