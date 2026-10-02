@@ -433,7 +433,43 @@ export const HP = {
     doorMidZ: -1.585,
     doorRearZ: -2.463,
 
-    /** Door handle: the C3's flush pull-up type. */
+    /**
+     * Door handle: the C3's **recessed** pull-up type.
+     *
+     * (The comment here said "flush" for several rounds; §6.8 and the geometry
+     * both say recessed pre-facelift. Corrected.)
+     *
+     * ## All four figures moved, and the z error is 339 mm
+     *
+     * CRITIQUE-6 reported "no trough at either handle station" from an
+     * automated scan, and that is true but misleading: **the handle is not at
+     * the station it looked at.** Back-solving its registration from the door
+     * cuts — `(ref_x − 490) × 0.7826 + 382.2` reproduces its 845 and 1117 to
+     * within a pixel — its reference troughs at x 827 and 1100 are the **aft
+     * ends** of the reference handles. Ours sit 100-140 px forward, so its
+     * window contained plain door.
+     *
+     * Measured against **each door's own rear shutline**, so no registration
+     * enters the figure (`side` 3.3304 mm/px, `bat3` 2.6215; and
+     * `doorMidZ` / `doorRearZ` match the measured cuts to 1 mm, which is an
+     * independent check on both scales):
+     *
+     *     centre, forward of the front door cut   render 471 mm   ref 132
+     *     centre, forward of the rear door cut    render 315 mm   ref 138
+     *     centre, below the beltline moulding     render  65 mm   ref 115
+     *     bar width over the assembly             render  87 mm   ref 210
+     *
+     * So: **`handleFrontCenter[2]` −1.115 → ≈ −1.453** (339 mm aft),
+     * **`handleRearCenter[2]` −2.145 → ≈ −2.325** (177 mm aft), both `[1]`
+     * **0.905 → ≈ 0.86** (45 mm down), and **`handleSize[0]` 0.118 → ≈
+     * 0.168** for the bar alone, which is the whole of the 87-against-210 mm
+     * width gap.
+     *
+     * ⚠ **Not applied.** Moving a handle 339 mm aft on both doors is a large
+     * visible change that wants its own round with a before/after beside the
+     * registered reference, and the stream that measured it said so. The
+     * numbers are here so that round does not re-derive them.
+     */
     handleFrontCenter: [HW - 0.038, 0.905, -1.115] as [number, number, number],
     handleRearCenter: [HW - 0.038, 0.905, -2.145] as [number, number, number],
     handleSize: [0.118, 0.032, 0.026] as [number, number, number],

@@ -113,6 +113,38 @@ roof panel reads (12, 35, 85) at `top` against (244, 241, 239) at `roofrail`;
 our B−R runs +81 → −19 across panels where the references run 30 and 26
 levels — **the pigment term is too weak against the mirror term.**
 
+## ⚠ Corrections to THIS document, from re-measurement
+
+**Item 5, the grille, is wrong in both directions.** The relief is *not*
+missing — the 8.0/9.5-against-70/42 figure predates `f84efa7`, and on the
+current build the row-mean peak-to-trough is **54.2 against the photograph's
+40.7, 33 % over.** And the level is not 40 % too dark, it is **40 % too
+light**: 0.182 of plate against 0.128 on luma. The 0.201 above could not be
+reproduced on any clean band — the left side of the photograph's aperture is
+behind the woman's dress, so the outboard band is the only clean one.
+
+**The real finding is that the direction flips with the statistic.** On
+`V = max(R,G,B)` the render's void is 35 against 42 (darker); on luma 33
+against 26 (lighter). Both true, because **our grille is neutral and the
+photograph's is navy by 22 levels at both ends.** And ~28 of the void's 31
+levels are an additive neutral glare floor from the aperture frame and the
+lamps — cutting the core albedo 45 % moved it 32.8 → 30.7 and its hue not at
+all. **That residual is the bloom's, not the grille's.**
+
+**Item 6's "no trough at either station" is true but misleading: the handle is
+not at the station.** The reference troughs at x 827 and 1100 are the *aft
+ends* of the reference handles; ours sit 100-140 px forward, so the scan's
+window held plain door. The real errors are hardpoints — 339 mm of z on the
+front handle — recorded at `HP.side.handleFrontCenter`.
+
+**Item 9's bead is retracted.** Normalised to each car's own paint the bead is
+**1.33× ours against 1.02-1.06× the reference's** — slightly hot, not 2.5×
+short. The "5 px / 17 mm" width was a half-rise threshold artefact: on a
+graphite car the paint above the bead sits above the half level and the
+measurement leaks upward into it. The *strip's* 2.5× level error is real, but
+it is `bumperPlastic`, shared with the bumper covers, so it belongs in
+`materials/trim.ts`.
+
 ## ⚠ A correction to CRITIQUE-5 that will cost a round if ignored
 
 **"The car casts almost no occlusion shadow under itself — 15–25× too light"
