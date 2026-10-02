@@ -368,14 +368,52 @@ float audiGritDev = 0.0;
   // a salt flat. The same three bands, at the same stations and the same
   // reflectances, are in the IBL's proxy ground, so the road the car is
   // standing on and the road it is reflecting are one surface.
-  float across = abs(vGroundXZ.x);
-  float onKerb = smoothstep(10.4, 11.0, across) * (1.0 - smoothstep(12.4, 13.0, across));
-  float onVerge = smoothstep(15.4, 16.6, across);
+  // **abs(x) cannot describe this road, because the car is parked AT the
+  // near kerb and the two sides of it are nothing like each other.**
+  //
+  // Registered on the plate and cast through the photomatch camera, the
+  // photograph's grass edge stands at |x| 1.08 / 1.38 / 1.86 m at three
+  // stations with the car's own flank at 0.91 — the verge begins within a
+  // metre of the sill. These stations had it at 15.4 and the kerb at 10.4,
+  // eight to fourteen times too far out, so both first touched the frame
+  // *behind the trees and inside the fog*: the furniture existed and was
+  // correctly coloured, and no pose could see any of it. That, not a missing
+  // model, is why every wide frame read as a salt flat.
+  //
+  // The section is the photograph's, which is a Parkway section: carriageway,
+  // gutter, kerb, the grass tree-lawn the planes stand in, the pavement, then
+  // the park. The far kerb keeps the stations both of them used to share,
+  // because that one really is a whole carriageway away. ibl.ts carries the
+  // same two sections -- the road the car stands on and the road it mirrors
+  // have to be one surface.
+  float nearX = max(-vGroundXZ.x, 0.0);
+  float farX = max(vGroundXZ.x, 0.0);
+  float onKerb = smoothstep(1.00, 1.09, nearX) * (1.0 - smoothstep(1.33, 1.44, nearX))
+               + smoothstep(10.4, 11.0, farX) * (1.0 - smoothstep(12.4, 13.0, farX));
+  float onWalk = smoothstep(4.60, 4.82, nearX) * (1.0 - smoothstep(7.00, 7.22, nearX));
+  float onVerge = smoothstep(1.44, 1.60, nearX) * (1.0 - smoothstep(4.50, 4.70, nearX))
+                + smoothstep(7.10, 7.42, nearX)
+                + smoothstep(15.4, 16.6, farX);
   // Gutter line: a dark strip of silt where the camber drains.
-  float gutter = (1.0 - smoothstep(9.7, 10.4, across)) * smoothstep(9.2, 9.8, across);
+  float gutter = (1.0 - smoothstep(0.86, 1.00, nearX)) * smoothstep(0.58, 0.78, nearX)
+               + (1.0 - smoothstep(9.7, 10.4, farX)) * smoothstep(9.2, 9.8, farX);
   diffuseColor.rgb *= 1.0 - 0.34 * gutter;
-  diffuseColor.rgb = mix(diffuseColor.rgb, uKerbColor, onKerb);
-  diffuseColor.rgb = mix(diffuseColor.rgb, uVergeColor * (0.72 + 0.5 * drift), onVerge);
+  diffuseColor.rgb = mix(diffuseColor.rgb, uKerbColor, clamp(onKerb + onWalk, 0.0, 1.0));
+  // Grass is not a flat colour at two metres, and without this the verge
+  // reads as a second carriageway in a different paint. A clump field a
+  // third of a metre across, plus the same low-frequency drift the road
+  // uses so the two do not wear separate rhythms.
+  float blade = texture2D(uGobo, vGroundXZ * 2.9 + vec2(0.63, 0.19)).r;
+  float tuft = texture2D(uGobo, vGroundXZ * 0.42 + vec2(0.11, 0.87)).r;
+  vec3 vergeCol = uVergeColor * (0.52 + 0.46 * drift + 0.52 * tuft + 0.34 * blade);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vergeCol, clamp(onVerge, 0.0, 1.0));
+  // The kerb's own riser, which is the whole reason a kerb reads as a kerb
+  // and not as a painted line. At a grazing camera this 150 mm face is most
+  // of what is visible of it and it is in its own shadow all day — without it
+  // the near kerb came back as a white stripe down the frame, which is worse
+  // than the empty asphalt it replaced.
+  float riser = smoothstep(0.93, 0.99, nearX) * (1.0 - smoothstep(1.03, 1.10, nearX));
+  diffuseColor.rgb *= 1.0 - 0.52 * riser;
 
   // Dappled shade. Shaded road is lit by sky alone, so it goes cool as well
   // as dark — that colour shift is most of why real shade reads as shade.

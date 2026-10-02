@@ -56,6 +56,19 @@ export function createSkyUniforms(): SkyUniforms {
   };
 }
 
+/**
+ * A multiplier on `sky.exposure`, inert at 1, that reaches **both** copies of
+ * the sky — the dome the camera sees and the sphere inside the bake.
+ *
+ * `skyIblGain` below reaches only the bake and therefore breaks the invariant
+ * at the top of this file on purpose, to price one half of a hypothesis. This
+ * one does not break anything: it is the preset's own number, swept from a
+ * probe so a fit against the canopy can be read inside a single boot instead
+ * of one rebuild per point. Set it, then `__AUDI_ENV.reset()` — the cube is
+ * only redrawn by `applyPreset`.
+ */
+const skyExposureMul = { value: 1 };
+
 export function applySkyParams(u: SkyUniforms, p: SkyParams, sunDir: THREE.Vector3, exposure = 1): void {
   u.uZenith.value.setHex(p.zenith);
   u.uHorizon.value.setHex(p.horizon);
@@ -71,7 +84,7 @@ export function applySkyParams(u: SkyUniforms, p: SkyParams, sunDir: THREE.Vecto
   u.uHaze.value = p.haze;
   u.uHazeHeight.value = p.hazeHeight;
   u.uCloud.value = p.cloud ?? 0;
-  u.uExposure.value = p.exposure * exposure;
+  u.uExposure.value = p.exposure * exposure * skyExposureMul.value;
 }
 
 const SKY_VERT = /* glsl */ `
@@ -376,6 +389,14 @@ export function createSkySphereForIbl(uniforms: SkyUniforms): THREE.Mesh {
     // The cube is only redrawn by `applyPreset`, so a sweep has to follow
     // this with `__AUDI_ENV.reset()` or the gate reads the previous bake.
     return iblSkyGain.value;
+  });
+  // Registered here rather than beside `applySkyParams`, because that runs at
+  // module scope and `__AUDI_PERF` does not exist until the Stage is built.
+  (globalThis as unknown as {
+    __AUDI_PERF?: { register(name: string, fn: (v: number | boolean) => unknown): void };
+  }).__AUDI_PERF?.register('skyExposure', (v) => {
+    skyExposureMul.value = Number(v);
+    return skyExposureMul.value;
   });
   return mesh;
 }

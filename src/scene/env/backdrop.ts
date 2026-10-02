@@ -1080,12 +1080,25 @@ vBarkPos = position;
       bark: rnd(),
     });
   };
+  // **The two rows are not mirror images, because the car is at the near
+  // kerb.** The row on the planted side stands in the grass tree-lawn that
+  // `ground.ts` now puts 1.5–4.5 m off the car's flank, not seventeen metres
+  // out; the row on the far side is across the carriageway, beyond the far
+  // verge at 15.4, which is where both of them used to be. With both at ±20
+  // the planting was on neither kerb and the photograph's nearest trunk — a
+  // plane two metres behind the couple — had nothing standing for it.
+  //
+  // The clearance shrinks with the row. Forty metres was set to stop a tree
+  // at 20 m filling a quarter of the sky behind the roof; at 3.4 m out the
+  // same subtense is reached at about fourteen, and the trunks then land in
+  // the frame's left margin rather than behind the car, which is where the
+  // photograph has them.
   for (let side = -1; side <= 1; side += 2) {
+    const nearRow = side < 0;
     let z = -210 + (side > 0 ? 8 : 0);
     while (z < 210) {
-      // The 40 m around the car is left clear: a tree closer than that fills a
-      // quarter of the sky behind the roof in the photomatch pose.
-      if (z < -40 || z > 46) plant(side, z, 20, 5.5, 10.5, 16.5);
+      const clear = nearRow ? (z < -14 || z > 19) : (z < -40 || z > 46);
+      if (clear) plant(side, z, nearRow ? 2.9 : 20, nearRow ? 1.5 : 5.5, 10.5, 16.5);
       z += 11 + rnd() * 10;
     }
   }
