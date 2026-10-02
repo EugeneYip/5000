@@ -631,16 +631,68 @@ const HANDLE = {
    * The bar's own length is `HP.side.handleSize[0]` = 118 mm, which is still
    * 50 mm short of the photograph — reported, not patched here.
    */
-  size: [0.115, 0.090] as [number, number],
+  size: [0.118, 0.104] as [number, number],
   /** Rounded rectangle, not an ellipse. */
   shape: 2.6,
-  /** Superellipse radii: crest ring, inner edge of the wall, floor. */
-  rCrest: 0.80,
-  rWall: 0.74,
-  rFloor: 0.34,
+  /**
+   * Superellipse radii: crest ring, inner edge of the wall, floor.
+   *
+   * ## The crest ring was mirroring the sky's zenith, and it drew the outline
+   *
+   * Picked row by row down the handle's own centre at `side`, the pressing's
+   * first two rows come back **L 47 and 42, RGB (38,47,78) and (28,43,79),
+   * chroma 40 and 51** — a dark navy hairline right round the top of the
+   * pocket, on a 133 field. Their normals are (0.754, 0.657) and
+   * (0.780, 0.626), i.e. **41° and 39° above the horizontal**, and a surface
+   * at 40° under a dead-on side camera reflects elevation **80°**: the sky
+   * dome's deep blue zenith. It is the same defect, and the same arithmetic,
+   * that `STRIP_FACE`'s cap note records above.
+   *
+   * The crest used to rise its 4.0 mm over r 0.80 -> 1.0, which on a 90 mm
+   * pressing is 9 mm of run — 24° mean and, because `liftAt` smoothsteps,
+   * **36° at its steepest**. Over r 0.58 -> 1.0 the same 4.0 mm runs 18.9 mm,
+   * so 12° mean and 18° peak, reflecting 36° — pale sky, not zenith.
+   *
+   * The scoop goes the other way for the same reason in reverse. It descended
+   * 3.6 mm over r 0.34 -> 0.74, which is 18 mm of run and 11° (16° peak), and
+   * a wall that shallow carries no tone step at all: the reference's dish runs
+   * **L 124 -> 190 across its lower half** where ours is flat. Over
+   * r 0.30 -> 0.50 the same 3.6 mm runs 9 mm — 22° mean, 33° peak.
+   *
+   * `rings` 9 -> 14 because of `docs/WORKSTREAM.md`'s "relief is only drawn
+   * where a vertex lands in it": the new wall spans 0.32 of the radius, and at
+   * 9 rings only two stations fall inside it.
+   *
+   * ## ⚠ r 0.58 / 0.50 / 0.30 was built and measured, and it made it worse
+   *
+   * Flattening the rim to 12° mean did not remove the navy ring; it **spread
+   * it from two rows to four** — (37,49,84), (30,40,80), (45,53,85), chroma
+   * 47-50 — and the trough depth went 36.2 -> 29.0. The reason is in the
+   * skin, not the pressing: the paint immediately above the handle already
+   * picks at normal **(0.957, 0.290), 17° above horizontal**, so the rim's
+   * own rise is added to 17° before anything mirrors. Flattening the rim only
+   * buys 6° of the 40 the ring needs to lose, and it spends that by laying
+   * the remaining tilt across more pixels.
+   *
+   * **This flank mirrors a navy zenith and that is not a trim defect.** A
+   * paint surface at 40° under a dead-on side camera reflects elevation 80°,
+   * and this sky returns (30, 40, 80) there — chroma 50, luminance a third of
+   * the paint beside it. The same arithmetic is already written out three
+   * times in this tree: on `STRIP_FACE`'s cap, on the bumper bead
+   * `capStrip` replaced, and on `beltMoulding` below, which is kept under 25°
+   * for exactly this reason. Four parts, four local workarounds. Reported.
+   *
+   * So the rim goes back to a tilt that keeps the ring to two rows, and the
+   * dish earns its tone step from the **wall**, which turns the other way: at
+   * the top of the pocket the wall tilts *down*, into the road, which is
+   * where the reference's own dark line is.
+   */
+  rCrest: 0.78,
+  rWall: 0.60,
+  rFloor: 0.28,
   crest: 0.0040,
   depth: 0.0036,
-  rings: 9,
+  rings: 14,
   spokes: 40,
 };
 
@@ -730,6 +782,9 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
   pocket: THREE.BufferGeometry;
   lever: THREE.BufferGeometry;
   gap: THREE.BufferGeometry;
+  /** The lever's bright top rail — both doors. */
+  rail: THREE.BufferGeometry;
+  /** The lock barrel — driver's door only, so it is not mirrored. */
   bright: THREE.BufferGeometry;
 } {
   const [w, h] = S.handleSize;
@@ -779,24 +834,71 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
     put(g, mOut, dx, dy, dn);
 
   const pocket = handlePressing(z0, y0);
-  // The bar, standing 8 mm off the paint. A tight top radius on purpose: the
-  // one row the photograph has at L 199-211 is a specular highlight on that
-  // radius, not a bright insert, so the radius is the feature.
+  // The bar, standing 8 mm off the paint.
   const barH = h * 0.34;
   const barY = h * 0.30;
   const lever = placeOut(roundedBox(w - 0.014, barH, 0.0080, 0.0022), -0.002, barY, HANDLE_FLOOR + 0.0044);
-  // The finger void. Modelled rather than left to the shadow map, because the
-  // feature is 10 mm tall and no shadow cascade on this car resolves that; on
-  // the photograph it is the darkest thing on the door at L 7.
-  const gapH = 0.0095;
-  const gap = placeOut(roundedBox(w - 0.022, gapH, 0.0030, 0.0008),
-    -0.002, barY - barH / 2 - gapH / 2 + 0.0010, HANDLE_FLOOR + 0.0013);
+  /*
+   * The lever's lit top rail.
+   *
+   * The comment this replaces said the photograph's **L 199-211 over ~6 mm**
+   * is a specular highlight on the bar's own top radius "not a bright
+   * insert", and that is the one reading the render rules out. `blackTrim` at
+   * a 2.2 mm radius was built and picked: the bar's top row comes back
+   * **L 52** with its normal 33° up — it is already pointed at bright sky and
+   * it still cannot reach a fifth of what the photograph has, because a satin
+   * black extrusion has nowhere near that reflectance at any angle. The
+   * photograph's figure is 0.87 of the paint beside it. Nothing black does
+   * that; it is brightwork.
+   *
+   * Which is also what `bat3_side_profile.jpg` shows at 14x: a dark lever
+   * with a bright line along its upper edge, the full length of the bar and
+   * stopping at the lock pod. 3.5 mm of it, flush with the bar's own face so
+   * it reads as an inlay rather than a second part sitting on top.
+   */
+  const railH = 0.0026;
+  const rail = placeOut(roundedBox(w - 0.020, railH, 0.0062, 0.0008),
+    -0.002, barY + barH / 2 - railH / 2 - 0.0005, HANDLE_FLOOR + 0.0054);
+  /*
+   * The finger void. Modelled rather than left to the shadow map, because the
+   * feature is 10 mm tall and no shadow cascade on this car resolves that; on
+   * the photograph it is the darkest thing on the door at L 7.
+   *
+   * It shared `blackTrim` with the lever, so the two merged into one dark
+   * mass picked at L 42-97 where the photograph has lever 199-211 over void
+   * **7-65**. Its own material is what makes it black now.
+   *
+   * ⚠ It still has to sit **proud of the pocket floor**. Set flush with the
+   * skin it disappeared completely: `doorHandlePockets` is a closed surface
+   * 0.4 mm in front of it and wins the depth test, so the five rows that
+   * should have been the void picked back as pocket paint at L 126-143. The
+   * depth of a recess on this door is 0.86 mm total (see the note above
+   * `HANDLE`); the darkness has to come from the material, and the geometry's
+   * only job is to be in front of the thing behind it.
+   */
+  const gapH = 0.0105;
+  const gap = placeOut(roundedBox(w - 0.022, gapH, 0.0040, 0.0008),
+    -0.002, barY - barH / 2 - gapH / 2 + 0.0012, HANDLE_FLOOR + 0.0012);
 
   const bright: THREE.BufferGeometry[] = [];
+  const pods: THREE.BufferGeometry[] = [];
   if (withLock) {
+    /*
+     * The lock pod, and the barrel in it.
+     *
+     * What rendered was a **bright hemisphere floating off the end of the
+     * bar** — 21 mm of polished dome with nothing round it. On
+     * `bat3_side_profile.jpg` the aft 45 mm of the assembly is a *black* pod,
+     * square-ended, butted onto the bar and the same height as it, with a
+     * bright barrel about 10 mm across set into its face. The bright part is
+     * a fifth of what we were drawing, and the four fifths round it are the
+     * darkest thing on the handle after the finger void.
+     */
+    pods.push(placeOut(roundedBox(0.042, barH * 1.06, 0.0088, 0.0024),
+      -0.002 - ((w - 0.014) / 2 + 0.016), barY, HANDLE_FLOOR + 0.0040));
     const barrel = lathe([
-      [0, 0.0030], [0.0062, 0.0029], [0.0082, 0.0018], [0.0088, 0],
-      [0.0104, -0.0012], [0.0104, -0.0090], [0, -0.0090],
+      [0, 0.0019], [0.0039, 0.0018], [0.0051, 0.0011], [0.0055, 0],
+      [0.0065, -0.0008], [0.0065, -0.0060], [0, -0.0060],
     ], 18);
     barrel.rotateX(Math.PI / 2);
     // Butted onto the bar's aft end, which is where the photograph has it —
@@ -808,10 +910,10 @@ function handle(f: SkinFrame, z0: number, y0: number, withLock: boolean): {
     // −1.115, i.e. 60 mm the wrong way. On `bat3_side_profile.jpg` — the
     // car's left flank, nose at frame left — the bar runs x 980→1062 and the
     // lock pod sits at x ≈ 1046, inside its **right**, aft, end.
-    bright.push(placeFlip(barrel, -((w - 0.014) / 2 + 0.013), barY * 0.4, HANDLE_FLOOR + 0.0026));
+    bright.push(placeFlip(barrel, -((w - 0.014) / 2 + 0.016), barY, HANDLE_FLOOR + 0.0050));
   }
 
-  return { pocket, lever, gap, bright: merge(bright) };
+  return { pocket, lever: merge([lever, ...pods]), gap, rail, bright: merge(bright) };
 }
 
 // ---------------------------------------------------------------------------
@@ -900,6 +1002,26 @@ export function buildSides(ctx: BuildContext): THREE.Group {
    */
   const capStrip = audiMaterials(ctx.materials).anodised({ color: 0xd0d4d8, roughness: 0.42 });
 
+  /**
+   * The finger void under the handle's lever.
+   *
+   * `blackTrim` is the library's satin black and it is authored for a window
+   * surround out in the open: at `envMapIntensity` 0.9 it picked back at
+   * **L 42-97** down the handle's centre, where the photograph's void is
+   * **L 7-65** against paint at 216. A 10 mm slot behind a lever sees almost
+   * no sky, and nothing in this pipeline will work that out — GTAO runs at
+   * half resolution behind a six-pixel denoise. So the occlusion rides on the
+   * material, the same approximation `grille.ts`'s `voidMat` makes for the
+   * aperture and for the same reason.
+   */
+  const handleVoid = ctx.materials.dirtyMetal({
+    color: 0x05070c,
+    roughness: 0.92,
+    metalness: 0,
+    grime: 0,
+    envMapIntensity: 0.10,
+  });
+
   // --- rubbing strip -------------------------------------------------------
   const strip = rubbingStrip();
   group.add(mesh('rubStrip', merge([strip.body, mirrorX(strip.body)]), plastic));
@@ -977,20 +1099,28 @@ export function buildSides(ctx: BuildContext): THREE.Group {
   // --- door handles --------------------------------------------------------
   const pockets: THREE.BufferGeometry[] = [];
   const levers: THREE.BufferGeometry[] = [];
+  const voids: THREE.BufferGeometry[] = [];
   const locks: THREE.BufferGeometry[] = [];
   for (const [z, isFront] of [[S.handleFrontCenter[2], true], [S.handleRearCenter[2], false]] as const) {
     const y = S.handleFrontCenter[1];
     const h = handle(skinFrame(z, y), z, y, isFront);
     pockets.push(h.pocket, mirrorX(h.pocket));
-    // The void goes in with the lever, not with the pressing: both want
-    // `blackTrim` and merging them keeps the handle at two draws, not three.
-    levers.push(h.lever, h.gap, mirrorX(h.lever), mirrorX(h.gap));
-    // LHD car: the lock barrel is on the driver's — left-hand, +X — front door.
+    levers.push(h.lever, mirrorX(h.lever));
+    voids.push(h.gap, mirrorX(h.gap));
+    // The rail rides with the lock barrel: both are brightwork and sharing
+    // one mesh keeps the pair at one draw. LHD car, so the barrel is on the
+    // driver's — left-hand, +X — front door only and is not mirrored.
+    locks.push(h.rail, mirrorX(h.rail));
     if (isFront) locks.push(h.bright);
   }
   group.add(mesh('doorHandlePockets', merge(pockets), paint));
   group.add(mesh('doorHandleLevers', merge(levers), dark));
-  group.add(mesh('doorLock', merge(locks), bright));
+  group.add(mesh('doorHandleVoids', merge(voids), handleVoid));
+  // `capStrip`, not `chrome({ roughness: 0.2 })`: the note on `capStrip`
+  // records three real builds of that rung blowing out on a flank, and this
+  // rail runs the same 4 m line of sight. Sharing the call keeps it to one
+  // registry instance.
+  group.add(mesh('doorLock', merge(locks), capStrip));
 
   // --- fuel flap: left-hand quarter on this car ---------------------------
   {
@@ -1000,16 +1130,65 @@ export function buildSides(ctx: BuildContext): THREE.Group {
     group.add(mesh('fuelFlap', mirrorX(parts.flap), paint));
   }
 
-  // --- belt weatherstrip under the DLO ------------------------------------
+  /*
+   * --- the beltline: a black run channel over a bright moulding ------------
+   *
+   * ## 17 mm of dead black where both side references have brightwork
+   *
+   * Column at `side` x 900, picked row by row: glass 231 -> 178, then
+   * `doorRRSeals` **48, 28** and this part **28, 30, 28, 52** — six rows,
+   * 20 mm, V 28-58 — and then paint at 149. The same cut on
+   * `bat3_side_profile.jpg` at x 1200, 2.6215 mm/px:
+   *
+   *     glass 102 … 187 | **240  249** | 188  88  53 | strip/paint 23 …
+   *
+   * and at x 900 `201 225 244` and at x 1350 `243 240`: **two to three pixels,
+   * 5-8 mm, peaking 243-249**, with a hard fall to a dark line under it and
+   * the paint below that. `bat_side_profile.jpg`'s red car carries the same
+   * line. So the band under the DLO is a *bright* moulding with a thin black
+   * run channel above it, and it is the brightest thing on that flank where
+   * ours is the darkest — over four metres, at eye height.
+   *
+   * ⚠ **US trim varied, and the owner's own photograph cannot settle this
+   * one.** `owner_1988.png` is a nose-on frame: at 1448 px the car's right
+   * flank is foreshortened to the A-pillar and the mirror, and the beltline
+   * is not in it at any magnification. So the evidence is the two side
+   * references, both wagons, both carrying it, against `REFERENCE-VEHICLE.md`
+   * §2.2's "slim frames finished in **black**" — which is about the DLO frame
+   * and the blacked-out B-pillar, a different part, and is already built that
+   * way in `glass.ts`. Flagged in the stream report rather than settled here.
+   *
+   * Independent of which way that goes, **20 mm of black is wrong either
+   * way**: the references' dark run under the glass is 5 mm at most. The
+   * channel below is 4.5 mm and the moulding 8.4 mm.
+   *
+   * The moulding's section is nearly vertical on purpose. A segment that runs
+   * *outward* carries a skyward normal — see the arithmetic on `STRIP_FACE`
+   * and on `HANDLE.rCrest` — and at a dead-on side camera a 60° face mirrors
+   * 120°, the sky dome's blue zenith, which is what made both of those parts
+   * lavender. 6.4 of this cap's 8.4 mm sit under 25°.
+   */
   {
     const frames = flankFrames(HP.glass.dloRearZ, HP.glass.dloFrontZ, HP.beltY - 0.007, 48);
-    const sec: Pt[] = [
-      [0.0000, 0.0085], [0.0042, 0.0072], [0.0060, 0.0030],
-      [0.0056, -0.0028], [0.0030, -0.0068], [0.0000, -0.0082],
-      [-0.0090, -0.0082], [-0.0090, 0.0085],
+    const channel: Pt[] = [
+      [0.0000, 0.0085], [0.0028, 0.0076], [0.0040, 0.0060], [0.0042, 0.0042],
+      [-0.0090, 0.0042], [-0.0090, 0.0085],
     ];
-    const g = sweep(sec, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.25 });
+    const g = sweep(channel, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.25 });
     group.add(mesh('beltSeal', merge([g, mirrorX(g)]), seal));
+
+    const moulding: Pt[] = [
+      [0.0042, 0.0042],
+      [0.0054, 0.0032],
+      [0.0060, 0.0014],
+      [0.0062, -0.0016],
+      [0.0054, -0.0034],
+      [0.0036, -0.0042],
+      [-0.0090, -0.0042],
+      [-0.0090, 0.0042],
+    ];
+    const b = sweep(moulding, frames, { closed: true, capStart: true, capEnd: true, uvScale: 0.25 });
+    group.add(mesh('beltMoulding', merge([b, mirrorX(b)]), capStrip));
   }
 
   // --- roof-to-bodyside moulding, in place of a drip rail (§2.2) ----------

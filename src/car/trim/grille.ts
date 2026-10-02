@@ -281,7 +281,7 @@ function coreTexture(ctx: BuildContext): THREE.CanvasTexture {
   const c = makeCanvas(w, h);
   const g = c.getContext('2d')!;
 
-  g.fillStyle = '#0b0e15';
+  g.fillStyle = '#060a18';
   g.fillRect(0, 0, w, h);
 
   // Tube stacks: the vertical rhythm you can just read in the photograph.
@@ -289,9 +289,9 @@ function coreTexture(ctx: BuildContext): THREE.CanvasTexture {
   const fins = 75;
   for (let i = 0; i < fins; i++) {
     const x = (i + 0.5) * (w / fins);
-    g.fillStyle = '#242934';
+    g.fillStyle = '#161d33';
     g.fillRect(x - 1.4, 0, 2.8, h);
-    g.fillStyle = '#0d1016';
+    g.fillStyle = '#080c17';
     g.fillRect(x + 1.4, 0, 1.6, h);
   }
 
@@ -392,10 +392,26 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
    * a 14 mm slot and sees a fraction of the sky, which is the same
    * specular-occlusion argument `voidMat` carries below.
    */
+  /*
+   * ## 0xa9aeb5 overshot, and it overshot neutral
+   *
+   * Measured in the matched boxes described at `voidMat`: the lip's rows read
+   * L/plate **0.355 against the photograph's 0.241** with B-R **+9.6 against
+   * +22.0**. So the lip is 47 % too bright and half as blue as the slat it
+   * stands on, which is the same error the void has and for the same reason —
+   * a rib 52 mm inside a 14 mm slot is lit by a strip of sky, not by the
+   * scene's fill.
+   *
+   * An anodised metal reflects the environment **through its own colour**, so
+   * the hue has to be in the colour: 0x8696b7 holds B:R 1.37 against
+   * 0xa9aeb5's 1.07, which carries the render's measured 1.13 to about the
+   * photograph's 1.44. Its luminance is 0.86 of the old one and 0.72 -> 0.58
+   * takes another 0.81, for 0.70 overall against the 0.68 the table wants.
+   */
   const crestRib = audiMaterials(ctx.materials).anodised({
-    color: 0xa9aeb5,
-    roughness: 0.36,
-    envMapIntensity: 0.72,
+    color: 0x8696b7,
+    roughness: 0.38,
+    envMapIntensity: 0.58,
   });
 
   /**
@@ -443,8 +459,12 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
   // goes 0.00306 -> 0.00552. The blade face is 28 % of the grille box, so at
   // the measured 0.159 grille p50 / plate p50 against the photograph's 0.205
   // this moves the ratio *towards* the reference, not past it.
+  //
+  // 0x0a1226 keeps that 1.8x luminance and takes B:R from 2.67 to 3.8, for
+  // the hue reason the note at `crestRib` gives: the blade faces out of the
+  // slot at the sky and nothing else.
   const blade = ctx.materials.dirtyMetal({
-    color: 0x0c1020,
+    color: 0x0a1226,
     roughness: 0.86,
     metalness: 0.05,
     grime: 0,
@@ -519,9 +539,43 @@ export function buildGrille(ctx: BuildContext): THREE.Group {
    * and the lamps have, it wants about 0.15, and if moving it does nothing the
    * fill is the thing to move.
    */
+  /*
+   * ## The cavity is lit by sky and the render lights it with the street
+   *
+   * Re-measured with boxes mapped between the two frames through the plate
+   * (render x 859-940 / y 436-478 against photo x 1060-1170 / y 690-748,
+   * the clean column band between the rings and the outboard aperture edge
+   * `CRITIQUE-4` describes), void rows against peak rows:
+   *
+   *                     L/plate   B-R
+   *     render void      0.155    -0.7
+   *     photo  void      0.109   +22.8
+   *     render peak      0.355    +9.6
+   *     photo  peak      0.241   +22.0
+   *     peak/void        2.29 render, 2.22 photo
+   *
+   * **The contrast ratio is right** — `f84efa7`'s lip landed that, and the
+   * row-mean peak-to-trough is 54 against the photograph's 41. What is wrong
+   * is that the whole grille is ~45 % too light and **neutral where the
+   * photograph is navy by 22 levels at both ends**. A cavity 52 mm inside a
+   * 14 mm slot cannot see the sun or the warm road bounce; it sees a strip of
+   * blue sky. The render gives it the scene's whole neutral fill because
+   * nothing occludes the IBL, and `envMapIntensity` does not reach the
+   * hemisphere and bounce lights (the note at `voidMat` below records a sweep
+   * where it had almost no authority).
+   *
+   * `specularIntensity` is the knob `printed()` carries for exactly this and
+   * no caller had used it: its own doc says the aperture is otherwise
+   * "albedo-limited at the Fresnel floor and cannot get below 0.18 of the
+   * licence plate". 0.182 is what the p50 measured. Cutting the neutral
+   * dielectric lobe is also what lets the texture's navy through — darkening
+   * the texture alone moves the level and not the hue, because the hue error
+   * is in the lobe, not the albedo.
+   */
   const voidMat = ctx.materials.printed(coreTexture(ctx), {
     roughness: 0.62,
-    envMapIntensity: 0.13,
+    envMapIntensity: 0.11,
+    specularIntensity: 0.30,
   });
 
   const faceZ = (x: number, y: number): number => noseFaceZ(x, y);
